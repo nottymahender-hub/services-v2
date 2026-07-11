@@ -1,0 +1,35 @@
+ORL_BU_NM_L2,ORL_BU_NM_L3,ORL_BU_NM_L4,location,headcount
+GFM,,,CN,20
+IBG,,,CN,20
+LCS,Compliance,,CN,20
+Group Finance,Overseas Branches Finance,,CN,20
+IBG,,,IC Roll Up,21
+IBG,Equipment Financing (Deactivated),,IC Roll Up,22
+IBG,Sales Channel,General Ind,IC Roll Up,23
+Operations,,,IC Roll Up,24
+Operations,Branch Ops,,IC Roll Up,25
+Operations,CB Ops,,IC Roll Up,26
+Operations,CB Ops,Account Services,IC Roll Up,27
+Operations,CB Ops,Credit Ops,IC Roll Up,28
+Operations,CB Ops,SSB,IC Roll Up,29
+Operations,CB Ops,TnO Customer Centre,IC Roll Up,30
+Operations,CB Ops,WM Ops,IC Roll Up,31
+Operations,Centralised Services,,IC Roll Up,32
+Technology,Core Systems Tech,,IC Roll Up,33
+Operations,CRE Strategy & Admin,,IC Roll Up,34
+Technology,EM Tech,,IC Roll Up,35
+Operations,Group BCM,,IC Roll Up,36
+Operations,Group Procurement & Services,,IC Roll Up,37
+Operations,Group Procurement & Services,Services Mgmt,IC Roll Up,38
+Operations,Group Procurement & Services,"Sourcing, Proc Ops, Contract & Outsourcing Mgmt",IC Roll Up,39
+Operations,IBG Ops,,IC Roll Up,40
+Operations,IBG Ops,IBG Ops Factoring,IC Roll Up,41
+Operations,IBG Ops,IBG Ops Trade Ops,IC Roll Up,42
+Technology,IBG Tech,,IC Roll Up,43
+Operations,Processing Centre,,IC Roll Up,44
+Technology,Technology Services,,IC Roll Up,45
+Group Audit,,,IC Roll Up,46
+Group Finance,,,IC Roll Up,47
+Group Finance,Corporate Treasury,,IC Roll Up,48
+Group Marketing & Communications,,,IC Roll Up,49
+HR,,,IC Roll Up,50

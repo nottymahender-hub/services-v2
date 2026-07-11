@@ -1,0 +1,28 @@
+BU_NUM,BU_NM,LVL_OF_HIER,ORL_BU_NM_L2,ORL_BU_NM_L3,ORL_BU_NM_L4,BU_FULL_PATH
+1,ALL,1,,,,ALL
+2,CBG,2,CBG-Retail,,,ALL\\CBG
+3,CBG Products,3,CBG-Retail,CBG Products,,ALL\\CBG\\CBG Products
+4,Bancassurance,4,CBG-Retail,CBG Products,Bancassurance,ALL\\CBG\\CBG Products\\Bancassurance
+5,CII Products,4,CBG-Retail,CBG Products,CII Products,ALL\\CBG\\CBG Products\\CII Products
+6,CIIP Bancassurance,5,CBG-Retail,CBG Products,CII Products,ALL\\CBG\\CBG Products\\CII Products\\CIIP Bancassurance
+7,General Insurance,6,CBG-Retail,CBG Products,CII Products,ALL\\CBG\\CBG Products\\CII Products\\CIIP Bancassurance\\General Insurance
+8,Life Insurance,6,CBG-Retail,CBG Products,CII Products,ALL\\CBG\\CBG Products\\CII Products\\CIIP Bancassurance\\Life Insurance
+9,Investments,5,CBG-Retail,CBG Products,CII Products,ALL\\CBG\\CBG Products\\CII Products\\Investments
+10,Non Regulated,6,CBG-Retail,CBG Products,CII Products,ALL\\CBG\\CBG Products\\CII Products\\Investmentson Regulated
+11,Regulated,6,CBG-Retail,CBG Products,CII Products,ALL\\CBG\\CBG Products\\CII Products\\Investments\\Regulated
+12,Deposits,4,CBG-Retail,CBG Products,Deposits,ALL\\CBG\\CBG Products\\Deposits
+13,Equity Products,4,CBG-Retail,CBG Products,Equity Products,ALL\\CBG\\CBG Products\\Equity Products
+14,Investment & Treasury Products,4,CBG-Retail,CBG Products,Investment & Treasury Products,ALL\\CBG\\CBG Products\\Investment & Treasury Products
+15,Consumer Equity Products,5,CBG-Retail,CBG Products,Investment & Treasury Products,ALL\\CBG\\CBG Products\\Investment & Treasury Products\\Consumer Equity Products
+16,Consumer Treasury Products & Funds,5,CBG-Retail,CBG Products,Investment & Treasury Products,ALL\\CBG\\CBG Products\\Investment & Treasury Products\\Consumer Treasury Products & Funds
+17,Regional CBG Ecosystems & Cross Border Transfers,4,CBG-Retail,CBG Products,Regional CBG Ecosystems & Cross Border Transfers,ALL\\CBG\\CBG Products\\Regional CBG Ecosystems & Cross Border Transfers
+18,Secured Loans,4,CBG-Retail,CBG Products,Secured Loans,ALL\\CBG\\CBG Products\\Secured Loans
+19,Cards & Unsecured Loans,4,CBG-Retail,CBG Products,Cards & Unsecured Loans,ALL\\CBG\\CBG Products\\Cards & Unsecured Loans
+20,CBG Credit,5,CBG-Retail,CBG Products,Cards & Unsecured Loans,ALL\\CBG\\CBG Products\\Cards & Unsecured Loans\\CBG Credit
+21,Loyalty Program,5,CBG-Retail,CBG Products,Cards & Unsecured Loans,ALL\\CBG\\CBG Products\\Cards & Unsecured Loans\\Loyalty Program
+22,Merchant Acquisition,5,CBG-Retail,CBG Products,Cards & Unsecured Loans,ALL\\CBG\\CBG Products\\Cards & Unsecured Loans\\Merchant Acquisition
+23,Channels,3,CBG-Retail,Channels,,ALL\\CBG\\Channels
+24,Automated Channel,4,CBG-Retail,Channels,Automated Channel,ALL\\CBG\\Channels\\Automated Channel
+25,ATM,5,CBG-Retail,Channels,Automated Channel,ALL\\CBG\\Channels\\Automated Channel\\ATM
+26,Digital Banking,4,CBG-Retail,Channels,Digital Banking,ALL\\CBG\\Channels\\Digital Banking
+27,Phone Banking,5,CBG-Retail,Channels,Automated Channel,ALL\\CBG\\Channels\\Automated Channel\\Phone Banking

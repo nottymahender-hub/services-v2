@@ -1,0 +1,19 @@
+RISK_AREA,RISK_TYPE_L4_NUM,RISK_TYPE_L4_NM
+Projects/ Initiatives,85,Projects/ Initiatives
+Market Abuse,89,Market Abuse
+Sales Process and Practice,91,Sales Process and Practice
+"AML, CFT and Sanctions",97,"Anti-Money Laundering (AML), Countering the Financing of Terrorism (CFT) and Sanctions"
+External fraud on the organisation (including vendors),98,External Fraud
+Inaccurate or untimely regulatory reporting,104,Laws and Regulations
+Customer Documentation,115,Customer Documentation
+Payment/Settlement,116,Payment/Settlement
+Post Transaction Monitoring,117,Post Transaction Monitoring
+Risk/Exposure Capture and Monitoring,120,Risk/Exposure Capture and Monitoring
+Transaction Capture and Execution,121,Transaction Capture and Execution
+Data Governance,123,Data Governance
+Data Management,180,Data Management
+IT Change and Release Management,26,IT Change and Release Management
+System failure due to cyber events resulting in an impact to system availability,66,Information Security (including Cyber)
+Outsourcing Arrangement [OA],71,Outsourcing Arrangement [OA]
+Non-Outsourcing Arrangement [NOA],72,Non-Outsourcing Arrangement [NOA]
+IT Resiliency and Continuity,192,IT Resilience

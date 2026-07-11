@@ -1,0 +1,17 @@
+range_low,range_high,net_risk_rtng,module
+,0.3,Low,INA
+0.3,2.5,Med Low,INA
+2.5,4.5,Med High,INA
+4.5,,High,INA
+,0.3,Low,INC
+0.3,2.5,Med Low,INC
+2.5,5,Med High,INC
+5,,High,INC
+,0.3,Low,KRI
+0.3,2.5,Med Low,KRI
+2.5,5,Med High,KRI
+5,,High,KRI
+,0.3,Low,RCSA
+0.3,2.5,Med Low,RCSA
+2.5,3,Med High,RCSA
+3,,High,RCSA

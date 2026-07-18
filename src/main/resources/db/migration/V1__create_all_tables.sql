@@ -61,8 +61,7 @@ CREATE TABLE IF NOT EXISTS `orl_bu_loctn_headcount` (
 );
 
 -- ── feature_score_band ────────────────────────────────────────────────────────
--- config_version is now computed server-side per (feature_name, feature_bin, module) group,
--- no longer supplied by the CSV.
+-- config_version is computed server-side per (feature_name, feature_bin, module) group.
 CREATE TABLE IF NOT EXISTS `feature_score_band` (
     `id`             BIGINT(20)                            NOT NULL AUTO_INCREMENT,
     `config_version` INT(11)                               NOT NULL,
@@ -79,7 +78,7 @@ CREATE TABLE IF NOT EXISTS `feature_score_band` (
 );
 
 -- ── train_stats ───────────────────────────────────────────────────────────────
--- config_version is now computed server-side per (lvl, module) group.
+-- config_version is computed server-side per (lvl, module) group.
 CREATE TABLE IF NOT EXISTS `train_stats` (
     `id`             INT(11)                                                NOT NULL AUTO_INCREMENT,
     `config_version` INT(11)                                                NOT NULL,
@@ -94,9 +93,9 @@ CREATE TABLE IF NOT EXISTS `train_stats` (
 );
 
 -- ── net_risk_band ─────────────────────────────────────────────────────────────
--- range_low/range_high changed from DOUBLE to DECIMAL(20,6) to match feature_score_band's
--- precision and safely hold the open-ended sentinel bounds without float rounding.
--- config_version is now computed server-side per (net_risk_rtng, module) group.
+-- range_low/range_high are DECIMAL(20,6) so the open-ended sentinel bounds are held
+-- without float rounding. config_version is computed server-side per
+-- (net_risk_rtng, module) group.
 CREATE TABLE IF NOT EXISTS `net_risk_band` (
     `id`             INT(11)                                 NOT NULL AUTO_INCREMENT,
     `config_version` INT(11)                                 NOT NULL,
@@ -151,67 +150,67 @@ CREATE TABLE IF NOT EXISTS `orl_lndscp_assmt` (
     CONSTRAINT `FK_orl_lndscp_assmt_orl_lndscp_config` FOREIGN KEY (`LNDSCP_NUM`) REFERENCES `orl_lndscp_dim` (`id`) ON UPDATE RESTRICT ON DELETE RESTRICT
 );
 
--- ── orl_lndscp_assmt_details ─────────────────────────────────────────────────
--- RISK_AREA holds the risk area code for each detail row (e.g. "OR", "CR").
--- CAL_NET_RISK_RTNG is a plain enum value on the row itself (no longer an FK to
--- net_risk_band) — the calculated rating is now stored directly per detail row.
--- LV_* columns hold the live (latest-refresh) NRR snapshot for the row.
--- The previous month's ratings are no longer stored per row; they are derived at
--- read time from the previous assessment via orl_lndscp_assmt.PREV_ASSMT_NUM.
+-- The dimension columns in the unique index are NOT NULL DEFAULT '' because MariaDB
+-- treats each NULL as distinct in a unique index — storing '' (never NULL) is what
+-- lets the index actually enforce one row per (assessment, risk area, BU path, location).
 CREATE TABLE IF NOT EXISTS `orl_lndscp_assmt_details` (
-    `id`                        INT(11)                                              NOT NULL AUTO_INCREMENT,
-    `lndscp_assmt_id`           INT(11)                                              NOT NULL,
-    `RISK_AREA`                 VARCHAR(50)                                          NOT NULL,
-    `ORL_BU_NM_L2`              VARCHAR(120)                                         NULL DEFAULT NULL,
-    `ORL_BU_NM_L3`              VARCHAR(120)                                         NULL DEFAULT NULL,
-    `ORL_BU_NM_L4`              VARCHAR(120)                                         NULL DEFAULT NULL,
-    `LOCATION`                  VARCHAR(50)                                          NULL DEFAULT NULL,
-    `category`                  ENUM('L2','L3','L4','grp_l2','grp_l3','grp_l4','loc') NOT NULL,
-    `RISK_RTNG_CHGE`            ENUM('Improved','Deteriorated','Stable','N.A')       NULL DEFAULT NULL,
-    `CAL_NET_RISK_RTNG`         ENUM('Low','Med Low','Med High','High')              NULL DEFAULT NULL,
-    `LV_NET_RISK_RTNG`          ENUM('Low','Med Low','Med High','High')              NULL DEFAULT NULL,
-    `LV_LST_RFRSH_DT_TM`        DATETIME                                             NULL DEFAULT NULL,
-    `LV_CTRL_EFF_RTN`           VARCHAR(120)                                         NULL DEFAULT NULL,
-    `COMMENTARY`                LONGTEXT                                             NULL DEFAULT NULL,
-    `REVISED_COMMENTARY`        LONGTEXT                                             NULL DEFAULT NULL,
-    `GRC_METRICS`               LONGTEXT                                             NULL DEFAULT NULL COLLATE 'utf8mb4_bin',
-    `RISK_SIGNAL`               TEXT                                                 NULL DEFAULT NULL,
-    `CTRL_EFF_RTN`              VARCHAR(120)                                         NULL DEFAULT NULL,
-    `OVRLY_NET_RISK_RTNG`       ENUM('Low','Med Low','Med High','High')              NULL DEFAULT NULL,
-    `OVRLY_JSTFKN`              VARCHAR(4000)                                        NULL DEFAULT NULL,
-    `STATUS`                    ENUM('Open','Locked','Pending unlock','Completed')   NOT NULL DEFAULT 'Open',
-    `CREATED_BY`                VARCHAR(50)                                          NOT NULL,
-    `CREATE_DT_TM`              DATETIME                                             NOT NULL DEFAULT current_timestamp(),
-    `UPDATE_DT_TM`              DATETIME                                             NULL DEFAULT NULL,
-    `UPDATED_BY`                VARCHAR(50)                                          NULL DEFAULT NULL,
+    `id` INT(11) NOT NULL AUTO_INCREMENT,
+    `lndscp_assmt_id` INT(11) NOT NULL,
+    `RISK_AREA` VARCHAR(50) NOT NULL,
+    `ORL_BU_NM_L2` VARCHAR(120) NOT NULL DEFAULT '',
+    `ORL_BU_NM_L3` VARCHAR(120) NOT NULL DEFAULT '',
+    `ORL_BU_NM_L4` VARCHAR(120) NOT NULL DEFAULT '',
+    `LOCATION` VARCHAR(50) NOT NULL DEFAULT '',
+    `category` ENUM('L2','L3','L4','grp_l2','grp_l3','grp_l4','loc') NOT NULL,
+    `REVISED_COMMENTARY` LONGTEXT NULL DEFAULT NULL,
+    `OVRLY_NET_RISK_RTNG` ENUM('Low','Med Low','Med High','High') NULL DEFAULT NULL,
+    `OVRLY_JSTFKN` VARCHAR(4000) NULL DEFAULT NULL,
+    `STATUS` ENUM('Open','Locked','Pending unlock','Completed') NOT NULL DEFAULT 'Open',
+    `CREATED_BY` VARCHAR(50) NOT NULL,
+    `CREATE_DT_TM` DATETIME NOT NULL DEFAULT current_timestamp(),
+    `UPDATE_DT_TM` DATETIME NULL DEFAULT NULL,
+    `UPDATED_BY` VARCHAR(50) NULL DEFAULT NULL,
     PRIMARY KEY (`id`) USING BTREE,
-    UNIQUE INDEX `Index 3` (`lndscp_assmt_id`, `RISK_AREA`, `ORL_BU_NM_L2`, `ORL_BU_NM_L3`, `ORL_BU_NM_L4`, `LOCATION`, `category`) USING BTREE,
+    UNIQUE INDEX `Index 3` (`lndscp_assmt_id`, `RISK_AREA`, `ORL_BU_NM_L2`, `ORL_BU_NM_L3`, `ORL_BU_NM_L4`, `LOCATION`) USING BTREE,
     INDEX `FK_lndscp_assmt_details_lndscp_assmt` (`lndscp_assmt_id`) USING BTREE,
-    CONSTRAINT `FK_lndscp_assmt_details_lndscp_assmt` FOREIGN KEY (`lndscp_assmt_id`) REFERENCES `orl_lndscp_assmt` (`id`) ON UPDATE RESTRICT ON DELETE RESTRICT,
-    CONSTRAINT `GRC_METRICS` CHECK (json_valid(`GRC_METRICS`))
+    CONSTRAINT `FK_lndscp_assmt_details_lndscp_assmt` FOREIGN KEY (`lndscp_assmt_id`) REFERENCES `orl_lndscp_assmt` (`id`) ON UPDATE RESTRICT ON DELETE RESTRICT
 );
 
 -- ── orl_lndscp_callout ───────────────────────────────────────────────────────
--- Folded in from the former V2 migration — no production data has been released yet,
--- so this project uses a single consolidated baseline migration.
-CREATE TABLE IF NOT EXISTS `orl_lndscp_callout` (
-    `id`              INT(11)      NOT NULL AUTO_INCREMENT,
-    `RISK_AREA`       VARCHAR(50)  NOT NULL DEFAULT '',
-    `LOCATIONS`       VARCHAR(50)  NULL DEFAULT NULL,
-    `BIZ_UNITS`       VARCHAR(50)  NULL DEFAULT NULL,
-    `lndscp_assmt_id` INT(11)      NOT NULL,
-    `comment`         VARCHAR(400) NULL DEFAULT NULL,
-    `DEL_FLG`         BIT(1)       NOT NULL DEFAULT b'0',
-    PRIMARY KEY (`id`) USING BTREE,
-    INDEX `FK_orl_lndscp_callout_orl_lndscp_assmt` (`lndscp_assmt_id`) USING BTREE,
-    CONSTRAINT `FK_orl_lndscp_callout_orl_lndscp_assmt`
-        FOREIGN KEY (`lndscp_assmt_id`) REFERENCES `orl_lndscp_assmt` (`id`)
-        ON UPDATE NO ACTION ON DELETE NO ACTION
+CREATE TABLE `orl_lndscp_callout` (
+  `id` INT(11) NOT NULL AUTO_INCREMENT,
+  `lndscp_assmt_id` INT(11) NOT NULL,
+  `RISK_AREA` VARCHAR(120) NOT NULL,
+  `LOCATIONS` LONGTEXT NOT NULL,
+  `BIZ_UNITS` LONGTEXT NOT NULL,
+  `comment` VARCHAR(400) NOT NULL,
+  `DEL_FLG` BIT(1) NOT NULL DEFAULT b'0',
+  `CREATE_DT_TM` DATETIME NOT NULL DEFAULT current_timestamp(),
+  `SME` VARCHAR(50) NOT NULL DEFAULT 'SYSTEM',
+  `UPDATE_DT_TM` DATETIME NULL DEFAULT NULL ON UPDATE current_timestamp(),
+  `LAST_MODIFIED_SME` VARCHAR(50) NULL DEFAULT NULL,
+  PRIMARY KEY (`id`) USING BTREE,
+  INDEX `FK_orl_lndscp_callout_orl_lndscp_assmt` (`lndscp_assmt_id`) USING BTREE,
+  CONSTRAINT `FK_orl_lndscp_callout_orl_lndscp_assmt` FOREIGN KEY (`lndscp_assmt_id`) REFERENCES `orl_lndscp_assmt` (`id`) ON UPDATE NO ACTION ON DELETE NO ACTION,
+  CONSTRAINT `LOCATIONS` CHECK (json_valid(`LOCATIONS`)),
+  CONSTRAINT `BIZ_UNITS` CHECK (json_valid(`BIZ_UNITS`))
+);
+
+-- ── orl_lndscp_callout_comment_hist ──────────────────────────────────────────
+-- Append-only audit of every callout comment version. One row is written on each
+-- callout create and update, capturing the comment text, the SME who set it, and when.
+CREATE TABLE `orl_lndscp_callout_comment_hist` (
+  `id` INT(11) NOT NULL AUTO_INCREMENT,
+  `callout_id` INT(11) NOT NULL,
+  `comment` VARCHAR(400) NOT NULL,
+  `SME` VARCHAR(50) NOT NULL,
+  `CREATE_DT_TM` DATETIME NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`) USING BTREE,
+  INDEX `FK_callout_comment_hist_callout` (`callout_id`) USING BTREE,
+  CONSTRAINT `FK_callout_comment_hist_callout` FOREIGN KEY (`callout_id`) REFERENCES `orl_lndscp_callout` (`id`) ON UPDATE NO ACTION ON DELETE NO ACTION
 );
 
 -- ── orl_static_data_maintianance_csv_upload_audit ───────────────────────────────
--- Renamed from csv_upload_audit — retains the upload history (still recorded on every
--- successful upload); only the GET /api/csv/uploads listing API was removed.
 CREATE TABLE IF NOT EXISTS `orl_static_data_maintianance_csv_upload_audit` (
     `id`             BIGINT(20)   NOT NULL AUTO_INCREMENT,
     `file_name`      VARCHAR(255) NOT NULL,
@@ -225,93 +224,30 @@ CREATE TABLE IF NOT EXISTS `orl_static_data_maintianance_csv_upload_audit` (
 );
 
 -- ============================================================
--- Module fact tables — source data for assessment generation.
--- Each row is keyed (for matching) on the shared dimension columns
--- (biz_dt, RISK_AREA, ORL_BU_NM_L2/L3/L4, LOCATION, category); the
--- module-specific integer columns are the raw metric counts.
+-- fact_orl — the snapshot table holding all computed assessment data
+-- (CAL_NET_RISK_RTNG, RISK_RTNG_CHGE, CTRL_EFF_RTN, COMMENTARY, GRC_METRICS,
+-- INHERENT_RISK). Each row is keyed on the shared dimension columns
+-- (biz_dt, RISK_AREA, ORL_BU_NM_L2/L3/L4, LOCATION). The assessment read APIs
+-- match assessment detail rows against this table by dimension + business date.
 -- ============================================================
-
--- ── inc_fact_orl ─────────────────────────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS `inc_fact_orl` (
-    `id`                                 INT(11)                                  NOT NULL AUTO_INCREMENT,
-    `inc_is_sinp_count_l3m_mtd`          INT(11)                                  NULL DEFAULT NULL,
-    `inc_is_mi_count_l3m_mtd`            INT(11)                                  NULL DEFAULT NULL,
-    `inc_is_gorc_count_l3m_mtd`          INT(11)                                  NULL DEFAULT NULL,
-    `inc_is_min_reportable_count_l3m_mtd` INT(11)                                 NULL DEFAULT NULL,
-    `inc_time_to_detect_sum_l11m_mtd`    INT(11)                                  NULL DEFAULT NULL,
-    `inc_count_l11m_mtd`                 INT(11)                                  NULL DEFAULT NULL,
-    `biz_dt`                             DATE                                     NOT NULL,
-    `RISK_AREA`                          VARCHAR(200)                             NOT NULL,
-    `ORL_BU_NM_L2`                       VARCHAR(120)                             NULL DEFAULT NULL,
-    `ORL_BU_NM_L3`                       VARCHAR(120)                             NULL DEFAULT NULL,
-    `ORL_BU_NM_L4`                       VARCHAR(120)                             NULL DEFAULT NULL,
-    `LOCATION`                           VARCHAR(50)                              NULL DEFAULT NULL,
-    `category`                           ENUM('L2','L3','L4','grp_l2','grp_l3','grp_l4','loc') NOT NULL,
-    `NET_RISK_RTNG`                      ENUM('Low','Med Low','Med High','High')  NOT NULL,
-    PRIMARY KEY (`id`) USING BTREE,
-    INDEX `idx_inc_fact_orl_biz_dt` (`biz_dt`) USING BTREE
-);
-
--- ── ina_fact_orl ─────────────────────────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS `ina_fact_orl` (
-    `id`                        INT(11)                                  NOT NULL AUTO_INCREMENT,
-    `issue_rating_high_count`   INT(11)                                  NULL DEFAULT NULL,
-    `issue_rating_medium_count` INT(11)                                  NULL DEFAULT NULL,
-    `issue_type_regulatory_count` INT(11)                                NULL DEFAULT NULL,
-    `issue_type_audit_count`    INT(11)                                  NULL DEFAULT NULL,
-    `issue_type_others_count`   INT(11)                                  NULL DEFAULT NULL,
-    `issue_open_count`          INT(11)                                  NULL DEFAULT NULL,
-    `issue_closed_count_l3m_mtd` INT(11)                                 NULL DEFAULT NULL,
-    `issue_repeated_count`      INT(11)                                  NULL DEFAULT NULL,
-    `biz_dt`                    DATE                                     NOT NULL,
-    `RISK_AREA`                 VARCHAR(200)                             NOT NULL,
-    `ORL_BU_NM_L2`              VARCHAR(120)                             NULL DEFAULT NULL,
-    `ORL_BU_NM_L3`              VARCHAR(120)                             NULL DEFAULT NULL,
-    `ORL_BU_NM_L4`              VARCHAR(120)                             NULL DEFAULT NULL,
-    `LOCATION`                  VARCHAR(50)                              NULL DEFAULT NULL,
-    `category`                  ENUM('L2','L3','L4','grp_l2','grp_l3','grp_l4','loc') NOT NULL,
-    `NET_RISK_RTNG`             ENUM('Low','Med Low','Med High','High')  NOT NULL,
-    PRIMARY KEY (`id`) USING BTREE,
-    INDEX `idx_ina_fact_orl_biz_dt` (`biz_dt`) USING BTREE
-);
-
--- ── kri_fact_orl ─────────────────────────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS `kri_fact_orl` (
-    `id`                                                  INT(11)                 NOT NULL AUTO_INCREMENT,
-    `kri_sustained_red_3m_or_quarterly_red_count`         INT(11)                 NULL DEFAULT NULL,
-    `kri_sustained_red_2m_count`                          INT(11)                 NULL DEFAULT NULL,
-    `kri_sustained_red_amber_4m_or_quarterly_amber_count` INT(11)                 NULL DEFAULT NULL,
-    `kri_amber_sustained_red_amber_3m_count`              INT(11)                 NULL DEFAULT NULL,
-    `kri_red_count`                                       INT(11)                 NULL DEFAULT NULL,
-    `kri_amber_count`                                     INT(11)                 NULL DEFAULT NULL,
-    `kri_green_count`                                     INT(11)                 NULL DEFAULT NULL,
-    `biz_dt`                                              DATE                    NOT NULL,
-    `RISK_AREA`                                           VARCHAR(200)            NOT NULL,
-    `ORL_BU_NM_L2`                                        VARCHAR(120)            NULL DEFAULT NULL,
-    `ORL_BU_NM_L3`                                        VARCHAR(120)            NULL DEFAULT NULL,
-    `ORL_BU_NM_L4`                                        VARCHAR(120)            NULL DEFAULT NULL,
-    `LOCATION`                                            VARCHAR(50)             NULL DEFAULT NULL,
-    `category`                                            ENUM('L2','L3','L4','grp_l2','grp_l3','grp_l4','loc') NOT NULL,
-    `NET_RISK_RTNG`                                       ENUM('Low','Med Low','Med High','High') NOT NULL,
-    PRIMARY KEY (`id`) USING BTREE,
-    INDEX `idx_kri_fact_orl_biz_dt` (`biz_dt`) USING BTREE
-);
-
--- ── rcsa_fact_orl ────────────────────────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS `rcsa_fact_orl` (
-    `id`                          INT(11)                                  NOT NULL AUTO_INCREMENT,
-    `rcsa_high_risk_proportion`   INT(11)                                  NULL DEFAULT NULL,
-    `rcsa_medhigh_risk_proportion` INT(11)                                 NULL DEFAULT NULL,
-    `rcsa_medlow_risk_proportion` INT(11)                                  NULL DEFAULT NULL,
-    `rcsa_low_risk_proportion`    INT(11)                                  NULL DEFAULT NULL,
-    `biz_dt`                      DATE                                     NOT NULL,
-    `RISK_AREA`                   VARCHAR(200)                             NOT NULL,
-    `ORL_BU_NM_L2`                VARCHAR(120)                             NULL DEFAULT NULL,
-    `ORL_BU_NM_L3`                VARCHAR(120)                             NULL DEFAULT NULL,
-    `ORL_BU_NM_L4`                VARCHAR(120)                             NULL DEFAULT NULL,
-    `LOCATION`                    VARCHAR(50)                              NULL DEFAULT NULL,
-    `category`                    ENUM('L2','L3','L4','grp_l2','grp_l3','grp_l4','loc') NOT NULL,
-    `NET_RISK_RTNG`               ENUM('Low','Med Low','Med High','High')  NOT NULL,
-    PRIMARY KEY (`id`) USING BTREE,
-    INDEX `idx_rcsa_fact_orl_biz_dt` (`biz_dt`) USING BTREE
+-- Dimension columns are NOT NULL DEFAULT '' for the same reason as orl_lndscp_assmt_details:
+-- so the unique index enforces one snapshot row per (biz_dt, risk area, BU path, location).
+CREATE TABLE IF NOT EXISTS `fact_orl` (
+    `ID` INT(11) NOT NULL AUTO_INCREMENT,
+    `biz_dt` DATE NOT NULL,
+    `RISK_AREA` VARCHAR(200) NOT NULL,
+    `ORL_BU_NM_L2` VARCHAR(120) NOT NULL DEFAULT '',
+    `ORL_BU_NM_L3` VARCHAR(120) NOT NULL DEFAULT '',
+    `ORL_BU_NM_L4` VARCHAR(120) NOT NULL DEFAULT '',
+    `LOCATION` VARCHAR(50) NOT NULL DEFAULT '',
+    `category` ENUM('L2','L3','L4','grp_l2','grp_l3','grp_l4','loc') NOT NULL,
+    `INHERENT_RISK` ENUM('Minor','Moderate','Major') NULL DEFAULT NULL,
+    `RISK_RTNG_CHGE` ENUM('Improved','Deteriorated','Stable','N.A') NULL DEFAULT NULL,
+    `CAL_NET_RISK_RTNG` ENUM('Low','Med Low','Med High','High') NOT NULL,
+    `CTRL_EFF_RTN` VARCHAR(200) NULL DEFAULT NULL,
+    `COMMENTARY` LONGTEXT NULL DEFAULT NULL,
+    `GRC_METRICS` LONGTEXT NULL DEFAULT NULL,
+    PRIMARY KEY (`ID`) USING BTREE,
+    UNIQUE INDEX `Index 2` (`biz_dt`, `RISK_AREA`, `ORL_BU_NM_L2`, `ORL_BU_NM_L3`, `ORL_BU_NM_L4`, `LOCATION`) USING BTREE,
+    CONSTRAINT `GRC_METRICS` CHECK (json_valid(`GRC_METRICS`))
 );

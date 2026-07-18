@@ -27,9 +27,8 @@ import java.util.stream.StreamSupport;
  * Handles CSV upload/download for {@code orl_bu_loctn_headcount}.
  * Registered as {@code "bu-loctn-headcount"}.
  *
- * <p>Upload uses a batched INSERT … ON DUPLICATE KEY UPDATE so re-uploading a row
- * updates the headcount in place (upsert) in a single round-trip instead of one
- * statement per row. Duplicate key is the unique index on
+ * <p>Upload uses a single batched INSERT … ON DUPLICATE KEY UPDATE, so re-uploading a
+ * row updates the headcount in place (upsert). The duplicate key is the unique index on
  * (ORL_BU_NM_L2, ORL_BU_NM_L3, ORL_BU_NM_L4, location).
  */
 @Slf4j

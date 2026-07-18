@@ -7,12 +7,11 @@ import java.time.LocalDateTime;
  * {@link com.dbs.mot.grc.repository.OrlLndscpAssmtRepository#findAllSummaries()}.
  *
  * <p>A plain, single-table column selection from {@code orl_lndscp_assmt} — no join,
- * no {@code CASE}/{@code COALESCE} logic. Deliberately used instead of the
- * {@code OrlLndscpAssmt} entity type for this query: the entity now carries a
- * {@code @MappedCollection} of detail rows, and returning the entity type would cause
- * Spring Data JDBC to eagerly load every assessment's full detail collection just to
- * list summaries that never use it. A projection only selects these columns, so the
- * collection is never touched.
+ * no {@code CASE}/{@code COALESCE} logic. A projection is used rather than the
+ * {@code OrlLndscpAssmt} entity because that entity carries a {@code @MappedCollection}
+ * of detail rows: returning the entity would make Spring Data JDBC eagerly load every
+ * assessment's full detail collection just to list summaries that never use it.
+ * Selecting only these columns leaves the collection untouched.
  *
  * <ul>
  *   <li>{@code id}          — {@code orl_lndscp_assmt.id}</li>

@@ -8,11 +8,14 @@ import com.dbs.mot.grc.dto.CalloutRequest;
 import com.dbs.mot.grc.dto.CalloutResponse;
 import com.dbs.mot.grc.dto.LandscapeAssmtRef;
 import com.dbs.mot.grc.entity.OrlLndscpCallout;
+import com.dbs.mot.grc.entity.OrlLndscpCalloutCommentHist;
 import com.dbs.mot.grc.entity.OrlLndscpDim;
 import com.dbs.mot.grc.repository.OrlLndscpAssmtRepository;
+import com.dbs.mot.grc.repository.OrlLndscpCalloutCommentHistRepository;
 import com.dbs.mot.grc.repository.OrlLndscpCalloutRepository;
 import com.dbs.mot.grc.repository.OrlLndscpDimRepository;
 import com.fasterxml.jackson.core.JsonParser;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -21,13 +24,13 @@ import org.springframework.data.jdbc.core.mapping.AggregateReference;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 /**
  * Business logic for all {@code /landscape/{lndscpAssmtId}/callouts} endpoints.
@@ -58,14 +61,16 @@ public class LandscapeAssmtCalloutService {
 
     private static final String OTHERS = "Others";
     private static final String ALL    = "ALL";
+    private static final int    COMMENT_MAX_LEN = 400;
 
     private static final ObjectMapper MAPPER = new ObjectMapper()
             .enable(JsonParser.Feature.STRICT_DUPLICATE_DETECTION);
 
-    private final OrlLndscpCalloutRepository calloutRepository;
-    private final OrlLndscpAssmtRepository   assmtRepository;
-    private final OrlLndscpDimRepository     dimRepository;
-    private final JdbcTemplate               jdbcTemplate;
+    private final OrlLndscpCalloutRepository            calloutRepository;
+    private final OrlLndscpCalloutCommentHistRepository commentHistRepository;
+    private final OrlLndscpAssmtRepository              assmtRepository;
+    private final OrlLndscpDimRepository                dimRepository;
+    private final JdbcTemplate                          jdbcTemplate;
 
     // ── Public API ────────────────────────────────────────────────────────────
 
@@ -88,7 +93,7 @@ public class LandscapeAssmtCalloutService {
 
         return CalloutListResponse.builder()
                 .dimensions(dimensions)
-                .callouts(callouts.stream().map(this::toResponse).collect(Collectors.toList()))
+                .callouts(callouts.stream().map(this::toResponse).toList())
                 .build();
     }
 
@@ -102,27 +107,34 @@ public class LandscapeAssmtCalloutService {
      * @throws NotFoundException   if the assessment does not exist
      * @throws BadRequestException if field values are not in the allowed sets
      */
-    public CalloutResponse createCallout(Long lndscpAssmtId, CalloutRequest req, String username) {
-        log.debug("Creating callout for lndscp_assmt_id={} by '{}'", lndscpAssmtId, username);
+    public void createCallout(Long lndscpAssmtId, CalloutRequest req, String username) {
+        log.debug("Creating callout for lndscp_assmt_id={} by '{}' (sme='{}')",
+                lndscpAssmtId, username, req.getSme());
         LandscapeAssmtRef assmt = getAssmtOrThrow(lndscpAssmtId);
 
         CalloutDimensions dims = loadDimensions(assmt);
         validateRequest(req, dims);
 
+        String comment = truncate(req.getComment(), COMMENT_MAX_LEN);
+        LocalDateTime now = LocalDateTime.now();
         OrlLndscpCallout callout = OrlLndscpCallout.builder()
                 .riskArea(req.getRiskArea())
-                .locations(req.getLocations())
-                .bizUnits(req.getBizUnits())
+                .locations(toJsonArray(req.getLocations()))
+                .bizUnits(toJsonArray(req.getBizUnits()))
                 // AggregateReference models the FK to orl_lndscp_assmt (one-way)
                 .lndscpAssmtId(AggregateReference.to(lndscpAssmtId))
-                .comment(truncate(req.getComment(), 400))
+                .comment(comment)
                 .delFlg(false)
+                // On create the SME both owns and is the last modifier.
+                .sme(req.getSme())
+                .lastModifiedSme(req.getSme())
+                .createDtTm(now)
                 .build();
 
         OrlLndscpCallout saved = calloutRepository.save(callout);
+        recordCommentHistory(saved.getId(), comment, req.getSme(), now);
         log.info("Created callout id={} for lndscp_assmt_id={} by '{}'",
                 saved.getId(), lndscpAssmtId, username);
-        return toResponse(saved);
     }
 
     /**
@@ -137,32 +149,33 @@ public class LandscapeAssmtCalloutService {
      *                             callout belongs to a different assessment
      * @throws BadRequestException if field values are not in the allowed sets
      */
-    public CalloutResponse updateCallout(Long lndscpAssmtId, Long calloutId,
-                                         CalloutRequest req, String username) {
-        log.debug("Updating callout id={} for lndscp_assmt_id={} by '{}'",
-                calloutId, lndscpAssmtId, username);
+    public void updateCallout(Long lndscpAssmtId, Long calloutId,
+                              CalloutRequest req, String username) {
+        log.debug("Updating callout id={} for lndscp_assmt_id={} by '{}' (sme='{}')",
+                calloutId, lndscpAssmtId, username, req.getSme());
         LandscapeAssmtRef assmt = getAssmtOrThrow(lndscpAssmtId);
-        findCalloutForAssmt(calloutId, lndscpAssmtId);
+        OrlLndscpCallout existing = findCalloutForAssmt(calloutId, lndscpAssmtId);
 
         CalloutDimensions dims = loadDimensions(assmt);
         validateRequest(req, dims);
 
-        String comment = truncate(req.getComment(), 400);
+        // SME shift: the callout's current SME becomes LAST_MODIFIED_SME and the request's
+        // sme becomes the new SME. Read the old value explicitly (from the loaded row) so the
+        // UPDATE has no ambiguous self-reference and behaves identically on MariaDB and H2.
+        String oldSme = existing.getSme();
+        String newSme = req.getSme();
+        String comment = truncate(req.getComment(), COMMENT_MAX_LEN);
+        LocalDateTime now = LocalDateTime.now();
+
         jdbcTemplate.update(
-                "UPDATE orl_lndscp_callout SET RISK_AREA=?, LOCATIONS=?, BIZ_UNITS=?, comment=? WHERE id=?",
-                req.getRiskArea(), req.getLocations(), req.getBizUnits(), comment, calloutId);
+                "UPDATE orl_lndscp_callout SET RISK_AREA=?, LOCATIONS=?, BIZ_UNITS=?, comment=?, "
+                        + "SME=?, LAST_MODIFIED_SME=?, UPDATE_DT_TM=? WHERE id=?",
+                req.getRiskArea(), toJsonArray(req.getLocations()), toJsonArray(req.getBizUnits()),
+                comment, newSme, oldSme, now, calloutId);
 
-        log.info("Updated callout id={} for lndscp_assmt_id={} by '{}'",
-                calloutId, lndscpAssmtId, username);
-
-        return CalloutResponse.builder()
-                .id(calloutId)
-                .riskArea(req.getRiskArea())
-                .locations(req.getLocations())
-                .bizUnits(req.getBizUnits())
-                .comment(comment)
-                .deleted(false)
-                .build();
+        recordCommentHistory(calloutId, comment, newSme, now);
+        log.info("Updated callout id={} for lndscp_assmt_id={} by '{}' (sme '{}' -> '{}')",
+                calloutId, lndscpAssmtId, username, oldSme, newSme);
     }
 
     /**
@@ -248,8 +261,19 @@ public class LandscapeAssmtCalloutService {
                 .build();
     }
 
+    /** Inserts one append-only comment-history row for the given callout. */
+    private void recordCommentHistory(Long calloutId, String comment, String sme, LocalDateTime when) {
+        commentHistRepository.save(OrlLndscpCalloutCommentHist.builder()
+                .calloutId(AggregateReference.to(calloutId))
+                .comment(comment)
+                .sme(sme)
+                .createDtTm(when)
+                .build());
+        log.debug("Recorded comment history for callout id={} (sme='{}')", calloutId, sme);
+    }
+
     /**
-     * Validates RISK_AREA (single value) and the CSV fields LOCATIONS and BIZ_UNITS
+     * Validates RISK_AREA (single value) and the list fields LOCATIONS and BIZ_UNITS
      * against the allowed sets derived from the landscape dimension config.
      *
      * @throws BadRequestException listing all invalid values found (collected, not fail-fast)
@@ -262,31 +286,52 @@ public class LandscapeAssmtCalloutService {
                     + dims.getValidRiskAreas());
         }
 
-        validateCsvField("LOCATIONS", req.getLocations(), dims.getValidLocations(), errors);
-        validateCsvField("BIZ_UNITS",  req.getBizUnits(),  dims.getValidBizUnits(),  errors);
+        validateListField("LOCATIONS", req.getLocations(), dims.getValidLocations(), errors);
+        validateListField("BIZ_UNITS",  req.getBizUnits(),  dims.getValidBizUnits(),  errors);
 
         if (!errors.isEmpty()) {
             throw new BadRequestException(String.join("; ", errors));
         }
     }
 
-    private void validateCsvField(String fieldName, String csv,
+    private void validateListField(String fieldName, List<String> values,
                                    List<String> validValues, List<String> errors) {
-        if (csv == null || csv.isBlank()) {
+        if (values == null || values.isEmpty()) {
             errors.add(fieldName + " must contain at least one value.");
             return;
         }
         boolean hasAtLeastOne = false;
-        for (String token : csv.split(",", -1)) {
-            String t = token.trim();
-            if (t.isEmpty()) continue;
+        for (String value : values) {
+            String v = value == null ? "" : value.trim();
+            if (v.isEmpty()) continue;
             hasAtLeastOne = true;
-            if (!validValues.contains(t)) {
-                errors.add(fieldName + " value '" + t + "' is not valid. Allowed: " + validValues);
+            if (!validValues.contains(v)) {
+                errors.add(fieldName + " value '" + v + "' is not valid. Allowed: " + validValues);
             }
         }
         if (!hasAtLeastOne) {
             errors.add(fieldName + " must contain at least one non-blank value.");
+        }
+    }
+
+    /** Serialises a string list to a JSON array string for storage, e.g. {@code ["SG","HK"]}. */
+    private String toJsonArray(List<String> values) {
+        try {
+            return MAPPER.writeValueAsString(values == null ? Collections.emptyList() : values);
+        } catch (JsonProcessingException e) {
+            // Serialising a List<String> should never fail; surface as a client error, not a 500.
+            throw new BadRequestException("Could not serialise value list: " + e.getMessage());
+        }
+    }
+
+    /** Parses a stored JSON array string back to a string list; empty list on null/blank/parse error. */
+    private List<String> parseJsonArray(String json) {
+        if (json == null || json.isBlank()) return Collections.emptyList();
+        try {
+            return MAPPER.readValue(json, new TypeReference<List<String>>() {});
+        } catch (JsonProcessingException e) {
+            log.warn("Failed to parse JSON array '{}': {}", json, e.getMessage());
+            return Collections.emptyList();
         }
     }
 
@@ -297,7 +342,7 @@ public class LandscapeAssmtCalloutService {
             Map<String, Object> map = MAPPER.readValue(
                     json, new TypeReference<LinkedHashMap<String, Object>>() {});
             return new ArrayList<>(map.keySet());
-        } catch (Exception e) {
+        } catch (JsonProcessingException e) {
             log.warn("Failed to parse RISK_AREA JSON '{}': {}", json, e.getMessage());
             return Collections.emptyList();
         }
@@ -308,7 +353,7 @@ public class LandscapeAssmtCalloutService {
         return Arrays.stream(raw.split(","))
                 .map(String::trim)
                 .filter(s -> !s.isEmpty())
-                .collect(Collectors.toList());
+                .toList();
     }
 
     private String truncate(String value, int maxLen) {
@@ -320,10 +365,14 @@ public class LandscapeAssmtCalloutService {
         return CalloutResponse.builder()
                 .id(c.getId())
                 .riskArea(c.getRiskArea())
-                .locations(c.getLocations())
-                .bizUnits(c.getBizUnits())
+                .locations(parseJsonArray(c.getLocations()))
+                .bizUnits(parseJsonArray(c.getBizUnits()))
                 .comment(c.getComment())
                 .deleted(c.getDelFlg())
+                .sme(c.getSme())
+                .createdOn(c.getCreateDtTm())
+                .updatedOn(c.getUpdateDtTm())
+                .lastModifiedBy(c.getLastModifiedSme())
                 .build();
     }
 }

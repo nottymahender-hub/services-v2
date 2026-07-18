@@ -89,7 +89,7 @@ public class TrainStatsCsvHandler implements CsvHandler {
                             .trainMean(r.getTrainMean()).trainVar(r.getTrainVar())
                             .module(r.getModule()).createdBy(username).createDtTm(now).build();
                 })
-                .collect(Collectors.toList());
+                .toList();
 
         jdbcAggregateOperations.insertAll(entities);
         log.info("Imported {} train_stats rows by '{}'", entities.size(), username);

@@ -1,0 +1,74 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Project
+
+`grc-orl-services-v2` — a Spring Boot 3.4 / Java 21 REST service (`com.dbs.mot.grc`) for GRC "Operational Risk Landscape" (ORL). It manages CSV-based maintenance of static/reference tables and serves landscape **assessments** (monthly snapshots of risk ratings by dimension), their drill-down details, and per-assessment **callouts**.
+
+## Commands
+
+The Maven wrapper (`./mvnw`, `mvnw.cmd` on Windows) is committed — use it.
+
+```bash
+./mvnw clean verify          # compile, run all tests, JaCoCo report + coverage gate
+./mvnw test                  # run all tests (also produces JaCoCo report)
+./mvnw spring-boot:run       # run the app (needs a MariaDB per application.properties)
+./mvnw test -Dtest=BizUnitCsvHandlerTest              # single test class
+./mvnw test -Dtest=BizUnitCsvHandlerTest#methodName   # single test method
+```
+
+- **Coverage gate:** JaCoCo enforces **≥90% line coverage** on the whole bundle during the `verify` phase (`jacoco:check`). A build can pass `test` but fail `verify` on coverage — keep new code covered. Report: `target/site/jacoco/index.html`.
+- **Tests run against in-memory H2** (`src/test/resources/application-test.properties`), MySQL-compatibility mode, schema from `src/test/resources/schema-test.sql` (Flyway is disabled for tests). The production schema is Flyway migration `V1__create_all_tables.sql`. **These two schema files are maintained separately — when you change one, update the other**, and be aware H2 does not support every MariaDB feature (e.g. `ON DUPLICATE KEY UPDATE`, `ON UPDATE current_timestamp()`), which is why some behaviour is done in Java rather than SQL.
+- Running the app locally requires MariaDB at `jdbc:mariadb://localhost:3306/grc_orl2_db` (root/root by default). Swagger UI is available at `/swagger-ui.html` when running.
+
+## Architecture
+
+### Two feature areas
+
+1. **Generic CSV import/export** (`common/csv`, `common/controller/CsvController`, plus `csv/handler`, `csv/mapper`, `csv/validator`) for the static/reference tables.
+2. **Landscape assessment domain** (`controller`, `service`, `entity`, `repository`, `dto`) — assessment generation, read/drill-down, and callouts.
+
+### CSV pipeline — extend without touching the controller
+
+One controller (`CsvController`) serves every table via `POST/GET /api/csv/{tableName}/upload|download`. `tableName` is resolved to a `CsvHandler` bean by `CsvHandlerRegistry`, which auto-discovers all `CsvHandler` `@Component`s at startup and keys them by `getTableName()`.
+
+**To support a new table, add three beans and nothing else** (no controller/registry changes):
+- `csv/handler/XxxCsvHandler implements CsvHandler` — declares table name, headers, and the persistence SQL (typically `INSERT … ON DUPLICATE KEY UPDATE` upsert via `NamedParameterJdbcTemplate`).
+- `csv/mapper/XxxCsvRowMapper implements CsvRowMapper<T>` — one CSV row → DTO, collecting per-cell/type errors.
+- `csv/validator/XxxCsvRowValidator implements CsvRowValidator<T>` — cross-row/dataset checks (uniqueness, references).
+
+All handlers delegate parsing to the shared `CsvImportProcessor.process(...)`, which runs a fixed pipeline: file validation → header validation (exact set, no duplicates, BOM-stripped) → per-row mapping → per-row Hibernate Bean Validation on the DTO → dataset-level validation. Mapping/bean errors fail before cross-row checks; both collect **all** errors and throw `CsvValidationException` (→ HTTP 400 with per-row detail).
+
+`processAndImport` and `CsvController.upload` are both `@Transactional` so the row import and the `orl_static_data_maintianance_csv_upload_audit` insert commit as one unit.
+
+The three **scoring tables** (`feature_score_band`, `train_stats`, `net_risk_band`) are special: their `config_version` is **computed server-side** by `ConfigVersionResolver` as `MAX(existing version for the natural-key group) + 1` (in-memory grouping to stay dialect-portable). Open-ended range bounds use the sentinels in `RangeSentinels` (rounded to the `DECIMAL(20,6)` column precision).
+
+### Assessment domain model (Spring Data **JDBC**, not JPA)
+
+This uses **Spring Data JDBC**. Key consequences that differ from JPA:
+- FKs are modelled as `AggregateReference<T, Long>` — one-way, no cascade, no lazy navigation. Extract the id with `.getId()`.
+- `OrlLndscpAssmt` owns its detail rows as a `@MappedCollection` (`orl_lndscp_assmt_details`). **Fetching the `OrlLndscpAssmt` entity eagerly loads all detail rows.** When you only need the assessment's existence + landscape FK, use the `findRefById` projection (`LandscapeAssmtRef`) to avoid loading the collection. The listing service uses a summary projection for the same reason.
+- **`save()` on an existing aggregate does a full delete+reinsert of its children.** Only use `save()` for fresh inserts (assessment generation does this). For updates/soft-deletes, issue targeted `JdbcTemplate` UPDATE statements (see `LandscapeAssmtCalloutService`) rather than reloading and re-saving.
+- **No hand-written join SQL.** Services deliberately issue plain single-table queries (`findById`, `findByBizDt`, `findAll`, derived queries) and do all matching/merging/derivation in Java. This is an intentional, documented choice (see class-level Javadoc in the services) — follow it.
+
+### The assessment/fact split (important)
+
+Assessment detail rows (`orl_lndscp_assmt_details`) are **thin**: only dimensions, category, status, overlay fields, and audit columns. All **computed** values (calculated NRR, rating change, control effectiveness, commentary, GRC metrics, inherent risk) live in the separate `fact_orl` snapshot table and are **matched at read time by dimension key** (`RISK_AREA`, `ORL_BU_NM_L2/L3/L4`, `LOCATION`) for a business date:
+- current month → the assessment's `CREATE_DT_TM`
+- previous month → the previous assessment's `CREATE_DT_TM` (followed via `PREV_ASSMT_NUM`)
+- live → the latest `biz_dt` matching the key
+
+Because MariaDB treats each NULL as distinct in a unique index, all dimension columns in `orl_lndscp_assmt_details` and `fact_orl` are `NOT NULL DEFAULT ''` — generation writes `''` (never null) for empty dimensions so the unique index actually enforces one row per dimension. Preserve this invariant.
+
+### Generation flow
+
+`BulkAssmtGenerationService` (`POST /landscape/assessments/generate`) is the orchestrator and is **intentionally not `@Transactional`**: it loads active+effective configs (`OrlLndscpDim.isActiveAndEffectiveOn`), groups by landscape name, and calls `LandscapeAssmtGenerationService.generateForDim(...)` per landscape — each in its own transaction — so one landscape's skip/failure never rolls back the others. Per-landscape outcomes are reported via `AssmtGenerationStatus` (`GENERATED`, `SKIPPED_AMBIGUOUS_CONFIG`, `SKIPPED_ALREADY_EXISTS`). `generateForDim` expands `RISK_AREA` (a JSON map) × business units × locations into `L{lvl}`, `grp_l{lvl}`, and `loc` category rows.
+
+### Cross-cutting conventions
+
+- **Auth:** every endpoint requires the `X-EGRC-UserId` header (used as `CREATED_BY`/operator identity); missing/blank → **HTTP 401**. Most controllers check `required = false` + manual blank check and return 401 explicitly; a genuinely absent required header is turned into 401 by `GlobalExceptionHandler` (`MissingRequestHeaderException`).
+- **Responses:** all endpoints return the `ApiResponse<T>` envelope. All error→HTTP mapping is centralized in `GlobalExceptionHandler` (`@RestControllerAdvice`) — throw the domain exceptions (`BadRequestException`→400, `NotFoundException`→404, `ConflictException`→409, `CsvValidationException`→400 w/ details) rather than building error responses in controllers/services.
+- **Logging:** `RequestLoggingFilter` puts `X-EGRC-UserId` into SLF4J MDC (`username`) so it appears in every log line; `ServiceLoggingAspect` adds DEBUG entry/exit + timing around all `..service..` methods and `csv.handler.*.processAndImport`. Both **summarise `MultipartFile` args (name/size only)** — never log raw file content.
+- **JSON in columns:** `RISK_AREA` (map), callout `LOCATIONS`/`BIZ_UNITS` (arrays), and `fact_orl.GRC_METRICS` are stored as JSON strings. Parse/serialize with an `ObjectMapper` that has `STRICT_DUPLICATE_DETECTION` enabled (the established pattern); parse failures are logged and degraded gracefully, not thrown, in read paths.
+- **Lombok** is used throughout (`@Builder`, `@Getter`, `@RequiredArgsConstructor`, `@Slf4j`) — annotation processing is configured in the compiler plugin.

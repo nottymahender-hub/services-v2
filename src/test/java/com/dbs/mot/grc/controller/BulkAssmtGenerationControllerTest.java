@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
@@ -14,6 +15,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.Locale;
 
 import static org.hamcrest.Matchers.*;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -37,6 +39,7 @@ class BulkAssmtGenerationControllerTest {
             DateTimeFormatter.ofPattern("MMMM yyyy", Locale.ENGLISH);
 
     private final String currentPeriod = YearMonth.now().format(PERIOD_FMT);
+    private final String previousPeriod = YearMonth.now().minusMonths(1).format(PERIOD_FMT);
 
     @Autowired MockMvc mvc;
     @Autowired JdbcTemplate jdbc;
@@ -48,10 +51,6 @@ class BulkAssmtGenerationControllerTest {
         jdbc.execute("DELETE FROM orl_lndscp_assmt");
         jdbc.execute("DELETE FROM orl_lndscp_dim");
         jdbc.execute("DELETE FROM orl_biz_unit");
-        jdbc.execute("DELETE FROM inc_fact_orl");
-        jdbc.execute("DELETE FROM ina_fact_orl");
-        jdbc.execute("DELETE FROM kri_fact_orl");
-        jdbc.execute("DELETE FROM rcsa_fact_orl");
 
         jdbc.execute("""
                 INSERT INTO orl_lndscp_dim (id,CONFIG_ID,LNDSCP_NM,EFFECT_START_DT,VERSION,
@@ -188,5 +187,106 @@ class BulkAssmtGenerationControllerTest {
            .andExpect(jsonPath("$.data.totalLandscapes", is(2)))
            .andExpect(jsonPath("$.data.results[*].lndscpNm",
                    containsInAnyOrder("Alpha", "Beta")));
+    }
+
+    // ── Generation behaviour (via generateForDim, exercised through the bulk run) ──
+
+    @Test
+    void generation_producesL2GrpAndLocCategories_withEmptyDimsAsBlank() throws Exception {
+        mvc.perform(post(URL).header("X-EGRC-UserId", "tester")).andExpect(status().isOk());
+
+        // L2 rows: BU set, location set (Alpha = LNDSCP_NUM 1, one per risk area).
+        assertRowCount(1, "category='L2' AND ORL_BU_NM_L2='Technology' AND LOCATION='SG'", 2);
+        // grp_l2 rows: BU set, empty location stored as '' (never null).
+        assertRowCount(1, "category='grp_l2' AND ORL_BU_NM_L2='Operations' AND LOCATION=''", 2);
+        // loc rows: empty BU stored as '', location set.
+        assertRowCount(1, "category='loc' AND ORL_BU_NM_L2='' AND LOCATION='CN'", 2);
+        // Empty dimension columns are never null.
+        assertRowCount(1, "ORL_BU_NM_L2 IS NULL OR ORL_BU_NM_L3 IS NULL OR ORL_BU_NM_L4 IS NULL OR LOCATION IS NULL", 0);
+    }
+
+    @Test
+    void generation_writesThinRows_openStatusNoOverlay() throws Exception {
+        mvc.perform(post(URL).header("X-EGRC-UserId", "tester")).andExpect(status().isOk());
+        assertRowCount(1, "d.STATUS='Open' AND d.OVRLY_NET_RISK_RTNG IS NULL", 16);
+    }
+
+    @Test
+    void generation_resolvesBuHierarchy_level3() throws Exception {
+        mvc.perform(post(URL).header("X-EGRC-UserId", "tester")).andExpect(status().isOk());
+        // Beta (LNDSCP_NUM 2, level 3): DTI resolves to L2=Technology, L3=DTI; empty L4 = ''.
+        assertRowCount(2, "category='L3' AND ORL_BU_NM_L2='Technology' AND ORL_BU_NM_L3='DTI' AND ORL_BU_NM_L4=''", 1);
+        assertRowCount(2, "category='grp_l3'", 1);
+        assertRowCount(2, "category='loc'", 1);
+    }
+
+    @Test
+    void generation_unresolvedBu_keepsNameAtOwnLevel() throws Exception {
+        jdbc.execute("DELETE FROM orl_biz_unit WHERE BU_NM='Technology'");
+        mvc.perform(post(URL).header("X-EGRC-UserId", "tester")).andExpect(status().isOk());
+        // Technology unresolved → still present with L2='Technology', empty L3/L4 = ''.
+        assertRowCount(1, "ORL_BU_NM_L2='Technology' AND ORL_BU_NM_L3='' AND ORL_BU_NM_L4='' AND category='L2'", 4);
+    }
+
+    @Test
+    void generation_duplicateEmptyDimensionRow_rejectedByUniqueIndex() throws Exception {
+        mvc.perform(post(URL).header("X-EGRC-UserId", "tester")).andExpect(status().isOk());
+        Long assmtId = jdbc.queryForObject("SELECT id FROM orl_lndscp_assmt WHERE LNDSCP_NUM=2", Long.class);
+
+        // Re-inserting a 'loc' row (empty BU path stored as '') must violate the unique index —
+        // proving '' makes the index effective where NULL would not.
+        assertThrows(DataIntegrityViolationException.class, () -> jdbc.execute(
+                "INSERT INTO orl_lndscp_assmt_details "
+                + "(lndscp_assmt_id,RISK_AREA,ORL_BU_NM_L2,ORL_BU_NM_L3,ORL_BU_NM_L4,LOCATION,category,STATUS,CREATED_BY) "
+                + "VALUES(" + assmtId + ",'Market Abuse','','','','SG','loc','Open','seed')"));
+    }
+
+    // ── PREV_ASSMT_NUM linkage ────────────────────────────────────────────────────
+
+    @Test
+    void generation_linksPreviousMonthAssessment_viaPrevAssmtNum() throws Exception {
+        // Previous month's assessment for Alpha (LNDSCP_NUM 1).
+        jdbc.update("INSERT INTO orl_lndscp_assmt(id,LNDSCP_NUM,ASSEMT_PERIOD,status,CREATED_BY) VALUES(500,1,?,'Open','seed')",
+                previousPeriod);
+
+        mvc.perform(post(URL).header("X-EGRC-UserId", "tester")).andExpect(status().isOk());
+
+        Long prev = jdbc.queryForObject(
+                "SELECT PREV_ASSMT_NUM FROM orl_lndscp_assmt WHERE LNDSCP_NUM=1 AND ASSEMT_PERIOD=?",
+                Long.class, currentPeriod);
+        assert prev != null && prev == 500L;
+    }
+
+    @Test
+    void generation_noPreviousAssessment_prevAssmtNumNull() throws Exception {
+        mvc.perform(post(URL).header("X-EGRC-UserId", "tester")).andExpect(status().isOk());
+        Long prev = jdbc.queryForObject(
+                "SELECT PREV_ASSMT_NUM FROM orl_lndscp_assmt WHERE LNDSCP_NUM=1 AND ASSEMT_PERIOD=?",
+                Long.class, currentPeriod);
+        assert prev == null;
+    }
+
+    @Test
+    void generation_previousAssessmentOfOtherLandscape_isNotLinked() throws Exception {
+        // A previous-month assessment exists, but for LNDSCP_NUM=2 — must not link to Alpha (id 1).
+        jdbc.update("INSERT INTO orl_lndscp_assmt(id,LNDSCP_NUM,ASSEMT_PERIOD,status,CREATED_BY) VALUES(501,2,?,'Open','seed')",
+                previousPeriod);
+
+        mvc.perform(post(URL).header("X-EGRC-UserId", "tester")).andExpect(status().isOk());
+
+        Long prev = jdbc.queryForObject(
+                "SELECT PREV_ASSMT_NUM FROM orl_lndscp_assmt WHERE LNDSCP_NUM=1 AND ASSEMT_PERIOD=?",
+                Long.class, currentPeriod);
+        assert prev == null;
+    }
+
+    // ── Helpers ──────────────────────────────────────────────────────────────────
+
+    private void assertRowCount(long lndscpNum, String whereClause, int expected) {
+        Integer count = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM orl_lndscp_assmt_details d JOIN orl_lndscp_assmt a ON d.lndscp_assmt_id=a.id "
+                + "WHERE a.LNDSCP_NUM=" + lndscpNum + " AND (" + whereClause + ")", Integer.class);
+        assert count != null && count == expected
+                : "Expected " + expected + " rows for [" + whereClause + "] but got " + count;
     }
 }

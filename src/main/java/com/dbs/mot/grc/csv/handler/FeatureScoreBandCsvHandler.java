@@ -101,7 +101,7 @@ public class FeatureScoreBandCsvHandler implements CsvHandler {
                             .score(r.getScore()).module(r.getModule())
                             .createdBy(username).createDtTm(now).build();
                 })
-                .collect(Collectors.toList());
+                .toList();
 
         jdbcAggregateOperations.insertAll(entities);
         log.info("Imported {} feature_score_band rows by '{}'", entities.size(), username);

@@ -13,8 +13,8 @@ import java.util.Map;
 /**
  * Cross-row validation for the TrainStats CSV batch.
  *
- * <p>Rule: composite (lvl, module) unique per file — config_version is no longer a CSV
- * input, it is resolved server-side, so uniqueness is checked without it.
+ * <p>Rule: composite {@code (lvl, module)} unique per file. {@code config_version} is
+ * resolved server-side (not a CSV input), so it is not part of the uniqueness check.
  */
 @Component
 public class TrainStatsCsvRowValidator implements CsvRowValidator<TrainStatsCsvRow> {

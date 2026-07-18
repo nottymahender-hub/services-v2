@@ -18,7 +18,6 @@ import org.springframework.web.multipart.MultipartFile;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
-import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 
 /**
@@ -67,7 +66,7 @@ public class RiskTypeRiskAreaMapCsvHandler implements CsvHandler {
                         .createdBy(username)
                         .createDtTm(now)
                         .build())
-                .collect(Collectors.toList());
+                .toList();
 
         jdbcAggregateOperations.insertAll(entities);
         log.info("Imported {} orl_risk_type_risk_area_map row(s) by '{}'", entities.size(), username);

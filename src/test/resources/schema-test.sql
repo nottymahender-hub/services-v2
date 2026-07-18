@@ -4,11 +4,9 @@
 -- ===================================================================
 
 -- Drop in FK-child-first order.
-DROP TABLE IF EXISTS inc_fact_orl;
-DROP TABLE IF EXISTS ina_fact_orl;
-DROP TABLE IF EXISTS kri_fact_orl;
-DROP TABLE IF EXISTS rcsa_fact_orl;
+DROP TABLE IF EXISTS fact_orl;
 DROP TABLE IF EXISTS orl_static_data_maintianance_csv_upload_audit;
+DROP TABLE IF EXISTS orl_lndscp_callout_comment_hist;
 DROP TABLE IF EXISTS orl_lndscp_callout;
 DROP TABLE IF EXISTS orl_lndscp_assmt_details;
 DROP TABLE IF EXISTS orl_risk_type_risk_area_map;
@@ -162,41 +160,48 @@ CREATE TABLE net_risk_band (
 );
 
 -- ── orl_lndscp_callout ───────────────────────────────────────────────────────
+-- LOCATIONS/BIZ_UNITS hold JSON string arrays (CLOB; H2 skips the json_valid CHECK).
 CREATE TABLE orl_lndscp_callout (
-    id               INT          NOT NULL AUTO_INCREMENT,
-    RISK_AREA        VARCHAR(50)  NOT NULL DEFAULT '',
-    LOCATIONS        VARCHAR(50)  NULL,
-    BIZ_UNITS        VARCHAR(50)  NULL,
-    lndscp_assmt_id  INT          NOT NULL,
-    comment          VARCHAR(400) NULL,
-    DEL_FLG          BOOLEAN      NOT NULL DEFAULT FALSE,
+    id                INT          NOT NULL AUTO_INCREMENT,
+    RISK_AREA         VARCHAR(120) NOT NULL DEFAULT '',
+    LOCATIONS         CLOB         NOT NULL,
+    BIZ_UNITS         CLOB         NOT NULL,
+    lndscp_assmt_id   INT          NOT NULL,
+    comment           VARCHAR(400) NOT NULL,
+    DEL_FLG           BOOLEAN      NOT NULL DEFAULT FALSE,
+    CREATE_DT_TM      TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    SME               VARCHAR(50)  NOT NULL DEFAULT 'SYSTEM',
+    UPDATE_DT_TM      TIMESTAMP    NULL DEFAULT NULL,
+    LAST_MODIFIED_SME VARCHAR(50)  NULL DEFAULT NULL,
     PRIMARY KEY (id),
     FOREIGN KEY (lndscp_assmt_id) REFERENCES orl_lndscp_assmt(id)
 );
 
+-- ── orl_lndscp_callout_comment_hist ──────────────────────────────────────────
+CREATE TABLE orl_lndscp_callout_comment_hist (
+    id           INT          NOT NULL AUTO_INCREMENT,
+    callout_id   INT          NOT NULL,
+    comment      VARCHAR(400) NOT NULL,
+    SME          VARCHAR(50)  NOT NULL,
+    CREATE_DT_TM TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    FOREIGN KEY (callout_id) REFERENCES orl_lndscp_callout(id)
+);
+
 -- ── orl_lndscp_assmt_details ─────────────────────────────────────────────────
--- CAL_NET_RISK_RTNG is a plain value column here (no FK to net_risk_band).
--- GRC_METRICS skips a JSON-validity CHECK in H2 (as RISK_AREA elsewhere in this
--- schema also does) since H2's json_valid support is inconsistent across versions.
+-- Thin table: dimensions + overlay + status only. The computed values
+-- (CAL_NET_RISK_RTNG, RISK_RTNG_CHGE, CTRL_EFF_RTN, COMMENTARY, GRC_METRICS) now
+-- live in fact_orl and are matched at read time by dimension + business date.
 CREATE TABLE orl_lndscp_assmt_details (
     id                       INT           NOT NULL AUTO_INCREMENT,
     lndscp_assmt_id          INT           NOT NULL,
     RISK_AREA                VARCHAR(50)   NOT NULL,
-    ORL_BU_NM_L2             VARCHAR(120)  NULL,
-    ORL_BU_NM_L3             VARCHAR(120)  NULL,
-    ORL_BU_NM_L4             VARCHAR(120)  NULL,
-    LOCATION                 VARCHAR(50)   NULL,
+    ORL_BU_NM_L2             VARCHAR(120)  NOT NULL DEFAULT '',
+    ORL_BU_NM_L3             VARCHAR(120)  NOT NULL DEFAULT '',
+    ORL_BU_NM_L4             VARCHAR(120)  NOT NULL DEFAULT '',
+    LOCATION                 VARCHAR(50)   NOT NULL DEFAULT '',
     category                 VARCHAR(20)   NOT NULL,
-    RISK_RTNG_CHGE           VARCHAR(20)   NULL,
-    CAL_NET_RISK_RTNG        VARCHAR(20)   NULL,
-    LV_NET_RISK_RTNG         VARCHAR(20)   NULL,
-    LV_LST_RFRSH_DT_TM       TIMESTAMP     NULL DEFAULT NULL,
-    LV_CTRL_EFF_RTN          VARCHAR(120)  NULL,
-    COMMENTARY               CLOB          NULL,
     REVISED_COMMENTARY       CLOB          NULL,
-    GRC_METRICS              CLOB          NULL,
-    RISK_SIGNAL              CLOB          NULL,
-    CTRL_EFF_RTN             VARCHAR(120)  NULL,
     OVRLY_NET_RISK_RTNG      VARCHAR(20)   NULL,
     OVRLY_JSTFKN             VARCHAR(4000) NULL,
     STATUS                   VARCHAR(30)   NOT NULL DEFAULT 'Open',
@@ -205,7 +210,7 @@ CREATE TABLE orl_lndscp_assmt_details (
     UPDATE_DT_TM             TIMESTAMP     NULL DEFAULT NULL,
     UPDATED_BY               VARCHAR(50)   NULL,
     PRIMARY KEY (id),
-    UNIQUE (lndscp_assmt_id, RISK_AREA, ORL_BU_NM_L2, ORL_BU_NM_L3, ORL_BU_NM_L4, LOCATION, category),
+    UNIQUE (lndscp_assmt_id, RISK_AREA, ORL_BU_NM_L2, ORL_BU_NM_L3, ORL_BU_NM_L4, LOCATION),
     FOREIGN KEY (lndscp_assmt_id) REFERENCES orl_lndscp_assmt(id)
 );
 
@@ -221,83 +226,24 @@ CREATE TABLE orl_static_data_maintianance_csv_upload_audit (
     PRIMARY KEY (id)
 );
 
--- ── inc_fact_orl ─────────────────────────────────────────────────────────────
-CREATE TABLE inc_fact_orl (
-    id                                  INT          NOT NULL AUTO_INCREMENT,
-    inc_is_sinp_count_l3m_mtd           INT          NULL,
-    inc_is_mi_count_l3m_mtd             INT          NULL,
-    inc_is_gorc_count_l3m_mtd           INT          NULL,
-    inc_is_min_reportable_count_l3m_mtd INT          NULL,
-    inc_time_to_detect_sum_l11m_mtd     INT          NULL,
-    inc_count_l11m_mtd                  INT          NULL,
-    biz_dt                              DATE         NOT NULL,
-    RISK_AREA                           VARCHAR(200) NOT NULL,
-    ORL_BU_NM_L2                        VARCHAR(120) NULL,
-    ORL_BU_NM_L3                        VARCHAR(120) NULL,
-    ORL_BU_NM_L4                        VARCHAR(120) NULL,
-    LOCATION                            VARCHAR(50)  NULL,
-    category                            VARCHAR(20)  NOT NULL,
-    NET_RISK_RTNG                       VARCHAR(20)  NOT NULL,
-    PRIMARY KEY (id)
-);
-
--- ── ina_fact_orl ─────────────────────────────────────────────────────────────
-CREATE TABLE ina_fact_orl (
-    id                          INT          NOT NULL AUTO_INCREMENT,
-    issue_rating_high_count     INT          NULL,
-    issue_rating_medium_count   INT          NULL,
-    issue_type_regulatory_count INT          NULL,
-    issue_type_audit_count      INT          NULL,
-    issue_type_others_count     INT          NULL,
-    issue_open_count            INT          NULL,
-    issue_closed_count_l3m_mtd  INT          NULL,
-    issue_repeated_count        INT          NULL,
-    biz_dt                      DATE         NOT NULL,
-    RISK_AREA                   VARCHAR(200) NOT NULL,
-    ORL_BU_NM_L2                VARCHAR(120) NULL,
-    ORL_BU_NM_L3                VARCHAR(120) NULL,
-    ORL_BU_NM_L4                VARCHAR(120) NULL,
-    LOCATION                    VARCHAR(50)  NULL,
-    category                    VARCHAR(20)  NOT NULL,
-    NET_RISK_RTNG               VARCHAR(20)  NOT NULL,
-    PRIMARY KEY (id)
-);
-
--- ── kri_fact_orl ─────────────────────────────────────────────────────────────
-CREATE TABLE kri_fact_orl (
-    id                                                  INT          NOT NULL AUTO_INCREMENT,
-    kri_sustained_red_3m_or_quarterly_red_count         INT          NULL,
-    kri_sustained_red_2m_count                          INT          NULL,
-    kri_sustained_red_amber_4m_or_quarterly_amber_count INT          NULL,
-    kri_amber_sustained_red_amber_3m_count              INT          NULL,
-    kri_red_count                                       INT          NULL,
-    kri_amber_count                                     INT          NULL,
-    kri_green_count                                     INT          NULL,
-    biz_dt                                              DATE         NOT NULL,
-    RISK_AREA                                           VARCHAR(200) NOT NULL,
-    ORL_BU_NM_L2                                        VARCHAR(120) NULL,
-    ORL_BU_NM_L3                                        VARCHAR(120) NULL,
-    ORL_BU_NM_L4                                        VARCHAR(120) NULL,
-    LOCATION                                            VARCHAR(50)  NULL,
-    category                                            VARCHAR(20)  NOT NULL,
-    NET_RISK_RTNG                                       VARCHAR(20)  NOT NULL,
-    PRIMARY KEY (id)
-);
-
--- ── rcsa_fact_orl ────────────────────────────────────────────────────────────
-CREATE TABLE rcsa_fact_orl (
-    id                           INT          NOT NULL AUTO_INCREMENT,
-    rcsa_high_risk_proportion    INT          NULL,
-    rcsa_medhigh_risk_proportion INT          NULL,
-    rcsa_medlow_risk_proportion  INT          NULL,
-    rcsa_low_risk_proportion     INT          NULL,
-    biz_dt                       DATE         NOT NULL,
-    RISK_AREA                    VARCHAR(200) NOT NULL,
-    ORL_BU_NM_L2                 VARCHAR(120) NULL,
-    ORL_BU_NM_L3                 VARCHAR(120) NULL,
-    ORL_BU_NM_L4                 VARCHAR(120) NULL,
-    LOCATION                     VARCHAR(50)  NULL,
-    category                     VARCHAR(20)  NOT NULL,
-    NET_RISK_RTNG                VARCHAR(20)  NOT NULL,
-    PRIMARY KEY (id)
+-- ── fact_orl ─────────────────────────────────────────────────────────────────
+-- Snapshot table with all computed assessment data, matched by dimension + biz_dt.
+-- GRC_METRICS skips a JSON-validity CHECK in H2 (json_valid support is inconsistent).
+CREATE TABLE fact_orl (
+    ID                INT          NOT NULL AUTO_INCREMENT,
+    biz_dt            DATE         NOT NULL,
+    RISK_AREA         VARCHAR(200) NOT NULL,
+    ORL_BU_NM_L2      VARCHAR(120) NOT NULL DEFAULT '',
+    ORL_BU_NM_L3      VARCHAR(120) NOT NULL DEFAULT '',
+    ORL_BU_NM_L4      VARCHAR(120) NOT NULL DEFAULT '',
+    LOCATION          VARCHAR(50)  NOT NULL DEFAULT '',
+    category          VARCHAR(20)  NOT NULL,
+    INHERENT_RISK     VARCHAR(20)  NULL,
+    RISK_RTNG_CHGE    VARCHAR(20)  NULL,
+    CAL_NET_RISK_RTNG VARCHAR(20)  NOT NULL,
+    CTRL_EFF_RTN      VARCHAR(200) NULL,
+    COMMENTARY        CLOB         NULL,
+    GRC_METRICS       CLOB         NULL,
+    PRIMARY KEY (ID),
+    UNIQUE (biz_dt, RISK_AREA, ORL_BU_NM_L2, ORL_BU_NM_L3, ORL_BU_NM_L4, LOCATION)
 );

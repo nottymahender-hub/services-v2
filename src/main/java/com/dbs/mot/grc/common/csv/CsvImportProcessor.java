@@ -13,10 +13,10 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
-import java.util.stream.Collectors;
 
 /**
  * Reusable CSV processing template used by every table handler.
@@ -99,7 +99,8 @@ public class CsvImportProcessor {
 
         } catch (BadRequestException | CsvValidationException e) {
             throw e;
-        } catch (Exception e) {
+        } catch (IOException | com.opencsv.exceptions.CsvValidationException e) {
+            // Malformed/unreadable upload — a client-side problem, so return 400 rather than 500.
             log.error("Unexpected error while reading CSV", e);
             throw new BadRequestException("Failed to read CSV file: " + e.getMessage());
         }
@@ -147,7 +148,7 @@ public class CsvImportProcessor {
         }
     }
 
-    private CSVReader buildCsvReader(MultipartFile file) throws Exception {
+    private CSVReader buildCsvReader(MultipartFile file) throws IOException {
         return new CSVReaderBuilder(
                 new InputStreamReader(file.getInputStream(), StandardCharsets.UTF_8))
                 .withCSVParser(
@@ -192,9 +193,9 @@ public class CsvImportProcessor {
 
         if (!actualSet.equals(expectedSet)) {
             List<String> missing = expectedSet.stream()
-                    .filter(h -> !actualSet.contains(h)).sorted().collect(Collectors.toList());
+                    .filter(h -> !actualSet.contains(h)).sorted().toList();
             List<String> extra = actualSet.stream()
-                    .filter(h -> !expectedSet.contains(h)).sorted().collect(Collectors.toList());
+                    .filter(h -> !expectedSet.contains(h)).sorted().toList();
             throw new BadRequestException(
                     "CSV headers do not match expected columns."
                             + (missing.isEmpty() ? "" : " Missing: " + missing + ".")

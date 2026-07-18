@@ -16,10 +16,10 @@ import java.util.Set;
  * {@code train_stats}, {@code net_risk_band}).
  *
  * <h3>Business rule</h3>
- * {@code config_version} is no longer supplied by the CSV — each row's version is now
- * computed server-side as {@code MAX(existing config_version for this group) + 1} (or
- * {@code 1} if the group has never been uploaded), where "group" is the table-specific
- * natural key (e.g. {@code (feature_name, feature_bin, module)}).
+ * Each row's {@code config_version} is computed server-side as
+ * {@code MAX(existing config_version for this group) + 1} (or {@code 1} if the group has
+ * never been uploaded), where "group" is the table-specific natural key
+ * (e.g. {@code (feature_name, feature_bin, module)}).
  *
  * <h3>Portability</h3>
  * Tuple {@code IN} (e.g. {@code (a,b,c) IN ((1,2,3),(4,5,6))}) is supported by both

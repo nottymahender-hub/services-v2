@@ -4,6 +4,7 @@ import com.dbs.mot.grc.common.csv.CsvRowValidator;
 import com.dbs.mot.grc.common.dto.ValidationErrorDetail;
 import com.dbs.mot.grc.dto.OrlLndscpDimCsvRow;
 import com.fasterxml.jackson.core.JsonParser;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -99,7 +100,7 @@ public class OrlLndscpDimCsvRowValidator implements CsvRowValidator<OrlLndscpDim
         try {
             parsed = STRICT_MAPPER.readValue(json,
                     new TypeReference<LinkedHashMap<String, List<String>>>() {});
-        } catch (Exception e) {
+        } catch (JsonProcessingException e) {
             errors.add(error(rowNum, "RISK_AREA",
                     "RISK_AREA must be valid JSON with no duplicate keys. Error: " + e.getMessage()));
             return;

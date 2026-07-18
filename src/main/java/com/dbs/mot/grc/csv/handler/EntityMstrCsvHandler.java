@@ -26,8 +26,7 @@ import java.util.stream.StreamSupport;
 /**
  * Handles CSV upload/download for {@code orl_entity_mstr}.
  * Registered as {@code "entity-mstr"}.
- * Uses a batched INSERT … ON DUPLICATE KEY UPDATE (upsert) in a single round-trip
- * instead of one statement per row.
+ * Upload uses a single batched INSERT … ON DUPLICATE KEY UPDATE (upsert).
  */
 @Slf4j
 @Component

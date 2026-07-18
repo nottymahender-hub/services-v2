@@ -1,14 +1,18 @@
 package com.dbs.mot.grc.dto;
 
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotEmpty;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+
+import java.util.List;
 
 /**
  * Request body for POST and PUT callout APIs.
  *
- * <p>Hibernate validators enforce presence of each field; the service layer
- * performs additional semantic validation (valid risk area, location, BU values).
+ * <p>Hibernate validators enforce presence of each field; the service layer performs
+ * additional semantic validation (valid risk area, location, BU values against the
+ * landscape dimensions).
  */
 @Getter
 @NoArgsConstructor
@@ -17,14 +21,19 @@ public class CalloutRequest {
     @NotBlank(message = "RISK_AREA must not be blank.")
     private String riskArea;
 
-    /** Comma-separated location values; must contain at least one entry. */
-    @NotBlank(message = "LOCATIONS must not be blank and must contain at least one value.")
-    private String locations;
+    /** Location values as a string array; must contain at least one entry. */
+    @NotEmpty(message = "LOCATIONS must contain at least one value.")
+    private List<String> locations;
 
-    /** Comma-separated business-unit values; must contain at least one entry. */
-    @NotBlank(message = "BIZ_UNITS must not be blank and must contain at least one value.")
-    private String bizUnits;
+    /** Business-unit values as a string array; must contain at least one entry. */
+    @NotEmpty(message = "BIZ_UNITS must contain at least one value.")
+    private List<String> bizUnits;
 
-    /** Optional free-text comment; truncated to 400 characters if longer. */
+    /** Free-text comment; required (the column is NOT NULL) and truncated to 400 characters. */
+    @NotBlank(message = "comment must not be blank.")
     private String comment;
+
+    /** SME (owner) recorded against the callout. */
+    @NotBlank(message = "sme must not be blank.")
+    private String sme;
 }

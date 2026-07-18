@@ -1,6 +1,5 @@
 package com.dbs.mot.grc.dto;
 
-import com.fasterxml.jackson.annotation.JsonInclude;
 import lombok.Builder;
 import lombok.Getter;
 
@@ -10,10 +9,12 @@ import lombok.Getter;
  *
  * <p>Contains only per-row fields. Landscape-config metadata is hoisted to the
  * top-level {@link LandscapeAssmtDetailSummary} wrapper under {@code dimensions}.
+ *
+ * <p>Null properties are serialized (no {@code NON_NULL} filtering) so every field
+ * is always present in each assessment item.
  */
 @Getter
 @Builder
-@JsonInclude(JsonInclude.Include.NON_NULL)
 public class LandscapeAssmtDetailItem {
 
     private final Long id;
@@ -37,21 +38,25 @@ public class LandscapeAssmtDetailItem {
 
     private final String status;
 
-    /** Calculated net risk rating — {@code orl_lndscp_assmt_details.CAL_NET_RISK_RTNG}. */
+    /** Calculated net risk rating — {@code fact_orl.CAL_NET_RISK_RTNG} (current biz date). */
     private final String nrrCalculated;
 
     /** Overlaid (analyst-adjusted) net risk rating — {@code OVRLY_NET_RISK_RTNG}. */
     private final String nrr;
 
-    /** {@code orl_lndscp_assmt_details.RISK_RTNG_CHGE}. */
+    /** {@code fact_orl.RISK_RTNG_CHGE} (current biz date). */
     private final String riskRatingChange;
 
-    /** {@code orl_lndscp_assmt_details.COMMENTARY}. */
+    /** {@code fact_orl.COMMENTARY} (current biz date). */
     private final String summary;
 
     private final String category;
 
-    /** {@code orl_lndscp_assmt_details.PREV_ASSMT_NET_RISK_RTNG}. */
+    /**
+     * Previous assessment's final rating for this dimension: the prior detail row's
+     * {@code OVRLY_NET_RISK_RTNG}, falling back to the prior month's
+     * {@code fact_orl.CAL_NET_RISK_RTNG}.
+     */
     private final String prevAssmtFinalNRR;
 
     /** {@code "Y"} when {@code OVRLY_NET_RISK_RTNG} is present, else {@code "N"}. */

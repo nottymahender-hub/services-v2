@@ -1,6 +1,5 @@
 package com.dbs.mot.grc.dto;
 
-import com.fasterxml.jackson.annotation.JsonInclude;
 import lombok.Builder;
 import lombok.Getter;
 
@@ -27,10 +26,11 @@ import java.util.Map;
  *   <li>{@code buDetails} — BU hierarchy level and BU name list</li>
  *   <li>{@code locations} — {@code orl_lndscp_dim.LOCATIONS} split on commas</li>
  * </ul>
+ *
+ * <p>Null properties are serialized (no {@code NON_NULL} filtering).
  */
 @Getter
 @Builder
-@JsonInclude(JsonInclude.Include.NON_NULL)
 public class LandscapeDimensions {
 
     /** Risk area JSON map: key = risk area name, value = list of risk type codes. */

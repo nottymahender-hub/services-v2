@@ -5,16 +5,20 @@ import com.dbs.mot.grc.dto.AssmtDetailResponse;
 import com.dbs.mot.grc.dto.DimensionKey;
 import com.dbs.mot.grc.dto.LandscapeAssmtDetailItem;
 import com.dbs.mot.grc.dto.LandscapeAssmtDetailSummary;
+import com.dbs.mot.grc.dto.LandscapeAssmtRef;
 import com.dbs.mot.grc.dto.LandscapeBuDetails;
 import com.dbs.mot.grc.dto.LandscapeDimensions;
 import com.dbs.mot.grc.dto.LiveNRRDetails;
 import com.dbs.mot.grc.dto.MonthNRRDetails;
+import com.dbs.mot.grc.entity.FactOrl;
 import com.dbs.mot.grc.entity.OrlLndscpAssmt;
 import com.dbs.mot.grc.entity.OrlLndscpAssmtDetails;
 import com.dbs.mot.grc.entity.OrlLndscpDim;
+import com.dbs.mot.grc.repository.FactOrlRepository;
 import com.dbs.mot.grc.repository.OrlLndscpAssmtRepository;
 import com.dbs.mot.grc.repository.OrlLndscpDimRepository;
 import com.fasterxml.jackson.core.JsonParser;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -22,17 +26,16 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * Business logic for the landscape-assessment read APIs:
@@ -41,26 +44,16 @@ import java.util.stream.Collectors;
  *   GET /landscape/{lndscpAssmtId}/{assmtDetailId} – drill-down view of one detail row
  * </pre>
  *
- * <p>Previous-month values are derived at read time: the assessment's
- * {@code PREV_ASSMT_NUM} self-reference is followed to the previous assessment, whose
- * detail rows are matched by dimension key ({@code RISK_AREA, ORL_BU_NM_L2..L4,
- * LOCATION, category} — unique per assessment, so at most one match).
+ * <p>The assessment detail table is thin: computed values (calculated NRR, rating change,
+ * control effectiveness, commentary, GRC metrics) live in {@code fact_orl} and are matched
+ * here at read time by dimension key ({@code RISK_AREA, ORL_BU_NM_L2..L4, LOCATION}) for a
+ * given business date — the assessment's {@code CREATE_DT_TM} for the current month, the
+ * previous assessment's {@code CREATE_DT_TM} for the previous month, and the latest
+ * {@code biz_dt} for the live snapshot.
  *
  * <h3>No hand-written joins</h3>
- * <ol>
- *   <li>{@link OrlLndscpAssmtRepository#findById(Object)} — fetches the assessment
- *       together with its {@code details} {@code MappedCollection} (Spring Data JDBC
- *       issues a second, plain, no-join query for the child rows automatically).</li>
- *   <li>{@link OrlLndscpDimRepository#findById(Object)} — a second plain lookup for
- *       the parent landscape-config row, using the id carried by the assessment's
- *       {@code AggregateReference}.</li>
- * </ol>
- *
- * <p>Every derived value in the response (risk-area JSON parsing, CSV splitting,
- * the BU-hierarchy-level lookup, the {@code location}/{@code nrrOverlaid} rules,
- * the detail-row sort order, and the last-refreshed timestamp fallback) is computed
- * here in the service — no query in this class contains {@code JOIN}, {@code CASE},
- * or {@code COALESCE} logic.
+ * Each read uses plain single-table lookups ({@code findById}, {@code findByBizDt},
+ * {@code findByRiskArea}); all matching and derivation happen in Java here.
  */
 @Slf4j
 @Service
@@ -76,6 +69,7 @@ public class LandscapeAssmtDetailsService {
 
     private final OrlLndscpAssmtRepository assmtRepository;
     private final OrlLndscpDimRepository   dimRepository;
+    private final FactOrlRepository        factRepository;
 
     /** Shared ObjectMapper with duplicate-key detection enabled. */
     private static final ObjectMapper MAPPER = new ObjectMapper()
@@ -104,13 +98,16 @@ public class LandscapeAssmtDetailsService {
         List<OrlLndscpAssmtDetails> rows = sortedDetails(assmt);
         log.debug("Assessment id={} has {} detail row(s)", lndscpAssmtId, rows.size());
 
-        // Previous month's final ratings (OVRLY, falling back to CAL), keyed by dimension.
+        // Current-month fact snapshot, keyed by dimension.
+        Map<DimensionKey, FactOrl> currentFacts = factsByKey(bizDateOf(assmt));
+
+        // Previous month's final ratings (overlay, falling back to the prev fact's CAL).
         Map<DimensionKey, String> prevFinalRatings = previousFinalRatings(assmt);
 
-        LandscapeDimensions dimensions = toDimensions(dim);
         List<LandscapeAssmtDetailItem> items = rows.stream()
-                .map(row -> toItem(row, dim.getBizUnitLvl(), prevFinalRatings.get(keyOf(row))))
-                .collect(Collectors.toList());
+                .map(row -> toItem(row, dim.getBizUnitLvl(),
+                        currentFacts.get(keyOf(row)), prevFinalRatings.get(keyOf(row))))
+                .toList();
 
         log.info("Returning {} assessment detail(s) for lndscp_assmt_id={}",
                 items.size(), lndscpAssmtId);
@@ -121,14 +118,50 @@ public class LandscapeAssmtDetailsService {
                 .lndscpAssmtPeriod(assmt.getAssmtPeriod())
                 .lndscpAssmtStatus(assmt.getStatus())
                 .lndscpLastRefreshed(resolveLastRefreshed(assmt))
-                .dimensions(dimensions)
                 .assessments(items)
                 .build();
     }
 
     /**
+     * Returns the landscape-config dimensions (risk areas, BU details, locations) for the
+     * assessment's parent {@code orl_lndscp_dim} row.
+     *
+     * <p>Uses the lightweight {@code findRefById} projection to read only the assessment's
+     * landscape FK — it deliberately does not load the assessment's detail-row
+     * {@code MappedCollection}, which this endpoint does not need.
+     *
+     * @param lndscpAssmtId {@code orl_lndscp_assmt.id}
+     * @return the landscape dimensions
+     * @throws NotFoundException when the assessment, or its landscape config, does not exist
+     */
+    public LandscapeDimensions fetchDimensionsByAssmtId(Long lndscpAssmtId) {
+        log.debug("Fetching dimensions for lndscp_assmt_id={}", lndscpAssmtId);
+
+        LandscapeAssmtRef ref = assmtRepository.findRefById(lndscpAssmtId)
+                .orElseThrow(() -> {
+                    log.warn("No landscape assessment found for id={}", lndscpAssmtId);
+                    return new NotFoundException(
+                            "Landscape assessment not found for id: " + lndscpAssmtId);
+                });
+
+        Long dimId = ref.lndscpNum();
+        OrlLndscpDim dim = dimRepository.findById(dimId)
+                .orElseThrow(() -> {
+                    log.warn("Landscape config id={} referenced by assessment id={} was not found",
+                            dimId, lndscpAssmtId);
+                    return new NotFoundException("Landscape config not found for id: " + dimId);
+                });
+
+        LandscapeDimensions dimensions = toDimensions(dim);
+        log.info("Returning dimensions for lndscp_assmt_id={} (landscape config id={})",
+                lndscpAssmtId, dimId);
+        return dimensions;
+    }
+
+    /**
      * Fetches the drill-down view of a single assessment detail row, including its
-     * current-month, previous-month and live NRR snapshots.
+     * current-month, previous-month and live NRR snapshots (all sourced from
+     * {@code fact_orl}).
      *
      * @param lndscpAssmtId {@code orl_lndscp_assmt.id}
      * @param assmtDetailId {@code orl_lndscp_assmt_details.id} — must belong to the assessment
@@ -152,23 +185,25 @@ public class LandscapeAssmtDetailsService {
                             + " under landscape assessment " + lndscpAssmtId + ".");
                 });
 
+        DimensionKey key = keyOf(row);
+        FactOrl currentFact = factsByKey(bizDateOf(assmt)).get(key);
+
         MonthNRRDetails current = MonthNRRDetails.builder()
-                .nrrCalculated(row.getCalNetRiskRtng())
+                .nrrCalculated(currentFact != null ? currentFact.getCalNetRiskRtng() : null)
                 .nrr(row.getOvrlyNetRiskRtng())
-                .ctrlEffRtn(row.getCtrlEffRtn())
+                .ctrlEffRtn(currentFact != null ? currentFact.getCtrlEffRtn() : null)
                 .assmtPeriod(assmt.getAssmtPeriod())
+                .grcMetrics(parseGrcMetrics(currentFact))
+                .commentry(currentFact != null ? currentFact.getCommentary() : null)
+                .revisedCommentry(row.getRevisedCommentary())
                 .build();
 
-        MonthNRRDetails previous = previousMonthDetails(assmt, keyOf(row));
+        MonthNRRDetails previous = previousMonthDetails(assmt, key);
+        LiveNRRDetails live = liveDetails(key);
 
-        LiveNRRDetails live = LiveNRRDetails.builder()
-                .nrr(row.getLvNetRiskRtng())
-                .lastRefreshed(row.getLvLstRfrshDtTm())
-                .ctrlEffRtn(row.getLvCtrlEffRtn())
-                .build();
-
-        log.info("Returning detail id={} of assessment id={} (prev snapshot {})",
-                assmtDetailId, lndscpAssmtId, previous != null ? "found" : "absent");
+        log.info("Returning detail id={} of assessment id={} (prev {}, live {})",
+                assmtDetailId, lndscpAssmtId,
+                previous != null ? "found" : "absent", live != null ? "found" : "absent");
 
         return AssmtDetailResponse.builder()
                 .id(row.getId())
@@ -181,12 +216,52 @@ public class LandscapeAssmtDetailsService {
                 .currentMonthNRRDetails(current)
                 .prevMonthNRRDetails(previous)
                 .liveNRRDetails(live)
-                .summary(row.getCommentary())
-                .revisedSummary(row.getRevisedCommentary())
                 .category(row.getCategory())
                 .nrrOverlaid(row.getOvrlyNetRiskRtng() != null ? OVERLAID_YES : OVERLAID_NO)
                 .overlayJustfkn(row.getOvrlyJstfkn())
-                .grcMetrics(parseGrcMetrics(row))
+                .build();
+    }
+
+    // ── fact_orl lookups ─────────────────────────────────────────────────────
+
+    /** The business date used to match {@code fact_orl}: the assessment's creation date. */
+    private LocalDate bizDateOf(OrlLndscpAssmt assmt) {
+        return assmt.getCreateDtTm() != null ? assmt.getCreateDtTm().toLocalDate() : null;
+    }
+
+    /** All {@code fact_orl} rows for the given business date, indexed by dimension key. */
+    private Map<DimensionKey, FactOrl> factsByKey(LocalDate bizDt) {
+        if (bizDt == null) {
+            return Collections.emptyMap();
+        }
+        Map<DimensionKey, FactOrl> byKey = new LinkedHashMap<>();
+        for (FactOrl fact : factRepository.findByBizDt(bizDt)) {
+            byKey.putIfAbsent(factKeyOf(fact), fact);
+        }
+        log.debug("Loaded {} fact_orl row(s) for biz_dt={}", byKey.size(), bizDt);
+        return byKey;
+    }
+
+    /**
+     * The live snapshot for a dimension: the {@code fact_orl} row with the latest
+     * {@code biz_dt} matching the key, or {@code null} when the dimension has no facts.
+     */
+    private LiveNRRDetails liveDetails(DimensionKey key) {
+        FactOrl latest = factRepository.findByRiskArea(key.riskArea()).stream()
+                .filter(fact -> key.equals(factKeyOf(fact)))
+                .max(Comparator.comparing(FactOrl::getBizDt,
+                        Comparator.nullsFirst(Comparator.naturalOrder())))
+                .orElse(null);
+        if (latest == null) {
+            log.debug("No live fact_orl row for key {}", key);
+            return null;
+        }
+        return LiveNRRDetails.builder()
+                .nrr(latest.getCalNetRiskRtng())
+                .lastRefreshed(latest.getBizDt())
+                .ctrlEffRtn(latest.getCtrlEffRtn())
+                .grcMetrics(parseGrcMetrics(latest))
+                .commentry(latest.getCommentary())
                 .build();
     }
 
@@ -206,10 +281,16 @@ public class LandscapeAssmtDetailsService {
         return assmt.getDetails() != null ? assmt.getDetails() : Set.of();
     }
 
-    /** The dimension identity of a detail row, used to match rows across assessments. */
+    /** The dimension identity of a detail row. */
     private DimensionKey keyOf(OrlLndscpAssmtDetails row) {
         return new DimensionKey(row.getRiskArea(), row.getOrlBuNmL2(), row.getOrlBuNmL3(),
-                row.getOrlBuNmL4(), row.getLocation(), row.getCategory());
+                row.getOrlBuNmL4(), row.getLocation());
+    }
+
+    /** The dimension identity of a fact row. */
+    private DimensionKey factKeyOf(FactOrl fact) {
+        return new DimensionKey(fact.getRiskArea(), fact.getOrlBuNmL2(), fact.getOrlBuNmL3(),
+                fact.getOrlBuNmL4(), fact.getLocation());
     }
 
     /**
@@ -231,19 +312,25 @@ public class LandscapeAssmtDetailsService {
     }
 
     /**
-     * Previous month's final rating per dimension key: {@code OVRLY_NET_RISK_RTNG}
-     * when overlaid, else {@code CAL_NET_RISK_RTNG}. Empty when there is no previous
-     * assessment. (Built with a plain loop — values may legitimately be null.)
+     * Previous month's final rating per dimension key: the prior detail row's
+     * {@code OVRLY_NET_RISK_RTNG} when overlaid, else the prior month's
+     * {@code fact_orl.CAL_NET_RISK_RTNG}. Empty when there is no previous assessment.
      */
     private Map<DimensionKey, String> previousFinalRatings(OrlLndscpAssmt assmt) {
         Optional<OrlLndscpAssmt> prev = loadPreviousAssmt(assmt);
         if (prev.isEmpty()) {
             return Collections.emptyMap();
         }
-        Map<DimensionKey, String> ratings = new HashMap<>();
+        Map<DimensionKey, FactOrl> prevFacts = factsByKey(bizDateOf(prev.get()));
+        Map<DimensionKey, String> ratings = new LinkedHashMap<>();
         for (OrlLndscpAssmtDetails d : detailsOf(prev.get())) {
-            String rating = d.getOvrlyNetRiskRtng() != null ? d.getOvrlyNetRiskRtng() : d.getCalNetRiskRtng();
-            ratings.put(keyOf(d), rating);
+            DimensionKey key = keyOf(d);
+            String rating = d.getOvrlyNetRiskRtng();
+            if (rating == null) {
+                FactOrl fact = prevFacts.get(key);
+                rating = fact != null ? fact.getCalNetRiskRtng() : null;
+            }
+            ratings.put(key, rating);
         }
         log.debug("Loaded {} previous rating(s) from assessment id={}",
                 ratings.size(), prev.get().getId());
@@ -252,27 +339,33 @@ public class LandscapeAssmtDetailsService {
 
     /**
      * The previous month's NRR snapshot for the row matching the given dimension key,
-     * or {@code null} when there is no previous assessment or no matching row.
+     * or {@code null} when there is no previous assessment or no matching detail row.
+     * The calculated rating, control effectiveness, commentary and GRC metrics come from
+     * the previous month's {@code fact_orl}; {@code nrr} and {@code id} from the prior row.
      */
     private MonthNRRDetails previousMonthDetails(OrlLndscpAssmt assmt, DimensionKey key) {
         Optional<OrlLndscpAssmt> prev = loadPreviousAssmt(assmt);
         if (prev.isEmpty()) {
             return null;
         }
-        return detailsOf(prev.get()).stream()
+        Optional<OrlLndscpAssmtDetails> prevRow = detailsOf(prev.get()).stream()
                 .filter(d -> key.equals(keyOf(d)))
-                .findFirst()          // the dimension unique index guarantees at most one match
-                .map(d -> MonthNRRDetails.builder()
-                        .nrrCalculated(d.getCalNetRiskRtng())
-                        .nrr(d.getOvrlyNetRiskRtng())
-                        .ctrlEffRtn(d.getCtrlEffRtn())
-                        .assmtPeriod(prev.get().getAssmtPeriod())
-                        .build())
-                .orElseGet(() -> {
-                    log.debug("No row in previous assessment id={} matches key {}",
-                            prev.get().getId(), key);
-                    return null;
-                });
+                .findFirst();      // the dimension unique index guarantees at most one match
+        if (prevRow.isEmpty()) {
+            log.debug("No row in previous assessment id={} matches key {}", prev.get().getId(), key);
+            return null;
+        }
+        FactOrl prevFact = factsByKey(bizDateOf(prev.get())).get(key);
+        OrlLndscpAssmtDetails d = prevRow.get();
+        return MonthNRRDetails.builder()
+                .id(d.getId())
+                .nrrCalculated(prevFact != null ? prevFact.getCalNetRiskRtng() : null)
+                .nrr(d.getOvrlyNetRiskRtng())
+                .ctrlEffRtn(prevFact != null ? prevFact.getCtrlEffRtn() : null)
+                .assmtPeriod(prev.get().getAssmtPeriod())
+                .grcMetrics(parseGrcMetrics(prevFact))
+                .commentry(prevFact != null ? prevFact.getCommentary() : null)
+                .build();
     }
 
     /**
@@ -299,21 +392,20 @@ public class LandscapeAssmtDetailsService {
     }
 
     /**
-     * Parses the row's {@code GRC_METRICS} JSON string into a tree so the response
-     * carries a real JSON object instead of a double-encoded string. Null/blank or
-     * unparseable content (the DB enforces json_valid, so the latter is unexpected)
+     * Parses a {@code fact_orl} row's {@code GRC_METRICS} JSON string into a tree so the
+     * response carries a real JSON object instead of a double-encoded string. Null/blank
+     * or unparseable content (the DB enforces json_valid, so the latter is unexpected)
      * yields {@code null} rather than failing the request.
      */
-    private JsonNode parseGrcMetrics(OrlLndscpAssmtDetails row) {
-        String json = row.getGrcMetrics();
-        if (json == null || json.isBlank()) {
+    private JsonNode parseGrcMetrics(FactOrl fact) {
+        if (fact == null || fact.getGrcMetrics() == null || fact.getGrcMetrics().isBlank()) {
             return null;
         }
         try {
-            return MAPPER.readTree(json);
-        } catch (Exception e) {
-            log.warn("GRC_METRICS of detail row id={} is not valid JSON — returning null: {}",
-                    row.getId(), e.getMessage());
+            return MAPPER.readTree(fact.getGrcMetrics());
+        } catch (JsonProcessingException e) {
+            log.warn("GRC_METRICS of fact_orl id={} is not valid JSON — returning null: {}",
+                    fact.getId(), e.getMessage());
             return null;
         }
     }
@@ -326,7 +418,7 @@ public class LandscapeAssmtDetailsService {
         return assmt.getUpdateDtTm() != null ? assmt.getUpdateDtTm() : assmt.getCreateDtTm();
     }
 
-    /** Sorts the {@code MappedCollection} by (riskArea, location), replacing the old SQL ORDER BY. */
+    /** Returns the assessment's detail rows sorted by (riskArea, location). */
     private List<OrlLndscpAssmtDetails> sortedDetails(OrlLndscpAssmt assmt) {
         Set<OrlLndscpAssmtDetails> details = assmt.getDetails();
         if (details == null) return List.of();
@@ -334,7 +426,7 @@ public class LandscapeAssmtDetailsService {
                 .sorted(Comparator
                         .comparing(OrlLndscpAssmtDetails::getRiskArea, Comparator.nullsLast(String::compareTo))
                         .thenComparing(OrlLndscpAssmtDetails::getLocation, Comparator.nullsLast(String::compareTo)))
-                .collect(Collectors.toList());
+                .toList();
     }
 
     private LandscapeDimensions toDimensions(OrlLndscpDim dim) {
@@ -360,14 +452,14 @@ public class LandscapeAssmtDetailsService {
         if (json == null || json.isBlank()) return Collections.emptyMap();
         try {
             return MAPPER.readValue(json, new TypeReference<LinkedHashMap<String, List<String>>>() {});
-        } catch (Exception e) {
+        } catch (JsonProcessingException e) {
             log.warn("Failed to parse RISK_AREA JSON: '{}' — {}", json, e.getMessage());
             return Collections.emptyMap();
         }
     }
 
     private LandscapeAssmtDetailItem toItem(OrlLndscpAssmtDetails row, Integer bizUnitLvl,
-                                            String prevAssmtFinalNRR) {
+                                            FactOrl currentFact, String prevAssmtFinalNRR) {
         String bu = resolveBu(row, bizUnitLvl);
         String location = resolveLocation(row);
         String nrrOverlaid = row.getOvrlyNetRiskRtng() != null ? OVERLAID_YES : OVERLAID_NO;
@@ -381,10 +473,10 @@ public class LandscapeAssmtDetailsService {
                 .bu(bu)
                 .location(location)
                 .status(row.getStatus())
-                .nrrCalculated(row.getCalNetRiskRtng())
+                .nrrCalculated(currentFact != null ? currentFact.getCalNetRiskRtng() : null)
                 .nrr(row.getOvrlyNetRiskRtng())
-                .riskRatingChange(row.getRiskRtngChge())
-                .summary(row.getCommentary())
+                .riskRatingChange(currentFact != null ? currentFact.getRiskRtngChge() : null)
+                .summary(currentFact != null ? currentFact.getCommentary() : null)
                 .category(row.getCategory())
                 .prevAssmtFinalNRR(prevAssmtFinalNRR)
                 .nrrOverlaid(nrrOverlaid)
@@ -429,6 +521,6 @@ public class LandscapeAssmtDetailsService {
         return Arrays.stream(raw.split(","))
                 .map(String::trim)
                 .filter(s -> !s.isEmpty())
-                .collect(Collectors.toList());
+                .toList();
     }
 }

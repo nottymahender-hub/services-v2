@@ -19,9 +19,11 @@ import java.time.LocalDateTime;
  * reference back to its parent, so the {@code orl_lndscp_assmt_id} FK relationship
  * is strictly one-way (parent → children only).
  *
- * <p>{@code calNetRiskRtng} is a plain enum value stored directly on the row
- * (e.g. {@code "Low"}, {@code "High"}) — it is no longer a foreign key to
- * {@code net_risk_band}.
+ * <p><b>Thin table:</b> this row carries only its dimension identity, the analyst
+ * overlay ({@code OVRLY_NET_RISK_RTNG}, {@code OVRLY_JSTFKN}), the revised commentary
+ * and its status. All computed values (calculated NRR, rating change, control
+ * effectiveness, commentary, GRC metrics) live in {@code fact_orl} and are matched at
+ * read time by dimension + business date.
  */
 @Table("orl_lndscp_assmt_details")
 @Getter
@@ -54,45 +56,15 @@ public class OrlLndscpAssmtDetails {
     @Column("category")
     private String category;
 
-    /** One of {@code Improved, Deteriorated, Stable, N.A}. */
-    @Column("RISK_RTNG_CHGE")
-    private String riskRtngChge;
-
-    /** Calculated net risk rating, stored directly (no longer an FK to {@code net_risk_band}). */
-    @Column("CAL_NET_RISK_RTNG")
-    private String calNetRiskRtng;
-
-    /** Live (latest-refresh) net risk rating snapshot. */
-    @Column("LV_NET_RISK_RTNG")
-    private String lvNetRiskRtng;
-
-    /** When the live snapshot was last refreshed. */
-    @Column("LV_LST_RFRSH_DT_TM")
-    private LocalDateTime lvLstRfrshDtTm;
-
-    /** Live control-effectiveness rating snapshot. */
-    @Column("LV_CTRL_EFF_RTN")
-    private String lvCtrlEffRtn;
-
-    @Column("COMMENTARY")
-    private String commentary;
-
+    /** Analyst-revised commentary (distinct from the fact-sourced commentary). */
     @Column("REVISED_COMMENTARY")
     private String revisedCommentary;
 
-    /** JSON string of GRC metrics. */
-    @Column("GRC_METRICS")
-    private String grcMetrics;
-
-    @Column("RISK_SIGNAL")
-    private String riskSignal;
-
-    @Column("CTRL_EFF_RTN")
-    private String ctrlEffRtn;
-
+    /** Analyst-overlaid net risk rating (overrides the calculated rating when set). */
     @Column("OVRLY_NET_RISK_RTNG")
     private String ovrlyNetRiskRtng;
 
+    /** Justification for the overlay. */
     @Column("OVRLY_JSTFKN")
     private String ovrlyJstfkn;
 

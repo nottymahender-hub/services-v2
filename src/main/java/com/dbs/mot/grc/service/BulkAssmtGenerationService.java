@@ -111,7 +111,7 @@ public class BulkAssmtGenerationService {
                     .build();
         }
 
-        OrlLndscpDim dim = configs.get(0);
+        OrlLndscpDim dim = configs.getFirst();
         try {
             AssmtGenerationResponse generatedAssmt = generationService.generateForDim(dim, userId);
             return AssmtGenerationResult.builder()

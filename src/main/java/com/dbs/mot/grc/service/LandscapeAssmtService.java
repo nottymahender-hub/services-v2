@@ -67,7 +67,7 @@ public class LandscapeAssmtService {
                 .sorted(Comparator
                         .comparing(LandscapeAssmtSummary::getLandscapeName, Comparator.nullsLast(String::compareTo))
                         .thenComparing(LandscapeAssmtSummary::getAssessmentPeriod, Comparator.nullsLast(String::compareTo)))
-                .collect(Collectors.toList());
+                .toList();
 
         log.info("Returning {} landscape assessment summary(ies)", summaries.size());
         return summaries;

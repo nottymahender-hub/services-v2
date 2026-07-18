@@ -36,9 +36,8 @@ import java.nio.charset.StandardCharsets;
  * <p><b>Authentication:</b> the {@code X-EGRC-UserId} HTTP header is required for
  * upload. A missing or blank header returns HTTP 401 Unauthorized.
  *
- * <p>Every successful upload is still recorded via {@link CsvUploadAuditService}
- * (see {@code orl_static_data_maintianance_csv_upload_audit}) — there is just no longer
- * a listing API for that history.
+ * <p>Every successful upload is recorded via {@link CsvUploadAuditService}
+ * into {@code orl_static_data_maintianance_csv_upload_audit}.
  */
 @Slf4j
 @RestController

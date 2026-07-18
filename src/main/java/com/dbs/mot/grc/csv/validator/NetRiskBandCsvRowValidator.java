@@ -13,8 +13,8 @@ import java.util.Map;
 /**
  * Cross-row validation for the NetRiskBand CSV batch.
  *
- * <p>Rule: composite (net_risk_rtng, module) unique per file — config_version is no longer
- * a CSV input, it is resolved server-side, so uniqueness is checked without it.
+ * <p>Rule: composite {@code (net_risk_rtng, module)} unique per file. {@code config_version}
+ * is resolved server-side (not a CSV input), so it is not part of the uniqueness check.
  */
 @Component
 public class NetRiskBandCsvRowValidator implements CsvRowValidator<NetRiskBandCsvRow> {

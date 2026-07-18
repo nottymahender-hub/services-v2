@@ -92,7 +92,7 @@ public class NetRiskBandCsvHandler implements CsvHandler {
                             .netRiskRtng(r.getNetRiskRtng()).module(r.getModule())
                             .createdBy(username).createDtTm(now).build();
                 })
-                .collect(Collectors.toList());
+                .toList();
 
         jdbcAggregateOperations.insertAll(entities);
         log.info("Imported {} net_risk_band rows by '{}'", entities.size(), username);

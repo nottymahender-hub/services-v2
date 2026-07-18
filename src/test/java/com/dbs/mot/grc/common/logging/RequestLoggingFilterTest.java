@@ -21,8 +21,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * Verifies {@link RequestLoggingFilter} populates SLF4J MDC ({@code traceId}, {@code username})
- * for the lifetime of a request and clears it afterwards.
+ * Verifies {@link RequestLoggingFilter} populates SLF4J MDC ({@code username}) for the
+ * lifetime of a request and clears it afterwards.
  *
  * <p>A Logback {@link ListAppender} is attached directly to the filter's logger so the test can
  * inspect the MDC snapshot captured on each log event, rather than parsing formatted console text.
@@ -52,28 +52,23 @@ class RequestLoggingFilterTest {
     }
 
     @Test
-    void requestWithTraceIdAndUsername_populatesMdcOnLogEvents() throws Exception {
+    void requestWithUsername_populatesMdcOnLogEvents() throws Exception {
         mvc.perform(get("/api/csv/biz-units/download")
-                        .header("X-Trace-Id", "trace-123")
                         .header("X-EGRC-UserId", "alice"))
            .andExpect(status().isOk());
 
         List<ILoggingEvent> events = appender.list;
         assertThat(events).isNotEmpty();
-        assertThat(events).allSatisfy(event -> {
-            assertThat(event.getMDCPropertyMap()).containsEntry("traceId", "trace-123");
-            assertThat(event.getMDCPropertyMap()).containsEntry("username", "alice");
-        });
+        assertThat(events).allSatisfy(event ->
+                assertThat(event.getMDCPropertyMap()).containsEntry("username", "alice"));
     }
 
     @Test
-    void requestWithoutTraceId_generatesRandomOne() throws Exception {
+    void requestWithoutUsername_leavesUsernameOutOfMdc() throws Exception {
         mvc.perform(get("/api/csv/biz-units/download")).andExpect(status().isOk());
 
         List<ILoggingEvent> events = appender.list;
         assertThat(events).isNotEmpty();
-        String generatedTraceId = events.get(0).getMDCPropertyMap().get("traceId");
-        assertThat(generatedTraceId).isNotBlank();
         // username was not sent — must not appear in the MDC snapshot
         assertThat(events.get(0).getMDCPropertyMap()).doesNotContainKey("username");
     }
@@ -84,7 +79,6 @@ class RequestLoggingFilterTest {
 
         // MockMvc runs the filter chain synchronously on the test thread, so MDC.clear()
         // in the filter's finally block should have already run by the time perform() returns.
-        assertThat(MDC.get("traceId")).isNull();
         assertThat(MDC.get("username")).isNull();
     }
 

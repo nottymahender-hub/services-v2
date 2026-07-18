@@ -13,12 +13,9 @@ import java.util.Map;
 /**
  * Cross-row validation for the BizUnit CSV batch.
  *
- * <p>Rule: BU_NUM unique across the CSV.
- *
- * <p>The former "no comma in field" check and the ORL_BU_NM_L2/L3/L4 hierarchy
- * reference validation were removed: {@code BU_FULL_PATH} legitimately contains
- * literal commas (e.g. inside {@code &}-joined names), and hierarchy references
- * are no longer required to resolve within the same upload batch.
+ * <p>Rule: {@code BU_NUM} unique across the CSV. Field values may contain literal commas
+ * (e.g. {@code BU_FULL_PATH} with {@code &}-joined names), and hierarchy references
+ * ({@code ORL_BU_NM_L2/L3/L4}) are not required to resolve within the same upload batch.
  */
 @Component
 public class BizUnitCsvRowValidator implements CsvRowValidator<BizUnitCsvRow> {

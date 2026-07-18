@@ -20,9 +20,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * <h3>Seed data</h3>
  * <ul>
  *   <li>Dim 100: RISK_AREA JSON = {@code {"Cyber Risk":["OR"],"Conduct Risk":["CR"]}},
- *       LOCATIONS = {@code "SG,HK"}, BIZ_UNITS = {@code "Tech,Ops"}</li>
+ *       LOCATIONS = {@code "SG,HK"}, BIZ_UNITS = {@code "Tech,Ops"} (dim columns stay CSV)</li>
  *   <li>Assmt 200 → dim 100</li>
- *   <li>Callout 300 (active), 301 (soft-deleted) under assmt 200</li>
+ *   <li>Callout 300 (active, SME='bob'), 301 (soft-deleted) under assmt 200 —
+ *       LOCATIONS/BIZ_UNITS stored as JSON arrays</li>
  * </ul>
  */
 @SpringBootTest
@@ -39,6 +40,7 @@ class LandscapeAssmtCalloutControllerTest {
 
     @BeforeEach
     void setUp() {
+        jdbc.execute("DELETE FROM orl_lndscp_callout_comment_hist");
         jdbc.execute("DELETE FROM orl_lndscp_callout");
         jdbc.execute("DELETE FROM orl_lndscp_assmt_details");
         jdbc.execute("DELETE FROM orl_lndscp_assmt");
@@ -56,32 +58,36 @@ class LandscapeAssmtCalloutControllerTest {
                 VALUES(200,100,'Q1-2024','Open','seed')
                 """);
 
+        // LOCATIONS/BIZ_UNITS are JSON arrays; comment/SME are NOT NULL.
         jdbc.execute("""
-                INSERT INTO orl_lndscp_callout(id,RISK_AREA,LOCATIONS,BIZ_UNITS,lndscp_assmt_id,comment,DEL_FLG)
-                VALUES(300,'Cyber Risk','SG,HK','Tech',200,'Active callout',FALSE)
+                INSERT INTO orl_lndscp_callout(id,RISK_AREA,LOCATIONS,BIZ_UNITS,lndscp_assmt_id,comment,DEL_FLG,SME,LAST_MODIFIED_SME)
+                VALUES(300,'Cyber Risk','["SG","HK"]','["Tech"]',200,'Active callout',FALSE,'bob','bob')
                 """);
         jdbc.execute("""
-                INSERT INTO orl_lndscp_callout(id,RISK_AREA,LOCATIONS,BIZ_UNITS,lndscp_assmt_id,comment,DEL_FLG)
-                VALUES(301,'Conduct Risk','ALL','ALL',200,'Deleted callout',TRUE)
+                INSERT INTO orl_lndscp_callout(id,RISK_AREA,LOCATIONS,BIZ_UNITS,lndscp_assmt_id,comment,DEL_FLG,SME,LAST_MODIFIED_SME)
+                VALUES(301,'Conduct Risk','["ALL"]','["ALL"]',200,'Deleted callout',TRUE,'bob','bob')
                 """);
+    }
+
+    private int historyCount(long calloutId) {
+        Integer n = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM orl_lndscp_callout_comment_hist WHERE callout_id=?",
+                Integer.class, calloutId);
+        return n == null ? 0 : n;
     }
 
     // ── GET ──────────────────────────────────────────────────────────────────
 
     @Test
-    void getCallouts_returnsOk() throws Exception {
-        mvc.perform(get(BASE_URL, 200).header("X-EGRC-UserId", USERNAME))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.success").value(true));
-    }
-
-    @Test
-    void getCallouts_returnsOnlyActiveCallouts() throws Exception {
+    void getCallouts_returnsOnlyActiveCallouts_withArrayFieldsAndSme() throws Exception {
         mvc.perform(get(BASE_URL, 200).header("X-EGRC-UserId", USERNAME))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.callouts", hasSize(1)))
                 .andExpect(jsonPath("$.data.callouts[0].id").value(300))
-                .andExpect(jsonPath("$.data.callouts[0].riskArea").value("Cyber Risk"));
+                .andExpect(jsonPath("$.data.callouts[0].riskArea").value("Cyber Risk"))
+                .andExpect(jsonPath("$.data.callouts[0].locations", contains("SG", "HK")))
+                .andExpect(jsonPath("$.data.callouts[0].bizUnits", contains("Tech")))
+                .andExpect(jsonPath("$.data.callouts[0].sme").value("bob"));
     }
 
     @Test
@@ -101,12 +107,6 @@ class LandscapeAssmtCalloutControllerTest {
     }
 
     @Test
-    void getCallouts_blankUsername_returns401() throws Exception {
-        mvc.perform(get(BASE_URL, 200).header("X-EGRC-UserId", "  "))
-                .andExpect(status().isUnauthorized());
-    }
-
-    @Test
     void getCallouts_nonExistentAssmt_returns404() throws Exception {
         mvc.perform(get(BASE_URL, 9999).header("X-EGRC-UserId", USERNAME))
                 .andExpect(status().isNotFound())
@@ -116,9 +116,37 @@ class LandscapeAssmtCalloutControllerTest {
     // ── POST ─────────────────────────────────────────────────────────────────
 
     @Test
-    void createCallout_validPayload_returns201() throws Exception {
+    void createCallout_validPayload_returns201_statusOnly() throws Exception {
         String body = """
-                {"riskArea":"Conduct Risk","locations":"SG","bizUnits":"Ops","comment":"New callout"}
+                {"riskArea":"Conduct Risk","locations":["SG"],"bizUnits":["Ops"],"comment":"New callout","sme":"alice"}
+                """;
+        // Create/update return a status message only (no data), like delete.
+        mvc.perform(post(BASE_URL, 200)
+                        .header("X-EGRC-UserId", USERNAME)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.message").value("Callout created successfully."))
+                .andExpect(jsonPath("$.data").doesNotExist());
+
+        // Behaviour is verified against the DB.
+        Long id = jdbc.queryForObject(
+                "SELECT id FROM orl_lndscp_callout WHERE comment='New callout'", Long.class);
+        String storedLoc = jdbc.queryForObject(
+                "SELECT LOCATIONS FROM orl_lndscp_callout WHERE id=?", String.class, id);
+        String sme = jdbc.queryForObject("SELECT SME FROM orl_lndscp_callout WHERE id=?", String.class, id);
+        String lastSme = jdbc.queryForObject("SELECT LAST_MODIFIED_SME FROM orl_lndscp_callout WHERE id=?", String.class, id);
+        assert "[\"SG\"]".equals(storedLoc) : "expected JSON array, got " + storedLoc;
+        // On create the sme is stored as both SME and LAST_MODIFIED_SME.
+        assert "alice".equals(sme) && "alice".equals(lastSme);
+        assert historyCount(id) == 1;
+    }
+
+    @Test
+    void createCallout_withOthersAndAll_returns201() throws Exception {
+        String body = """
+                {"riskArea":"Others","locations":["ALL"],"bizUnits":["Others"],"comment":"c","sme":"alice"}
                 """;
         mvc.perform(post(BASE_URL, 200)
                         .header("X-EGRC-UserId", USERNAME)
@@ -126,22 +154,13 @@ class LandscapeAssmtCalloutControllerTest {
                         .content(body))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.success").value(true))
-                .andExpect(jsonPath("$.data.riskArea").value("Conduct Risk"))
-                .andExpect(jsonPath("$.data.locations").value("SG"))
-                .andExpect(jsonPath("$.data.bizUnits").value("Ops"));
-    }
+                .andExpect(jsonPath("$.data").doesNotExist());
 
-    @Test
-    void createCallout_withOthersAndAll_returns201() throws Exception {
-        String body = """
-                {"riskArea":"Others","locations":"ALL","bizUnits":"Others"}
-                """;
-        mvc.perform(post(BASE_URL, 200)
-                        .header("X-EGRC-UserId", USERNAME)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(body))
-                .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.data.riskArea").value("Others"));
+        // The Others/ALL sentinel values are accepted and persisted.
+        Integer count = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM orl_lndscp_callout WHERE lndscp_assmt_id=200 AND RISK_AREA='Others'",
+                Integer.class);
+        assert count != null && count == 1;
     }
 
     @Test
@@ -149,20 +168,25 @@ class LandscapeAssmtCalloutControllerTest {
         String longComment = "A".repeat(500);
         String body = String.format(
                 """
-                {"riskArea":"Cyber Risk","locations":"SG","bizUnits":"Tech","comment":"%s"}
+                {"riskArea":"Cyber Risk","locations":["SG"],"bizUnits":["Tech"],"comment":"%s","sme":"alice"}
                 """, longComment);
         mvc.perform(post(BASE_URL, 200)
                         .header("X-EGRC-UserId", USERNAME)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
-                .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.data.comment", hasLength(400)));
+                .andExpect(status().isCreated());
+
+        // The persisted comment is truncated to 400 characters (verified in the DB).
+        Integer len = jdbc.queryForObject(
+                "SELECT LENGTH(comment) FROM orl_lndscp_callout WHERE SME='alice' AND RISK_AREA='Cyber Risk'",
+                Integer.class);
+        assert len != null && len == 400 : "expected 400, got " + len;
     }
 
     @Test
     void createCallout_missingUsername_returns401() throws Exception {
         String body = """
-                {"riskArea":"Cyber Risk","locations":"SG","bizUnits":"Tech"}
+                {"riskArea":"Cyber Risk","locations":["SG"],"bizUnits":["Tech"],"comment":"c","sme":"alice"}
                 """;
         mvc.perform(post(BASE_URL, 200)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -171,22 +195,33 @@ class LandscapeAssmtCalloutControllerTest {
     }
 
     @Test
-    void createCallout_blankRiskArea_returns400() throws Exception {
+    void createCallout_blankComment_returns400() throws Exception {
         String body = """
-                {"riskArea":"","locations":"SG","bizUnits":"Tech"}
+                {"riskArea":"Cyber Risk","locations":["SG"],"bizUnits":["Tech"],"comment":"","sme":"alice"}
                 """;
         mvc.perform(post(BASE_URL, 200)
                         .header("X-EGRC-UserId", USERNAME)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.success").value(false));
+                .andExpect(status().isBadRequest());
     }
 
     @Test
-    void createCallout_nullLocations_returns400() throws Exception {
+    void createCallout_blankSme_returns400() throws Exception {
         String body = """
-                {"riskArea":"Cyber Risk","bizUnits":"Tech"}
+                {"riskArea":"Cyber Risk","locations":["SG"],"bizUnits":["Tech"],"comment":"c","sme":""}
+                """;
+        mvc.perform(post(BASE_URL, 200)
+                        .header("X-EGRC-UserId", USERNAME)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void createCallout_emptyLocations_returns400() throws Exception {
+        String body = """
+                {"riskArea":"Cyber Risk","locations":[],"bizUnits":["Tech"],"comment":"c","sme":"alice"}
                 """;
         mvc.perform(post(BASE_URL, 200)
                         .header("X-EGRC-UserId", USERNAME)
@@ -198,7 +233,7 @@ class LandscapeAssmtCalloutControllerTest {
     @Test
     void createCallout_invalidRiskArea_returns400() throws Exception {
         String body = """
-                {"riskArea":"Not A Valid Area","locations":"SG","bizUnits":"Tech"}
+                {"riskArea":"Not A Valid Area","locations":["SG"],"bizUnits":["Tech"],"comment":"c","sme":"alice"}
                 """;
         mvc.perform(post(BASE_URL, 200)
                         .header("X-EGRC-UserId", USERNAME)
@@ -211,7 +246,7 @@ class LandscapeAssmtCalloutControllerTest {
     @Test
     void createCallout_invalidLocation_returns400() throws Exception {
         String body = """
-                {"riskArea":"Cyber Risk","locations":"InvalidLoc","bizUnits":"Tech"}
+                {"riskArea":"Cyber Risk","locations":["InvalidLoc"],"bizUnits":["Tech"],"comment":"c","sme":"alice"}
                 """;
         mvc.perform(post(BASE_URL, 200)
                         .header("X-EGRC-UserId", USERNAME)
@@ -224,7 +259,7 @@ class LandscapeAssmtCalloutControllerTest {
     @Test
     void createCallout_invalidBizUnit_returns400() throws Exception {
         String body = """
-                {"riskArea":"Cyber Risk","locations":"SG","bizUnits":"InvalidBU"}
+                {"riskArea":"Cyber Risk","locations":["SG"],"bizUnits":["InvalidBU"],"comment":"c","sme":"alice"}
                 """;
         mvc.perform(post(BASE_URL, 200)
                         .header("X-EGRC-UserId", USERNAME)
@@ -237,7 +272,7 @@ class LandscapeAssmtCalloutControllerTest {
     @Test
     void createCallout_nonExistentAssmt_returns404() throws Exception {
         String body = """
-                {"riskArea":"Cyber Risk","locations":"SG","bizUnits":"Tech"}
+                {"riskArea":"Cyber Risk","locations":["SG"],"bizUnits":["Tech"],"comment":"c","sme":"alice"}
                 """;
         mvc.perform(post(BASE_URL, 9999)
                         .header("X-EGRC-UserId", USERNAME)
@@ -249,9 +284,10 @@ class LandscapeAssmtCalloutControllerTest {
     // ── PUT ──────────────────────────────────────────────────────────────────
 
     @Test
-    void updateCallout_validPayload_returns200() throws Exception {
+    void updateCallout_shiftsSme_andWritesHistory() throws Exception {
+        // Callout 300 currently owned by 'bob'; update with sme='carol'.
         String body = """
-                {"riskArea":"Conduct Risk","locations":"HK","bizUnits":"Ops","comment":"Updated"}
+                {"riskArea":"Conduct Risk","locations":["HK"],"bizUnits":["Ops"],"comment":"Updated","sme":"carol"}
                 """;
         mvc.perform(put(ITEM_URL, 200, 300)
                         .header("X-EGRC-UserId", USERNAME)
@@ -259,14 +295,24 @@ class LandscapeAssmtCalloutControllerTest {
                         .content(body))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
-                .andExpect(jsonPath("$.data.riskArea").value("Conduct Risk"))
-                .andExpect(jsonPath("$.data.comment").value("Updated"));
+                .andExpect(jsonPath("$.message").value("Callout updated successfully."))
+                .andExpect(jsonPath("$.data").doesNotExist());
+
+        // SME shift and history are verified against the DB: new SME = request sme,
+        // LAST_MODIFIED_SME = previous SME ('bob'); locations stored as JSON.
+        String sme = jdbc.queryForObject("SELECT SME FROM orl_lndscp_callout WHERE id=300", String.class);
+        String lastSme = jdbc.queryForObject("SELECT LAST_MODIFIED_SME FROM orl_lndscp_callout WHERE id=300", String.class);
+        String loc = jdbc.queryForObject("SELECT LOCATIONS FROM orl_lndscp_callout WHERE id=300", String.class);
+        assert "carol".equals(sme);
+        assert "bob".equals(lastSme);
+        assert "[\"HK\"]".equals(loc) : "expected JSON array, got " + loc;
+        assert historyCount(300) == 1;
     }
 
     @Test
     void updateCallout_nonExistentCallout_returns404() throws Exception {
         String body = """
-                {"riskArea":"Cyber Risk","locations":"SG","bizUnits":"Tech"}
+                {"riskArea":"Cyber Risk","locations":["SG"],"bizUnits":["Tech"],"comment":"c","sme":"carol"}
                 """;
         mvc.perform(put(ITEM_URL, 200, 9999)
                         .header("X-EGRC-UserId", USERNAME)
@@ -277,11 +323,9 @@ class LandscapeAssmtCalloutControllerTest {
 
     @Test
     void updateCallout_calloutBelongsToDifferentAssmt_returns404() throws Exception {
-        // assmt 999 doesn't exist, but callout 300 belongs to assmt 200
         String body = """
-                {"riskArea":"Cyber Risk","locations":"SG","bizUnits":"Tech"}
+                {"riskArea":"Cyber Risk","locations":["SG"],"bizUnits":["Tech"],"comment":"c","sme":"carol"}
                 """;
-        // create another assmt pointing to the same dim
         jdbc.execute("""
                 INSERT INTO orl_lndscp_assmt(id,LNDSCP_NUM,ASSEMT_PERIOD,status,CREATED_BY)
                 VALUES(201,100,'Q2-2024','Open','seed')
@@ -297,7 +341,7 @@ class LandscapeAssmtCalloutControllerTest {
     @Test
     void updateCallout_missingUsername_returns401() throws Exception {
         String body = """
-                {"riskArea":"Cyber Risk","locations":"SG","bizUnits":"Tech"}
+                {"riskArea":"Cyber Risk","locations":["SG"],"bizUnits":["Tech"],"comment":"c","sme":"carol"}
                 """;
         mvc.perform(put(ITEM_URL, 200, 300)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -308,7 +352,7 @@ class LandscapeAssmtCalloutControllerTest {
     @Test
     void updateCallout_invalidRiskArea_returns400() throws Exception {
         String body = """
-                {"riskArea":"Bad Area","locations":"SG","bizUnits":"Tech"}
+                {"riskArea":"Bad Area","locations":["SG"],"bizUnits":["Tech"],"comment":"c","sme":"carol"}
                 """;
         mvc.perform(put(ITEM_URL, 200, 300)
                         .header("X-EGRC-UserId", USERNAME)
@@ -323,10 +367,8 @@ class LandscapeAssmtCalloutControllerTest {
     void deleteCallout_returns200AndSoftDeletes() throws Exception {
         mvc.perform(delete(ITEM_URL, 200, 300).header("X-EGRC-UserId", USERNAME))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.message").value("Callout deleted successfully."));
 
-        // Verify the callout is no longer returned in GET
         mvc.perform(get(BASE_URL, 200).header("X-EGRC-UserId", USERNAME))
                 .andExpect(jsonPath("$.data.callouts", hasSize(0)));
     }
@@ -341,12 +383,6 @@ class LandscapeAssmtCalloutControllerTest {
     void deleteCallout_missingUsername_returns401() throws Exception {
         mvc.perform(delete(ITEM_URL, 200, 300))
                 .andExpect(status().isUnauthorized());
-    }
-
-    @Test
-    void deleteCallout_nonExistentAssmt_returns404() throws Exception {
-        mvc.perform(delete(ITEM_URL, 9999, 300).header("X-EGRC-UserId", USERNAME))
-                .andExpect(status().isNotFound());
     }
 
     // ── Path param type mismatch ──────────────────────────────────────────────

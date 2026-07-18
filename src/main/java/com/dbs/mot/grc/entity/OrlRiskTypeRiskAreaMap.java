@@ -11,9 +11,8 @@ import org.springframework.data.relational.core.mapping.Table;
 import java.time.LocalDateTime;
 
 /**
- * Entity for the {@code orl_risk_type_risk_area_map} table
- * (renamed from {@code orl_focus_area_risk_type_map}).
- * {@code id} is auto-generated → standard {@code saveAll()} works.
+ * Entity for the {@code orl_risk_type_risk_area_map} table.
+ * {@code id} is auto-generated, so a standard {@code saveAll()} inserts new rows.
  */
 @Table("orl_risk_type_risk_area_map")
 @Getter
@@ -26,7 +25,7 @@ public class OrlRiskTypeRiskAreaMap {
     @Column("ID")
     private Integer id;
 
-    /** Risk area code (renamed from FOCUS_NM). */
+    /** Risk area code. */
     @Column("RISK_AREA")
     private String riskArea;
 

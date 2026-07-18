@@ -1,6 +1,5 @@
 package com.dbs.mot.grc.dto;
 
-import com.fasterxml.jackson.annotation.JsonInclude;
 import lombok.Builder;
 import lombok.Getter;
 
@@ -16,15 +15,16 @@ import java.util.List;
  *   "bizUnits": ["CBG", "IBG"]
  * }
  * </pre>
+ *
+ * <p>Null properties are serialized (no {@code NON_NULL} filtering).
  */
 @Getter
 @Builder
-@JsonInclude(JsonInclude.Include.NON_NULL)
 public class LandscapeBuDetails {
 
     /** {@code orl_lndscp_dim.BIZ_UNIT_LVL} */
     private final Integer lvl;
 
-    /** {@code orl_lndscp_dim.BIZ_UNITS} split on commas; omitted when null. */
+    /** {@code orl_lndscp_dim.BIZ_UNITS} split on commas; null when the config has none. */
     private final List<String> bizUnits;
 }

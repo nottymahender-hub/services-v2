@@ -11,6 +11,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import static org.hamcrest.Matchers.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 /**
@@ -47,6 +48,7 @@ class LandscapeAssmtDetailsControllerTest {
         jdbc.execute("DELETE FROM orl_lndscp_assmt_details");
         jdbc.execute("DELETE FROM orl_lndscp_assmt");
         jdbc.execute("DELETE FROM orl_lndscp_dim");
+        jdbc.execute("DELETE FROM fact_orl");
 
         // Dim 1: JSON RISK_AREA with two entries; Dim 2: single entry, null BIZ_UNITS, level 3
         jdbc.execute("""
@@ -63,79 +65,77 @@ class LandscapeAssmtDetailsControllerTest {
                 """);
 
         // Assmt 4 is the previous assessment of assmt 5 (linked via PREV_ASSMT_NUM).
-        jdbc.execute("INSERT INTO orl_lndscp_assmt(id,LNDSCP_NUM,ASSEMT_PERIOD,status,CREATED_BY) VALUES(4,1,'Q4-2023','Closed','seed')");
-        jdbc.execute("INSERT INTO orl_lndscp_assmt(id,LNDSCP_NUM,ASSEMT_PERIOD,status,PREV_ASSMT_NUM,CREATED_BY) VALUES(5,1,'Q1-2024','Open',4,'seed')");
-        jdbc.execute("INSERT INTO orl_lndscp_assmt(id,LNDSCP_NUM,ASSEMT_PERIOD,status,CREATED_BY) VALUES(6,1,'Q2-2024','Draft','seed')");
+        // Explicit CREATE_DT_TM sets each assessment's fact_orl business date:
+        //   assmt 4 → 2024-06-01, assmt 5 → 2024-07-01.
+        jdbc.execute("INSERT INTO orl_lndscp_assmt(id,LNDSCP_NUM,ASSEMT_PERIOD,status,CREATED_BY,CREATE_DT_TM) VALUES(4,1,'Q4-2023','Closed','seed',TIMESTAMP '2024-06-01 00:00:00')");
+        jdbc.execute("INSERT INTO orl_lndscp_assmt(id,LNDSCP_NUM,ASSEMT_PERIOD,status,PREV_ASSMT_NUM,CREATED_BY,CREATE_DT_TM) VALUES(5,1,'Q1-2024','Open',4,'seed',TIMESTAMP '2024-07-01 00:00:00')");
+        jdbc.execute("INSERT INTO orl_lndscp_assmt(id,LNDSCP_NUM,ASSEMT_PERIOD,status,CREATED_BY,CREATE_DT_TM) VALUES(6,1,'Q2-2024','Draft','seed',TIMESTAMP '2024-07-01 00:00:00')");
         jdbc.execute("""
                 INSERT INTO orl_lndscp_assmt(id,LNDSCP_NUM,ASSEMT_PERIOD,status,CREATED_BY,CREATE_DT_TM,UPDATE_DT_TM,UPDATED_BY)
                 VALUES(7,2,'Q1-2024','Open','seed',TIMESTAMP '2024-01-01 00:00:00',TIMESTAMP '2024-06-01 10:00:00','editor')
                 """);
 
-        // Previous assessment (id 4) rows — matched by dimension key to derive prevAssmtFinalNRR:
-        //   matches row 101 (OR,Tech,DTI,BCM,SG,L4): OVRLY set → 'High'
-        //   matches row 102 (OR,Tech,DTI,-,HK,L3):  OVRLY null → falls back to CAL 'Med Low'
-        jdbc.execute("""
-                INSERT INTO orl_lndscp_assmt_details
-                    (id,lndscp_assmt_id,RISK_AREA,ORL_BU_NM_L2,ORL_BU_NM_L3,ORL_BU_NM_L4,
-                     LOCATION,category,CAL_NET_RISK_RTNG,OVRLY_NET_RISK_RTNG,CTRL_EFF_RTN,STATUS,CREATED_BY)
-                VALUES(90,4,'OR','Tech','DTI','BCM','SG','L4','Low','High','Effective','Completed','seed')
-                """);
-        jdbc.execute("""
-                INSERT INTO orl_lndscp_assmt_details
-                    (id,lndscp_assmt_id,RISK_AREA,ORL_BU_NM_L2,ORL_BU_NM_L3,ORL_BU_NM_L4,
-                     LOCATION,category,CAL_NET_RISK_RTNG,OVRLY_NET_RISK_RTNG,STATUS,CREATED_BY)
-                VALUES(91,4,'OR','Tech','DTI',NULL,'HK','L3','Med Low',NULL,'Completed','seed')
-                """);
+        // ── fact_orl snapshots ────────────────────────────────────────────────
+        // Current month (biz_dt 2024-07-01, for assmt 5): computed values per dimension.
+        insertFact("2024-07-01", "OR", "Tech", "DTI", "BCM", "SG", "Low", "Improved", "Commentary for 101");
+        insertFact("2024-07-01", "OR", "Tech", "DTI", null, "HK", "Low", "Stable", "Commentary for 102");
+        insertFact("2024-07-01", "OR", "Tech", null, null, "IN", "Low", "Stable", null);
+        insertFact("2024-07-01", "CR", "Risk Mgmt", null, null, "SG", "Low", "Stable", null);
+        // Previous month (biz_dt 2024-06-01, for assmt 4): row 91's dimension falls back to CAL.
+        insertFact("2024-06-01", "OR", "Tech", "DTI", null, "HK", "Med Low", "Deteriorated", "June commentary");
+
+        // Previous assessment (id 4) thin rows — matched by dimension to derive prevAssmtFinalNRR:
+        //   matches row 101 (OR,Tech,DTI,BCM,SG): OVRLY set → 'High'
+        //   matches row 102 (OR,Tech,DTI,-,HK):  OVRLY null → falls back to prev fact CAL 'Med Low'
+        insertDetail(90, 4, "OR", "Tech", "DTI", "BCM", "SG", "L4", "High", "Completed");
+        insertDetail(91, 4, "OR", "Tech", "DTI", null, "HK", "L3", null, "Completed");
 
         // assmt 5 detail rows — ORDER BY RISK_AREA, LOCATION: CR/SG(110), OR/HK(102), OR/IN(103), OR/SG(101)
-        jdbc.execute("""
-                INSERT INTO orl_lndscp_assmt_details
-                    (id,lndscp_assmt_id,RISK_AREA,ORL_BU_NM_L2,ORL_BU_NM_L3,ORL_BU_NM_L4,
-                     LOCATION,category,CAL_NET_RISK_RTNG,OVRLY_NET_RISK_RTNG,
-                     RISK_RTNG_CHGE,COMMENTARY,STATUS,CREATED_BY)
-                VALUES(101,5,'OR','Tech','DTI','BCM','SG','L4','Low','High',
-                       'Improved','Commentary for 101','Open','seed')
-                """);
-        jdbc.execute("""
-                INSERT INTO orl_lndscp_assmt_details
-                    (id,lndscp_assmt_id,RISK_AREA,ORL_BU_NM_L2,ORL_BU_NM_L3,ORL_BU_NM_L4,
-                     LOCATION,category,CAL_NET_RISK_RTNG,OVRLY_NET_RISK_RTNG,STATUS,CREATED_BY)
-                VALUES(102,5,'OR','Tech','DTI',NULL,'HK','L3','Low',NULL,'Locked','seed')
-                """);
-        jdbc.execute("""
-                INSERT INTO orl_lndscp_assmt_details
-                    (id,lndscp_assmt_id,RISK_AREA,ORL_BU_NM_L2,ORL_BU_NM_L3,ORL_BU_NM_L4,
-                     LOCATION,category,CAL_NET_RISK_RTNG,OVRLY_NET_RISK_RTNG,STATUS,CREATED_BY)
-                VALUES(103,5,'OR','Tech',NULL,NULL,'IN','L2','Low',NULL,'Completed','seed')
-                """);
+        insertDetail(101, 5, "OR", "Tech", "DTI", "BCM", "SG", "L4", "High", "Open");
+        insertDetail(102, 5, "OR", "Tech", "DTI", null, "HK", "L3", null, "Locked");
+        insertDetail(103, 5, "OR", "Tech", null, null, "IN", "L2", null, "Completed");
         // Group-level category — location must resolve to 'Group', not the raw LOCATION value
+        insertDetail(110, 5, "CR", "Risk Mgmt", null, null, "SG", "grp_l2", null, "Open");
+        // assmt 6 rows — must not appear when querying id=5
+        insertDetail(104, 6, "OR", "Tech", null, null, "SG", "L2", null, "Open");
+        // assmt 6, category='loc' — bu must resolve to "Group" regardless of BIZ_UNIT_LVL/ORL_BU_NM_L2
+        insertDetail(106, 6, "ZZ", "ShouldBeIgnored", null, null, "SG", "loc", null, "Open");
+        // assmt 7 row (BIZ_UNIT_LVL=3 → bu resolves from ORL_BU_NM_L3)
+        insertDetail(105, 7, "OR", "Tech", "TechL3", null, "IN", "L3", null, "Open");
+    }
+
+    /** Inserts a thin orl_lndscp_assmt_details row (empty BU/location dimensions stored as ''). */
+    private void insertDetail(long id, long assmtId, String riskArea, String l2, String l3, String l4,
+                              String loc, String category, String ovrly, String status) {
         jdbc.execute("""
                 INSERT INTO orl_lndscp_assmt_details
                     (id,lndscp_assmt_id,RISK_AREA,ORL_BU_NM_L2,ORL_BU_NM_L3,ORL_BU_NM_L4,
-                     LOCATION,category,CAL_NET_RISK_RTNG,OVRLY_NET_RISK_RTNG,STATUS,CREATED_BY)
-                VALUES(110,5,'CR','Risk Mgmt',NULL,NULL,'SG','grp_l2','Low',NULL,'Open','seed')
-                """);
-        // assmt 6 row — must not appear when querying id=5
+                     LOCATION,category,OVRLY_NET_RISK_RTNG,STATUS,CREATED_BY)
+                VALUES(%d,%d,%s,%s,%s,%s,%s,%s,%s,%s,'seed')
+                """.formatted(id, assmtId, q(riskArea), qDim(l2), qDim(l3), qDim(l4), qDim(loc),
+                q(category), q(ovrly), q(status)));
+    }
+
+    /** Inserts a fact_orl snapshot row (empty dimensions stored as '', matching details). */
+    private void insertFact(String bizDt, String riskArea, String l2, String l3, String l4,
+                            String loc, String cal, String rtngChge, String commentary) {
         jdbc.execute("""
-                INSERT INTO orl_lndscp_assmt_details
-                    (id,lndscp_assmt_id,RISK_AREA,ORL_BU_NM_L2,LOCATION,category,
-                     CAL_NET_RISK_RTNG,STATUS,CREATED_BY)
-                VALUES(104,6,'OR','Tech','SG','L2','Low','Open','seed')
-                """);
-        // assmt 6, category='loc' — bu must resolve to "Group" regardless of BIZ_UNIT_LVL/ORL_BU_NM_L2
-        jdbc.execute("""
-                INSERT INTO orl_lndscp_assmt_details
-                    (id,lndscp_assmt_id,RISK_AREA,ORL_BU_NM_L2,LOCATION,category,
-                     CAL_NET_RISK_RTNG,STATUS,CREATED_BY)
-                VALUES(106,6,'ZZ','ShouldBeIgnored','SG','loc','Low','Open','seed')
-                """);
-        // assmt 7 row (BIZ_UNIT_LVL=3 → bu resolves from ORL_BU_NM_L3)
-        jdbc.execute("""
-                INSERT INTO orl_lndscp_assmt_details
-                    (id,lndscp_assmt_id,RISK_AREA,ORL_BU_NM_L2,ORL_BU_NM_L3,LOCATION,category,
-                     CAL_NET_RISK_RTNG,STATUS,CREATED_BY)
-                VALUES(105,7,'OR','Tech','TechL3','IN','L3','Low','Open','seed')
-                """);
+                INSERT INTO fact_orl
+                    (biz_dt,RISK_AREA,ORL_BU_NM_L2,ORL_BU_NM_L3,ORL_BU_NM_L4,LOCATION,category,
+                     CAL_NET_RISK_RTNG,RISK_RTNG_CHGE,CTRL_EFF_RTN,COMMENTARY)
+                VALUES(DATE %s,%s,%s,%s,%s,%s,'L2',%s,%s,'Satisfactory To Good',%s)
+                """.formatted(q(bizDt), q(riskArea), qDim(l2), qDim(l3), qDim(l4), qDim(loc),
+                q(cal), q(rtngChge), q(commentary)));
+    }
+
+    /** SQL literal: quoted value, or NULL. */
+    private String q(String value) {
+        return value == null ? "NULL" : "'" + value.replace("'", "''") + "'";
+    }
+
+    /** SQL literal for a NOT NULL dimension column: null becomes the empty string ''. */
+    private String qDim(String value) {
+        return "'" + (value == null ? "" : value.replace("'", "''")) + "'";
     }
 
     // ── Authentication ────────────────────────────────────────────────────────
@@ -173,6 +173,15 @@ class LandscapeAssmtDetailsControllerTest {
            .andExpect(jsonPath("$.message", containsString("9999")));
     }
 
+    // ── The /{id}/assessments path is GET-only ────────────────────────────────
+
+    @Test
+    void postToAssessmentsPath_returns405() throws Exception {
+        // The path template only maps GET (assessment details); POST is not supported.
+        mvc.perform(post(URL_TPL, 5).header("X-EGRC-UserId", "tester"))
+           .andExpect(status().isMethodNotAllowed());
+    }
+
     // ── Top-level header fields ───────────────────────────────────────────────
 
     @Test
@@ -201,75 +210,14 @@ class LandscapeAssmtDetailsControllerTest {
            .andExpect(jsonPath("$.data.lndscpLastRefreshed", startsWith("2024-06-01T10:00:00")));
     }
 
-    // ── dimensions.riskAreas ──────────────────────────────────────────────────
+    // ── dimensions moved to the dedicated /dimensions endpoint ────────────────
 
     @Test
-    void dimensions_riskAreas_isAMap() throws Exception {
+    void assessmentsResponse_noLongerContainsDimensions() throws Exception {
+        // Landscape-config dimensions are now served by GET /{lndscpAssmtId}/dimensions.
         mvc.perform(get(URL_TPL, 5).header("X-EGRC-UserId", "tester"))
            .andExpect(status().isOk())
-           .andExpect(jsonPath("$.data.dimensions.riskAreas").isMap());
-    }
-
-    @Test
-    void dimensions_riskAreas_containsExpectedKeys() throws Exception {
-        mvc.perform(get(URL_TPL, 5).header("X-EGRC-UserId", "tester"))
-           .andExpect(status().isOk())
-           .andExpect(jsonPath("$.data.dimensions.riskAreas['Cyber Risk']").isArray())
-           .andExpect(jsonPath("$.data.dimensions.riskAreas['Cyber Risk'][0]", is("OR")))
-           .andExpect(jsonPath("$.data.dimensions.riskAreas['Conduct Risk']").isArray())
-           .andExpect(jsonPath("$.data.dimensions.riskAreas['Conduct Risk'][0]", is("CR")));
-    }
-
-    @Test
-    void dimensions_riskAreas_forDim2() throws Exception {
-        mvc.perform(get(URL_TPL, 7).header("X-EGRC-UserId", "tester"))
-           .andExpect(status().isOk())
-           .andExpect(jsonPath("$.data.dimensions.riskAreas['Operational Risk'][0]", is("OR")));
-    }
-
-    // ── dimensions.buDetails ─────────────────────────────────────────────────
-
-    @Test
-    void dimensions_buDetails_containsLvlAndBizUnits() throws Exception {
-        mvc.perform(get(URL_TPL, 5).header("X-EGRC-UserId", "tester"))
-           .andExpect(status().isOk())
-           .andExpect(jsonPath("$.data.dimensions.buDetails.lvl", is(2)))
-           .andExpect(jsonPath("$.data.dimensions.buDetails.bizUnits").isArray())
-           .andExpect(jsonPath("$.data.dimensions.buDetails.bizUnits", hasSize(2)))
-           .andExpect(jsonPath("$.data.dimensions.buDetails.bizUnits", hasItems("Tech", "Ops")));
-    }
-
-    @Test
-    void dimensions_buDetails_bizUnits_omittedWhenDimHasNullBizUnits() throws Exception {
-        mvc.perform(get(URL_TPL, 7).header("X-EGRC-UserId", "tester"))
-           .andExpect(status().isOk())
-           .andExpect(jsonPath("$.data.dimensions.buDetails.bizUnits").doesNotExist());
-    }
-
-    @Test
-    void dimensions_buDetails_lvlStillPresentWhenBizUnitsNull() throws Exception {
-        mvc.perform(get(URL_TPL, 7).header("X-EGRC-UserId", "tester"))
-           .andExpect(status().isOk())
-           .andExpect(jsonPath("$.data.dimensions.buDetails.lvl", is(3)));
-    }
-
-    // ── dimensions.locations ─────────────────────────────────────────────────
-
-    @Test
-    void dimensions_locations_isArray_withAllValues() throws Exception {
-        mvc.perform(get(URL_TPL, 5).header("X-EGRC-UserId", "tester"))
-           .andExpect(status().isOk())
-           .andExpect(jsonPath("$.data.dimensions.locations").isArray())
-           .andExpect(jsonPath("$.data.dimensions.locations", hasSize(2)))
-           .andExpect(jsonPath("$.data.dimensions.locations", hasItems("SG", "HK")));
-    }
-
-    @Test
-    void dimensions_locations_singleValue_returnedAsArray() throws Exception {
-        mvc.perform(get(URL_TPL, 7).header("X-EGRC-UserId", "tester"))
-           .andExpect(status().isOk())
-           .andExpect(jsonPath("$.data.dimensions.locations", hasSize(1)))
-           .andExpect(jsonPath("$.data.dimensions.locations[0]", is("IN")));
+           .andExpect(jsonPath("$.data.dimensions").doesNotExist());
     }
 
     // ── assessments array ─────────────────────────────────────────────────────
@@ -432,18 +380,19 @@ class LandscapeAssmtDetailsControllerTest {
 
     @Test
     void prevAssmtFinalNRR_null_whenNoMatchingPrevRow() throws Exception {
-        // assessments[0] = id 110 (CR row) has no dimension match in the previous assessment
+        // assessments[0] = id 110 (CR row) has no dimension match in the previous assessment;
+        // the property is present with a null value (NON_NULL filtering is off).
         mvc.perform(get(URL_TPL, 5).header("X-EGRC-UserId", "tester"))
            .andExpect(status().isOk())
-           .andExpect(jsonPath("$.data.assessments[0].prevAssmtFinalNRR").doesNotExist());
+           .andExpect(jsonPath("$.data.assessments[0].prevAssmtFinalNRR").value(nullValue()));
     }
 
     @Test
     void prevAssmtFinalNRR_null_whenAssessmentHasNoPreviousLink() throws Exception {
-        // assmt 6 has PREV_ASSMT_NUM=null → every row's prevAssmtFinalNRR is absent
+        // assmt 6 has PREV_ASSMT_NUM=null → every row's prevAssmtFinalNRR is present but null
         mvc.perform(get(URL_TPL, 6).header("X-EGRC-UserId", "tester"))
            .andExpect(status().isOk())
-           .andExpect(jsonPath("$.data.assessments[*].prevAssmtFinalNRR", hasSize(0)));
+           .andExpect(jsonPath("$.data.assessments[*].prevAssmtFinalNRR", everyItem(nullValue())));
     }
 
     // ── message content ────────────────────────────────────────────────────────

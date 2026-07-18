@@ -2,12 +2,11 @@ package com.dbs.mot.grc.controller;
 
 import com.dbs.mot.grc.common.dto.ApiResponse;
 import com.dbs.mot.grc.dto.AssmtDetailResponse;
-import com.dbs.mot.grc.dto.AssmtGenerationResponse;
 import com.dbs.mot.grc.dto.BulkAssmtGenerationResponse;
 import com.dbs.mot.grc.dto.LandscapeAssmtDetailSummary;
+import com.dbs.mot.grc.dto.LandscapeDimensions;
 import com.dbs.mot.grc.service.BulkAssmtGenerationService;
 import com.dbs.mot.grc.service.LandscapeAssmtDetailsService;
-import com.dbs.mot.grc.service.LandscapeAssmtGenerationService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
@@ -26,15 +25,11 @@ import org.springframework.web.bind.annotation.RestController;
  * REST controller for landscape assessments.
  *
  * <pre>
- *   POST /landscape/{lndscpNm}/assessments/generate    – generate this month's assessment for one landscape (by name)
  *   POST /landscape/assessments/generate               – generate this month's assessments for all active landscapes
  *   GET  /landscape/{lndscpAssmtId}/assessments        – read the details of an existing assessment
+ *   GET  /landscape/{lndscpAssmtId}/dimensions         – read the landscape-config dimensions of an assessment
  *   GET  /landscape/{lndscpAssmtId}/{assmtDetailId}    – drill-down view of one assessment detail row
  * </pre>
- *
- * <p><b>Note on the path variable:</b> for the single-landscape {@code POST} it is a
- * landscape <em>name</em> ({@code orl_lndscp_dim.LNDSCP_NM}); for {@code GET} it is an
- * assessment id ({@code orl_lndscp_assmt.id}).
  *
  * <p><b>Authentication:</b> the {@code X-EGRC-UserId} header is required.
  * A missing or blank value returns HTTP 401.
@@ -49,58 +44,7 @@ public class LandscapeAssmtDetailsController {
             "X-EGRC-UserId header is required and must not be blank.";
 
     private final LandscapeAssmtDetailsService service;
-    private final LandscapeAssmtGenerationService generationService;
     private final BulkAssmtGenerationService bulkGenerationService;
-
-    /**
-     * Generates a new assessment (and all its detail rows) for the named landscape, for
-     * the current month. The landscape's config is resolved from {@code orl_lndscp_dim}:
-     * only the row that is ACTIVE and effective today qualifies.
-     *
-     * @param lndscpNm {@code orl_lndscp_dim.LNDSCP_NM} — the landscape to generate for
-     * @param username value of the {@code X-EGRC-UserId} header, stored as CREATED_BY
-     * @return HTTP 201 with a generation summary; 401 when the header is missing/blank;
-     *         404 when no active config is effective today; 409 when more than one
-     *         active config is effective today, or an assessment already exists for
-     *         this landscape + current month
-     */
-    @Operation(summary = "Generate a landscape assessment by landscape name",
-            description = "Resolves the single ACTIVE orl_lndscp_dim config whose effective window "
-                    + "contains today for the given landscape name, then generates a new assessment "
-                    + "and its detail rows for the current month, deriving GRC metrics and ratings "
-                    + "from the module fact tables.")
-    @ApiResponses(value = {
-            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "201", description = "Assessment generated"),
-            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "Missing or blank X-EGRC-UserId header"),
-            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "No active landscape config effective today for lndscpNm"),
-            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "409", description = "Multiple active configs effective today, or assessment already exists for this month"),
-            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "500", description = "Unexpected server error")
-    })
-    @PostMapping("/{lndscpNm}/assessments/generate")
-    public ResponseEntity<ApiResponse<AssmtGenerationResponse>> generateByName(
-            @Parameter(description = "orl_lndscp_dim.LNDSCP_NM", required = true)
-            @PathVariable String lndscpNm,
-            @Parameter(description = "Operator identity", required = true)
-            @RequestHeader(value = "X-EGRC-UserId", required = false) String username) {
-
-        if (username == null || username.isBlank()) {
-            log.warn("POST /landscape/{}/assessments/generate rejected — X-EGRC-UserId header missing or blank",
-                    lndscpNm);
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                    .body(ApiResponse.failure(MISSING_USER_MSG));
-        }
-
-        log.debug("POST /landscape/{}/assessments/generate requested by user '{}'",
-                lndscpNm, username.trim());
-
-        AssmtGenerationResponse generated = generationService.generateByName(lndscpNm, username.trim());
-
-        return ResponseEntity.status(HttpStatus.CREATED).body(
-                ApiResponse.successWithData(
-                        "Assessment generated with " + generated.getDetailRowCount()
-                                + " detail row(s) for period '" + generated.getAssmtPeriod() + "'.",
-                        generated));
-    }
 
     /**
      * Generates this month's assessment for every active landscape. Landscapes whose
@@ -198,6 +142,48 @@ public class LandscapeAssmtDetailsController {
 
         return ResponseEntity.ok(
                 ApiResponse.<LandscapeAssmtDetailSummary>successWithData(message, summary));
+    }
+
+    /**
+     * Returns the landscape-config dimensions (risk areas, BU details, locations) for the
+     * given landscape assessment.
+     *
+     * @param lndscpAssmtId {@code orl_lndscp_assmt.id}
+     * @param username      value of the {@code X-EGRC-UserId} header
+     * @return HTTP 200 with a {@link LandscapeDimensions} object; 401 when the header is
+     *         missing/blank; 404 when the assessment (or its landscape config) does not exist
+     */
+    @Operation(summary = "Get landscape assessment dimensions",
+            description = "Returns the landscape-config dimensions (risk areas, BU details and "
+                    + "locations) for the given landscape assessment id.")
+    @ApiResponses(value = {
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "Dimensions found"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "lndscpAssmtId is not a valid number"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "Missing or blank X-EGRC-UserId header"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "No assessment found for lndscpAssmtId"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "500", description = "Unexpected server error")
+    })
+    @GetMapping("/{lndscpAssmtId}/dimensions")
+    public ResponseEntity<ApiResponse<LandscapeDimensions>> getDimensionsByAssmtId(
+            @Parameter(description = "orl_lndscp_assmt.id", required = true)
+            @PathVariable Long lndscpAssmtId,
+            @Parameter(description = "Operator identity", required = true)
+            @RequestHeader(value = "X-EGRC-UserId", required = false) String username) {
+
+        if (username == null || username.isBlank()) {
+            log.warn("GET /landscape/{}/dimensions rejected — X-EGRC-UserId header missing or blank",
+                    lndscpAssmtId);
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.failure(MISSING_USER_MSG));
+        }
+
+        log.debug("GET /landscape/{}/dimensions requested by user '{}'",
+                lndscpAssmtId, username.trim());
+
+        LandscapeDimensions dimensions = service.fetchDimensionsByAssmtId(lndscpAssmtId);
+
+        return ResponseEntity.ok(ApiResponse.successWithData(
+                "Dimensions found for landscape assessment id " + lndscpAssmtId + ".", dimensions));
     }
 
     /**

@@ -26,7 +26,7 @@ import java.util.stream.StreamSupport;
  * Handles CSV upload/download for {@code orl_lndscp_dim}.
  * Registered as {@code "lndscp-dim"} → /api/csv/lndscp-dim/upload|download.
  *
- * <p>RISK_AREA is now a JSON string (e.g. {@code {"Cyber Risk": ["OR"]}}).
+ * <p>RISK_AREA is a JSON string (e.g. {@code {"Cyber Risk": ["OR"]}}).
  * On re-upload the VERSION is auto-advanced to avoid unique-index conflicts.
  */
 @Slf4j
@@ -67,7 +67,7 @@ public class OrlLndscpDimCsvHandler implements CsvHandler {
 
         List<String> configIds = rows.stream()
                 .map(OrlLndscpDimCsvRow::getConfigId)
-                .collect(Collectors.toList());
+                .toList();
         int version = resolveVersion(configIds);
         log.debug("Resolved VERSION={} for {} CONFIG_ID(s)", version, configIds.size());
 
@@ -87,7 +87,7 @@ public class OrlLndscpDimCsvHandler implements CsvHandler {
                         .createdBy(username)
                         .createDtTm(now)
                         .build())
-                .collect(Collectors.toList());
+                .toList();
 
         jdbcAggregateOperations.insertAll(entities);
         log.info("Imported {} orl_lndscp_dim row(s) (version={}) by '{}'",

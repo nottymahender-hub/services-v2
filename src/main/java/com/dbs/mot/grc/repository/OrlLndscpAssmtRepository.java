@@ -42,6 +42,7 @@ public interface OrlLndscpAssmtRepository extends CrudRepository<OrlLndscpAssmt,
                    UPDATED_BY    AS updated_by,
                    UPDATE_DT_TM  AS update_dt_tm
             FROM orl_lndscp_assmt
+            ORDER BY COALESCE(UPDATE_DT_TM, CREATE_DT_TM) DESC
             """)
     List<LandscapeAssmtProjection> findAllSummaries();
 

@@ -3,12 +3,14 @@ package com.dbs.mot.grc.dto;
 import lombok.Builder;
 import lombok.Getter;
 
+import java.util.List;
+
 /**
  * A single row from {@code orl_lndscp_assmt_details}, nested inside
  * {@link LandscapeAssmtDetailSummary#getAssessments()}.
  *
- * <p>Contains only per-row fields. Landscape-config metadata is hoisted to the
- * top-level {@link LandscapeAssmtDetailSummary} wrapper under {@code dimensions}.
+ * <p>Contains only per-row fields; landscape-config metadata is served by the dedicated
+ * {@code GET /landscape/{lndscpAssmtId}/dimensions} endpoint.
  *
  * <p>Null properties are serialized (no {@code NON_NULL} filtering) so every field
  * is always present in each assessment item.
@@ -19,8 +21,20 @@ public class LandscapeAssmtDetailItem {
 
     private final Long id;
 
-    /** Risk area code from {@code orl_lndscp_assmt_details.RISK_AREA} (e.g. "OR", "CR"). */
+    /** Risk area name from {@code orl_lndscp_assmt_details.RISK_AREA}. */
     private final String riskArea;
+
+    /**
+     * Name of the group the risk area belongs to, resolved from the parent landscape's
+     * RISK_AREA document; {@code null} when the risk area is not found in that document.
+     */
+    private final String groupName;
+
+    /**
+     * Risk cluster codes for the risk area, resolved from the parent landscape's RISK_AREA
+     * document; empty when the risk area is not found there.
+     */
+    private final List<String> riskClusters;
 
     /**
      * BU name resolved from the raw hierarchy columns based on
@@ -47,8 +61,11 @@ public class LandscapeAssmtDetailItem {
     /** {@code fact_orl.RISK_RTNG_CHGE} (current biz date). */
     private final String riskRatingChange;
 
+    /** {@code fact_orl.CTRL_EFF_RTN} (current biz date). */
+    private final String ctrlEffRtn;
+
     /** {@code fact_orl.COMMENTARY} (current biz date). */
-    private final String summary;
+    private final String commentry;
 
     private final String category;
 

@@ -1,5 +1,6 @@
 package com.dbs.mot.grc.entity;
 
+import com.dbs.mot.grc.common.enums.Module;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -37,7 +38,7 @@ public class FeatureScoreBand {
     @Column("score")
     private Integer score;
     @Column("module")
-    private String module;
+    private Module module;
     @Column("CREATED_BY")
     private String createdBy;
     @Column("CREATE_DT_TM")

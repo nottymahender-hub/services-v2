@@ -15,7 +15,10 @@ class OrlLndscpDimCsvRowMapperTest {
 
     private final OrlLndscpDimCsvRowMapper mapper = new OrlLndscpDimCsvRowMapper();
 
-    private static final String VALID_RISK_AREA = "{\"Cyber Risk\":[\"OR\"],\"Conduct Risk\":[\"CR\"]}";
+    private static final String VALID_RISK_AREA =
+            "[{\"groupName\":\"IT\",\"isGroup\":true,\"riskAreas\":["
+                    + "{\"riskArea\":\"Cyber Risk\",\"riskClusters\":[\"OR\"]},"
+                    + "{\"riskArea\":\"Conduct Risk\",\"riskClusters\":[\"CR\"]}]}]";
 
     @Test
     void map_allFields_mapsCorrectly() {

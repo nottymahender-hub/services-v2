@@ -1,5 +1,6 @@
 package com.dbs.mot.grc.entity;
 
+import com.dbs.mot.grc.common.enums.AssmtStatus;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -52,7 +53,7 @@ public class OrlLndscpAssmt {
     private String assmtPeriod;
 
     @Column("status")
-    private String status;
+    private AssmtStatus status;
 
     /**
      * FK → the previous month's {@code orl_lndscp_assmt.id} for the same

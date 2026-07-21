@@ -2,6 +2,8 @@ package com.dbs.mot.grc.csv.handler;
 
 import com.dbs.mot.grc.common.csv.CsvHandler;
 import com.dbs.mot.grc.common.csv.CsvImportProcessor;
+import com.dbs.mot.grc.common.enums.DimStatus;
+import com.dbs.mot.grc.common.util.RiskAreaParser;
 import com.dbs.mot.grc.csv.mapper.OrlLndscpDimCsvRowMapper;
 import com.dbs.mot.grc.csv.validator.OrlLndscpDimCsvRowValidator;
 import com.dbs.mot.grc.dto.OrlLndscpDimCsvRow;
@@ -26,8 +28,9 @@ import java.util.stream.StreamSupport;
  * Handles CSV upload/download for {@code orl_lndscp_dim}.
  * Registered as {@code "lndscp-dim"} → /api/csv/lndscp-dim/upload|download.
  *
- * <p>RISK_AREA is a JSON string (e.g. {@code {"Cyber Risk": ["OR"]}}).
- * On re-upload the VERSION is auto-advanced to avoid unique-index conflicts.
+ * <p>RISK_AREA is a JSON array of risk-area groups (see {@link RiskAreaParser}); it is
+ * normalised to compact JSON before storage. On re-upload the VERSION is auto-advanced to
+ * avoid unique-index conflicts.
  */
 @Slf4j
 @Component
@@ -52,6 +55,7 @@ public class OrlLndscpDimCsvHandler implements CsvHandler {
     private final OrlLndscpDimRepository repository;
     private final JdbcTemplate jdbcTemplate;
     private final JdbcAggregateOperations jdbcAggregateOperations;
+    private final RiskAreaParser riskAreaParser;
 
     @Override public String getTableName()         { return TABLE_NAME; }
     @Override public String getDownloadFilename()  { return "orl_lndscp_dim.csv"; }
@@ -79,8 +83,8 @@ public class OrlLndscpDimCsvHandler implements CsvHandler {
                         .effectStartDt(r.getEffectStartDt())
                         .effectEndDt(r.getEffectEndDt())
                         .version(version)
-                        .status("ACTIVE")
-                        .riskArea(r.getRiskArea())
+                        .status(DimStatus.ACTIVE)
+                        .riskArea(riskAreaParser.normalizeCompact(r.getRiskArea()))
                         .bizUnits(r.getBizUnits())
                         .bizUnitLvl(r.getBizUnitLvl())
                         .locations(r.getLocations())
@@ -102,7 +106,7 @@ public class OrlLndscpDimCsvHandler implements CsvHandler {
                 writer.writeNext(new String[]{
                         s(r.getId()), r.getConfigId(), r.getLndscpNm(),
                         s(r.getEffectStartDt()), s(r.getEffectEndDt()),
-                        s(r.getVersion()), r.getStatus(),
+                        s(r.getVersion()), r.getStatus().getDbValue(),
                         r.getRiskArea(), s(r.getBizUnits()), s(r.getBizUnitLvl()),
                         r.getLocations(), r.getCreatedBy(), fmt(r.getCreateDtTm())
                 }));

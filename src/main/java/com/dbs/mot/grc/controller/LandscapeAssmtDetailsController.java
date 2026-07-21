@@ -5,11 +5,13 @@ import com.dbs.mot.grc.dto.AssmtDetailResponse;
 import com.dbs.mot.grc.dto.BulkAssmtGenerationResponse;
 import com.dbs.mot.grc.dto.LandscapeAssmtDetailSummary;
 import com.dbs.mot.grc.dto.LandscapeDimensions;
+import com.dbs.mot.grc.dto.SaveAssmtDetailRequest;
 import com.dbs.mot.grc.service.BulkAssmtGenerationService;
 import com.dbs.mot.grc.service.LandscapeAssmtDetailsService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -17,6 +19,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -231,5 +234,53 @@ public class LandscapeAssmtDetailsController {
 
         return ResponseEntity.ok(ApiResponse.successWithData(
                 "Assessment detail " + assmtDetailId + " found.", detail));
+    }
+
+    /**
+     * Saves the analyst overlay (revised commentary, overlaid net risk rating, overlay
+     * justification) onto an assessment detail row. Only allowed while the detail is {@code Open}.
+     *
+     * @param lndscpAssmtId {@code orl_lndscp_assmt.id}
+     * @param assmtDetailId {@code orl_lndscp_assmt_details.id} — must belong to the assessment
+     * @param request       overlay payload (all fields optional; NRR + justification go together)
+     * @param username      value of the {@code X-EGRC-UserId} header, stored as {@code UPDATED_BY}
+     * @return HTTP 200 on success; 400 on validation failure; 401 when the header is missing/blank;
+     *         404 when the assessment or detail is not found; 409 when the detail is not {@code Open}
+     */
+    @Operation(summary = "Save an assessment detail overlay",
+            description = "Persists REVISED_COMMENTARY, OVRLY_NET_RISK_RTNG and OVRLY_JSTFKN for a "
+                    + "detail row and stamps UPDATED_BY. Allowed only when the detail is in 'Open' status.")
+    @ApiResponses(value = {
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "Overlay saved"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "Validation failed"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "Missing or blank X-EGRC-UserId header"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "Assessment or detail not found, or detail does not belong to the assessment"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "409", description = "Detail is not in 'Open' status"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "500", description = "Unexpected server error")
+    })
+    @PostMapping("/{lndscpAssmtId}/{assmtDetailId}/save")
+    public ResponseEntity<ApiResponse<Void>> saveDetailOverlay(
+            @Parameter(description = "orl_lndscp_assmt.id", required = true)
+            @PathVariable Long lndscpAssmtId,
+            @Parameter(description = "orl_lndscp_assmt_details.id", required = true)
+            @PathVariable Long assmtDetailId,
+            @Valid @RequestBody SaveAssmtDetailRequest request,
+            @Parameter(description = "Operator identity", required = true)
+            @RequestHeader(value = "X-EGRC-UserId", required = false) String username) {
+
+        if (username == null || username.isBlank()) {
+            log.warn("POST /landscape/{}/{}/save rejected — X-EGRC-UserId header missing or blank",
+                    lndscpAssmtId, assmtDetailId);
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.failure(MISSING_USER_MSG));
+        }
+
+        log.debug("POST /landscape/{}/{}/save requested by user '{}'",
+                lndscpAssmtId, assmtDetailId, username.trim());
+
+        service.saveOverlay(lndscpAssmtId, assmtDetailId, request, username.trim());
+
+        return ResponseEntity.ok(
+                ApiResponse.success("Assessment detail " + assmtDetailId + " saved successfully."));
     }
 }

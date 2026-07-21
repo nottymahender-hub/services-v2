@@ -11,7 +11,6 @@ import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
@@ -19,21 +18,13 @@ import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 
 /**
- * Business logic for the landscape assessment listing API.
+ * Read logic for the landscape assessment listing API.
  *
- * <h3>No hand-written joins, no unnecessary aggregate loading</h3>
- * <p>This service issues two plain, independent queries — a summary projection from
- * {@link OrlLndscpAssmtRepository#findAllSummaries()} and a full {@code findAll()} from
- * {@link OrlLndscpDimRepository} — and merges them in memory. This is a fixed 2-query
- * cost regardless of row count (avoiding both hand-written join SQL and an N+1
- * per-assessment lookup pattern).
- *
- * <p>Using the projection here (rather than the {@code OrlLndscpAssmt} entity, which
- * carries a {@code @MappedCollection} of detail rows) is deliberate: Spring Data JDBC
- * eagerly loads every {@code @MappedCollection} whenever the entity type itself is
- * fetched, and this listing endpoint never needs the detail rows. The landscape name
- * lookup, the {@code lastModifiedOn}/{@code lastModifiedBy} fallback, and the sort
- * order are all resolved here rather than in SQL.
+ * <p>Issues two plain queries — a summary projection ({@link OrlLndscpAssmtRepository#findAllSummaries()})
+ * and a full {@code findAll()} of configs — and merges them in memory (fixed 2-query cost, no join,
+ * no N+1). The projection is used instead of the {@code OrlLndscpAssmt} entity so Spring Data JDBC
+ * does not eagerly load each assessment's detail {@code MappedCollection}. Ordering (most recently
+ * modified first) is done in SQL.
  */
 @Slf4j
 @Service
@@ -47,8 +38,8 @@ public class LandscapeAssmtService {
     private final OrlLndscpDimRepository   dimRepository;
 
     /**
-     * Returns all landscape assessments enriched with the landscape name,
-     * ordered by landscape name then assessment period.
+     * Returns all landscape assessments enriched with the landscape name, ordered by last
+     * modified (UPDATE_DT_TM, else CREATE_DT_TM) descending — as sorted by the query.
      *
      * @return list of summaries; empty list when no assessments exist
      */
@@ -64,16 +55,11 @@ public class LandscapeAssmtService {
 
         List<LandscapeAssmtSummary> summaries = assmts.stream()
                 .map(assmt -> toSummary(assmt, dimsById.get(assmt.lndscpNum())))
-                .sorted(Comparator
-                        .comparing(LandscapeAssmtSummary::getLandscapeName, Comparator.nullsLast(String::compareTo))
-                        .thenComparing(LandscapeAssmtSummary::getAssessmentPeriod, Comparator.nullsLast(String::compareTo)))
                 .toList();
 
         log.info("Returning {} landscape assessment summary(ies)", summaries.size());
         return summaries;
     }
-
-    // ── Private helpers ───────────────────────────────────────────────────────
 
     private LandscapeAssmtSummary toSummary(LandscapeAssmtProjection assmt, OrlLndscpDim dim) {
         LocalDateTime lastModifiedOn = assmt.updateDtTm() != null ? assmt.updateDtTm() : assmt.createDtTm();

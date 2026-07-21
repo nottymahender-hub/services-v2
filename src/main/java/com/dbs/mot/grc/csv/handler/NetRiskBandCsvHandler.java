@@ -2,6 +2,8 @@ package com.dbs.mot.grc.csv.handler;
 
 import com.dbs.mot.grc.common.csv.CsvHandler;
 import com.dbs.mot.grc.common.csv.CsvImportProcessor;
+import com.dbs.mot.grc.common.enums.Module;
+import com.dbs.mot.grc.common.enums.NetRiskRating;
 import com.dbs.mot.grc.common.util.ConfigVersionResolver;
 import com.dbs.mot.grc.csv.mapper.NetRiskBandCsvRowMapper;
 import com.dbs.mot.grc.csv.validator.NetRiskBandCsvRowValidator;
@@ -89,7 +91,8 @@ public class NetRiskBandCsvHandler implements CsvHandler {
                     return NetRiskBand.builder()
                             .configVersion(nextVersions.get(key))
                             .rangeLow(r.getRangeLow()).rangeHigh(r.getRangeHigh())
-                            .netRiskRtng(r.getNetRiskRtng()).module(r.getModule())
+                            .netRiskRtng(NetRiskRating.fromDbValue(r.getNetRiskRtng()))
+                            .module(Module.fromDbValue(r.getModule()))
                             .createdBy(username).createDtTm(now).build();
                 })
                 .toList();
@@ -105,7 +108,8 @@ public class NetRiskBandCsvHandler implements CsvHandler {
                 writer.writeNext(new String[]{
                         s(r.getId()), s(r.getConfigVersion()),
                         s(r.getRangeLow()), s(r.getRangeHigh()),
-                        r.getNetRiskRtng(), r.getModule(), r.getCreatedBy(), fmt(r.getCreateDtTm())
+                        r.getNetRiskRtng().getDbValue(), r.getModule().getDbValue(),
+                        r.getCreatedBy(), fmt(r.getCreateDtTm())
                 }));
     }
 
@@ -113,7 +117,8 @@ public class NetRiskBandCsvHandler implements CsvHandler {
     private Collection<NetRiskBand> latestPerGroup() {
         Map<String, NetRiskBand> latestByGroup = new LinkedHashMap<>();
         for (NetRiskBand row : repository.findAll()) {
-            String key = ConfigVersionResolver.groupKey(row.getNetRiskRtng(), row.getModule());
+            String key = ConfigVersionResolver.groupKey(
+                    row.getNetRiskRtng().getDbValue(), row.getModule().getDbValue());
             latestByGroup.merge(key, row,
                     (existing, candidate) -> candidate.getConfigVersion() > existing.getConfigVersion()
                             ? candidate : existing);

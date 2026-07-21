@@ -50,7 +50,8 @@ class LandscapeAssmtCalloutControllerTest {
                 INSERT INTO orl_lndscp_dim (id,CONFIG_ID,LNDSCP_NM,EFFECT_START_DT,VERSION,
                     RISK_AREA,BIZ_UNITS,BIZ_UNIT_LVL,LOCATIONS,CREATED_BY)
                 VALUES(100,'CFG100','Test Landscape',DATE '2024-01-01',1,
-                    '{"Cyber Risk":["OR"],"Conduct Risk":["CR"]}','Tech,Ops',2,'SG,HK','seed')
+                    '[{"groupName":"Cyber","isGroup":false,"riskAreas":[{"riskArea":"Cyber Risk","riskClusters":["OR"]}]},{"groupName":"Conduct","isGroup":false,"riskAreas":[{"riskArea":"Conduct Risk","riskClusters":["CR"]}]}]',
+                    'Tech,Ops',2,'SG,HK','seed')
                 """);
 
         jdbc.execute("""

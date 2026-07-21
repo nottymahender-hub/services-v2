@@ -1,5 +1,7 @@
 package com.dbs.mot.grc.entity;
 
+import com.dbs.mot.grc.common.enums.Module;
+import com.dbs.mot.grc.common.enums.NetRiskRating;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -31,9 +33,9 @@ public class NetRiskBand {
     @Column("range_high")
     private BigDecimal rangeHigh;
     @Column("net_risk_rtng")
-    private String netRiskRtng;
+    private NetRiskRating netRiskRtng;
     @Column("module")
-    private String module;
+    private Module module;
     @Column("CREATED_BY")
     private String createdBy;
     @Column("CREATE_DT_TM")

@@ -7,25 +7,16 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Landscape-config metadata fetched from {@code orl_lndscp_dim}, returned
- * as the {@code dimensions} field in {@link LandscapeAssmtDetailSummary}.
+ * Landscape-config metadata for {@code GET /landscape/{lndscpAssmtId}/dimensions}.
  *
  * <pre>
- * "dimensions": {
- *   "riskAreas": {
- *     "Market Abuse":   ["OR", "LCS"],
- *     "External Fraud": ["OR"]
- *   },
- *   "buDetails": { "lvl": 2, "bizUnits": ["CBG", "IBG"] },
+ * {
+ *   "riskAreas": { "IT Resiliency and Continuity": ["OR","LCS"], "IT Change and Release Management": ["LCS"] },
+ *   "riskClusters": ["OR","LCS"],
+ *   "buDetails": { "lvl": 2, "bizUnits": ["Technology","Operations"] },
  *   "locations": ["SG", "CN"]
  * }
  * </pre>
- *
- * <ul>
- *   <li>{@code riskAreas} — parsed from {@code orl_lndscp_dim.RISK_AREA} JSON</li>
- *   <li>{@code buDetails} — BU hierarchy level and BU name list</li>
- *   <li>{@code locations} — {@code orl_lndscp_dim.LOCATIONS} split on commas</li>
- * </ul>
  *
  * <p>Null properties are serialized (no {@code NON_NULL} filtering).
  */
@@ -33,8 +24,11 @@ import java.util.Map;
 @Builder
 public class LandscapeDimensions {
 
-    /** Risk area JSON map: key = risk area name, value = list of risk type codes. */
+    /** Risk area name → its risk cluster codes, from {@code orl_lndscp_dim.RISK_AREA}. */
     private final Map<String, List<String>> riskAreas;
+
+    /** Distinct risk cluster codes across all risk areas. */
+    private final List<String> riskClusters;
 
     /** BU hierarchy level together with the BU name list. */
     private final LandscapeBuDetails buDetails;

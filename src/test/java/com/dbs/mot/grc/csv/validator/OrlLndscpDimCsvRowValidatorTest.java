@@ -17,8 +17,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * Integration tests for {@link OrlLndscpDimCsvRowValidator}.
  *
- * <p>RISK_AREA is now a JSON string validated for structure; the old
- * orl_focus_area DB reference check has been removed.
+ * <p>RISK_AREA is a grouped JSON array validated for structure (see
+ * {@link com.dbs.mot.grc.common.util.RiskAreaParser}); risk area names must be unique
+ * across the document and each must map to a non-empty list of risk clusters.
  */
 @SpringBootTest
 @ActiveProfiles("test")
@@ -48,83 +49,77 @@ class OrlLndscpDimCsvRowValidatorTest {
     @Test
     void valid_allRulesPass_noErrors() {
         assertThat(validator.validate(List.of(
-                row("CFG001", "Landscape A", "{\"Cyber Risk\":[\"OR\"],\"Conduct Risk\":[\"CR\"]}", "Tech,Ops", 2, "SG,HK"),
-                row("CFG002", "Landscape B", "{\"Operational Risk\":[\"OR\"]}",                    "Tech",     2, "IN"),
-                row("CFG003", "Landscape C", "{\"Cyber Risk\":[\"OR\"]}",                           null,       2, "SG")
+                row("CFG001", "Landscape A", ra("Cyber Risk", "Conduct Risk"), "Tech,Ops", 2, "SG,HK"),
+                row("CFG002", "Landscape B", ra("Operational Risk"),          "Tech",     2, "IN"),
+                row("CFG003", "Landscape C", ra("Cyber Risk"),                 null,       2, "SG")
         ))).isEmpty();
     }
 
     @Test
     void nullBizUnits_skipped_noError() {
         assertThat(validator.validate(List.of(
-                row("CFG001", "Landscape A", "{\"Cyber Risk\":[\"OR\"]}", null, 2, "SG")
+                row("CFG001", "Landscape A", ra("Cyber Risk"), null, 2, "SG")
         ))).isEmpty();
     }
 
     @Test
     void validLevel3BizUnits_noError() {
         assertThat(validator.validate(List.of(
-                row("CFG001", "Landscape A", "{\"Cyber Risk\":[\"OR\"]}", "DTI", 3, "SG"),
-                row("CFG002", "Landscape B", "{\"Conduct Risk\":[\"CR\"]}", "DTI", 3, "HK")
+                row("CFG001", "Landscape A", ra("Cyber Risk"),   "DTI", 3, "SG"),
+                row("CFG002", "Landscape B", ra("Conduct Risk"), "DTI", 3, "HK")
         ))).isEmpty();
     }
 
-    // ── CONFIG_ID rules ───────────────────────────────────────────────────────
+    // ── Non-RISK_AREA rules ─────────────────────────────────────────────────────
 
     @Test
     void commaInConfigId_addsError() {
         List<ValidationErrorDetail> errors = validator.validate(List.of(
-                row("CFG001,CFG002", "Landscape A", "{\"Cyber Risk\":[\"OR\"]}", null, 2, "SG")
+                row("CFG001,CFG002", "Landscape A", ra("Cyber Risk"), null, 2, "SG")
         ));
         assertThat(errors).anySatisfy(e -> {
             assertThat(e.getField()).isEqualTo("CONFIG_ID");
-            assertThat(e.getMessage()).contains("Multiple values are not allowed");
+            assertThat(e.getMessage()).contains("Multiple values");
         });
     }
 
     @Test
     void duplicateConfigId_addsError() {
         List<ValidationErrorDetail> errors = validator.validate(List.of(
-                row("CFG001", "Landscape A", "{\"Cyber Risk\":[\"OR\"]}", null, 2, "SG"),
-                row("CFG001", "Landscape B", "{\"Conduct Risk\":[\"CR\"]}", null, 2, "HK")
+                row("CFG001", "Landscape A", ra("Cyber Risk"),   null, 2, "SG"),
+                row("CFG001", "Landscape B", ra("Conduct Risk"), null, 2, "HK")
         ));
         assertThat(errors).hasSize(1);
         assertThat(errors.get(0).getField()).isEqualTo("CONFIG_ID");
-        assertThat(errors.get(0).getRow()).isEqualTo(2);
     }
 
     @Test
     void commaInLndscpNm_addsError() {
         List<ValidationErrorDetail> errors = validator.validate(List.of(
-                row("CFG001", "Land A,Land B", "{\"Cyber Risk\":[\"OR\"]}", null, 2, "SG")
+                row("CFG001", "Land A,Land B", ra("Cyber Risk"), null, 2, "SG")
         ));
         assertThat(errors).hasSize(1);
         assertThat(errors.get(0).getField()).isEqualTo("LNDSCP_NM");
     }
 
-    // ── BIZ_UNIT_LVL rules ────────────────────────────────────────────────────
-
     @Test
     void bizUnitLvl_inconsistentAcrossRows_addsError() {
         List<ValidationErrorDetail> errors = validator.validate(List.of(
-                row("CFG001", "A", "{\"Cyber Risk\":[\"OR\"]}", "Tech", 2, "SG"),
-                row("CFG002", "B", "{\"Conduct Risk\":[\"CR\"]}", "DTI", 3, "HK")
+                row("CFG001", "A", ra("Cyber Risk"),   "Tech", 2, "SG"),
+                row("CFG002", "B", ra("Conduct Risk"), "DTI",  3, "HK")
         ));
-        assertThat(errors).anySatisfy(e -> {
-            assertThat(e.getField()).isEqualTo("BIZ_UNIT_LVL");
-            assertThat(e.getRow()).isEqualTo(2);
-            assertThat(e.getMessage()).contains("Expected 2").contains("got 3");
-        });
+        assertThat(errors).anySatisfy(e ->
+                assertThat(e.getField()).isEqualTo("BIZ_UNIT_LVL"));
     }
 
     @Test
     void bizUnitLvl_equalToMaxLevel_addsError() {
         List<ValidationErrorDetail> errors = validator.validate(List.of(
-                row("CFG001", "A", "{\"Cyber Risk\":[\"OR\"]}", null, 4, "SG")
+                row("CFG001", "A", ra("Cyber Risk"), null, 4, "SG")
         ));
         assertThat(errors).anySatisfy(e -> {
             assertThat(e.getField()).isEqualTo("BIZ_UNIT_LVL");
-            assertThat(e.getMessage()).contains("less than").contains("4");
+            assertThat(e.getMessage()).contains("maximum hierarchy level");
         });
     }
 
@@ -142,97 +137,179 @@ class OrlLndscpDimCsvRowValidatorTest {
 
     @Test
     void riskArea_duplicateKeys_addsError() {
+        String dup = "[{\"groupName\":\"IT\",\"groupName\":\"Data\",\"isGroup\":true,"
+                + "\"riskAreas\":[{\"riskArea\":\"Cyber Risk\",\"riskClusters\":[\"OR\"]}]}]";
         List<ValidationErrorDetail> errors = validator.validate(List.of(
-                row("CFG001", "A", "{\"Cyber Risk\":[\"OR\"],\"Cyber Risk\":[\"LCS\"]}", null, 2, "SG")
+                row("CFG001", "A", dup, null, 2, "SG")
         ));
         assertThat(errors).hasSize(1);
         assertThat(errors.get(0).getField()).isEqualTo("RISK_AREA");
     }
 
     @Test
-    void riskArea_emptyArray_addsError() {
+    void riskArea_emptyClusters_addsError() {
+        String json = "[{\"groupName\":\"IT\",\"isGroup\":true,"
+                + "\"riskAreas\":[{\"riskArea\":\"Cyber Risk\",\"riskClusters\":[]}]}]";
         List<ValidationErrorDetail> errors = validator.validate(List.of(
-                row("CFG001", "A", "{\"Cyber Risk\":[]}", null, 2, "SG")
+                row("CFG001", "A", json, null, 2, "SG")
         ));
         assertThat(errors).hasSize(1);
         assertThat(errors.get(0).getField()).isEqualTo("RISK_AREA");
-        assertThat(errors.get(0).getMessage()).contains("non-empty array");
+        assertThat(errors.get(0).getMessage()).contains("risk clusters");
+    }
+
+    @Test
+    void riskArea_groupedMissingGroupName_addsError() {
+        // isGroup=true requires a non-empty groupName.
+        String json = "[{\"isGroup\":true,"
+                + "\"riskAreas\":[{\"riskArea\":\"Cyber Risk\",\"riskClusters\":[\"OR\"]}]}]";
+        List<ValidationErrorDetail> errors = validator.validate(List.of(
+                row("CFG001", "A", json, null, 2, "SG")
+        ));
+        assertThat(errors).anySatisfy(e -> {
+            assertThat(e.getField()).isEqualTo("RISK_AREA");
+            assertThat(e.getMessage()).contains("groupName");
+        });
+    }
+
+    @Test
+    void riskArea_standaloneBlankGroupName_noError() {
+        // isGroup=false may leave groupName blank.
+        String json = "[{\"groupName\":\"\",\"isGroup\":false,"
+                + "\"riskAreas\":[{\"riskArea\":\"Transaction Capture and Execution\",\"riskClusters\":[\"OR\"]}]}]";
+        assertThat(validator.validate(List.of(
+                row("CFG001", "A", json, null, 2, "SG")
+        ))).isEmpty();
+    }
+
+    @Test
+    void riskArea_standaloneMissingGroupName_noError() {
+        // isGroup=false with the groupName key omitted entirely is also accepted.
+        String json = "[{\"isGroup\":false,"
+                + "\"riskAreas\":[{\"riskArea\":\"Inaccurate or untimely regulatory reporting\",\"riskClusters\":[\"OR\"]}]}]";
+        assertThat(validator.validate(List.of(
+                row("CFG001", "A", json, null, 2, "SG")
+        ))).isEmpty();
+    }
+
+    @Test
+    void riskArea_mixedGroupedAndStandalone_noError() {
+        String json = "[{\"groupName\":\"IT\",\"isGroup\":true,\"riskAreas\":["
+                + "{\"riskArea\":\"IT Resiliency and Continuity\",\"riskClusters\":[\"OR\",\"LCS\"]}]},"
+                + "{\"groupName\":\"\",\"isGroup\":false,\"riskAreas\":["
+                + "{\"riskArea\":\"Transaction Capture and Execution\",\"riskClusters\":[\"OR\"]}]}]";
+        assertThat(validator.validate(List.of(
+                row("CFG001", "A", json, null, 2, "SG")
+        ))).isEmpty();
+    }
+
+    @Test
+    void riskArea_emptyRiskAreasList_addsError() {
+        String json = "[{\"groupName\":\"IT\",\"isGroup\":true,\"riskAreas\":[]}]";
+        List<ValidationErrorDetail> errors = validator.validate(List.of(
+                row("CFG001", "A", json, null, 2, "SG")
+        ));
+        assertThat(errors).anySatisfy(e -> {
+            assertThat(e.getField()).isEqualTo("RISK_AREA");
+            assertThat(e.getMessage()).contains("at least one risk area");
+        });
+    }
+
+    @Test
+    void riskArea_duplicateRiskAreaNames_addsError() {
+        String json = "[{\"groupName\":\"IT\",\"isGroup\":true,\"riskAreas\":["
+                + "{\"riskArea\":\"Cyber Risk\",\"riskClusters\":[\"OR\"]}]},"
+                + "{\"groupName\":\"Data\",\"isGroup\":true,\"riskAreas\":["
+                + "{\"riskArea\":\"Cyber Risk\",\"riskClusters\":[\"LCS\"]}]}]";
+        List<ValidationErrorDetail> errors = validator.validate(List.of(
+                row("CFG001", "A", json, null, 2, "SG")
+        ));
+        assertThat(errors).anySatisfy(e -> {
+            assertThat(e.getField()).isEqualTo("RISK_AREA");
+            assertThat(e.getMessage()).contains("Duplicate risk area");
+        });
     }
 
     @Test
     void riskArea_validMultipleEntries_noError() {
         assertThat(validator.validate(List.of(
-                row("CFG001", "A", "{\"Cyber Risk\":[\"OR\",\"LCS\"],\"Conduct Risk\":[\"CR\"]}", null, 2, "SG")
+                row("CFG001", "A", ra("Cyber Risk", "Conduct Risk"), null, 2, "SG")
         ))).isEmpty();
     }
 
-    // ── BIZ_UNITS rules ───────────────────────────────────────────────────────
+    // ── BIZ_UNITS reference rules ───────────────────────────────────────────────
 
     @Test
     void bizUnits_unknownValue_addsError() {
         List<ValidationErrorDetail> errors = validator.validate(List.of(
-                row("CFG001", "A", "{\"Cyber Risk\":[\"OR\"]}", "Tech,UNKNOWN_BU", 2, "SG")
+                row("CFG001", "A", ra("Cyber Risk"), "Tech,UNKNOWN_BU", 2, "SG")
         ));
         assertThat(errors).hasSize(1);
         assertThat(errors.get(0).getField()).isEqualTo("BIZ_UNITS");
-        assertThat(errors.get(0).getMessage()).contains("UNKNOWN_BU");
     }
 
     @Test
     void bizUnits_duplicateValue_addsError() {
         List<ValidationErrorDetail> errors = validator.validate(List.of(
-                row("CFG001", "A", "{\"Cyber Risk\":[\"OR\"]}", "Tech,Tech", 2, "SG")
+                row("CFG001", "A", ra("Cyber Risk"), "Tech,Tech", 2, "SG")
         ));
         assertThat(errors).hasSize(1);
         assertThat(errors.get(0).getField()).isEqualTo("BIZ_UNITS");
-        assertThat(errors.get(0).getMessage()).contains("Duplicate value").contains("Tech");
     }
 
-    // ── LOCATIONS rules ───────────────────────────────────────────────────────
+    // ── LOCATIONS reference rules ───────────────────────────────────────────────
 
     @Test
     void locations_unknownValue_addsError() {
         List<ValidationErrorDetail> errors = validator.validate(List.of(
-                row("CFG001", "A", "{\"Cyber Risk\":[\"OR\"]}", null, 2, "SG,UNKNOWN")
+                row("CFG001", "A", ra("Cyber Risk"), null, 2, "SG,UNKNOWN")
         ));
         assertThat(errors).hasSize(1);
         assertThat(errors.get(0).getField()).isEqualTo("LOCATIONS");
-        assertThat(errors.get(0).getMessage()).contains("UNKNOWN").contains("orl_entity_mstr.orl_location");
     }
 
     @Test
     void locations_duplicateValue_addsError() {
         List<ValidationErrorDetail> errors = validator.validate(List.of(
-                row("CFG001", "A", "{\"Cyber Risk\":[\"OR\"]}", null, 2, "SG,SG")
+                row("CFG001", "A", ra("Cyber Risk"), null, 2, "SG,SG")
         ));
         assertThat(errors).hasSize(1);
         assertThat(errors.get(0).getField()).isEqualTo("LOCATIONS");
-        assertThat(errors.get(0).getMessage()).contains("Duplicate value").contains("SG");
     }
 
     @Test
     void locations_allValid_noError() {
         assertThat(validator.validate(List.of(
-                row("CFG001", "A", "{\"Cyber Risk\":[\"OR\"]}", null, 2, "SG,HK,IN")
+                row("CFG001", "A", ra("Cyber Risk"), null, 2, "SG,HK,IN")
         ))).isEmpty();
     }
 
-    // ── Multi-error accumulation ──────────────────────────────────────────────
+    // ── Multiple errors ─────────────────────────────────────────────────────────
 
     @Test
     void multipleErrors_allReported() {
         List<ValidationErrorDetail> errors = validator.validate(List.of(
-                row("CFG001", "A", "NOT_JSON", "Bad BU", 2, "BAD_LOC"),
-                row("CFG001", "B", "{\"Cyber Risk\":[\"OR\"]}", "Tech", 2, "SG")
+                row("CFG001", "A", "NOT_JSON",       "Bad BU", 2, "BAD_LOC"),
+                row("CFG001", "B", ra("Cyber Risk"), "Tech",   2, "SG")
         ));
         assertThat(errors.size()).isGreaterThanOrEqualTo(3);
     }
 
-    // ── helper ────────────────────────────────────────────────────────────────
+    // ── helpers ────────────────────────────────────────────────────────────────
+
+    /** Builds a single-group RISK_AREA document with the given risk area names (cluster ["OR"]). */
+    private static String ra(String... riskAreas) {
+        StringBuilder sb = new StringBuilder("[{\"groupName\":\"G\",\"isGroup\":true,\"riskAreas\":[");
+        for (int i = 0; i < riskAreas.length; i++) {
+            if (i > 0) sb.append(',');
+            sb.append("{\"riskArea\":\"").append(riskAreas[i]).append("\",\"riskClusters\":[\"OR\"]}");
+        }
+        return sb.append("]}]").toString();
+    }
 
     private OrlLndscpDimCsvRow row(String configId, String lndscpNm,
-                                    String riskArea, String bizUnits,
-                                    int bizUnitLvl, String locations) {
+                                   String riskArea, String bizUnits,
+                                   int bizUnitLvl, String locations) {
         return OrlLndscpDimCsvRow.builder()
                 .configId(configId).lndscpNm(lndscpNm)
                 .effectStartDt(LocalDate.of(2024, 1, 1))

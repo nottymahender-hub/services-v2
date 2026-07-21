@@ -3,6 +3,10 @@ package com.dbs.mot.grc.controller;
 import com.dbs.mot.grc.common.dto.ApiResponse;
 import com.dbs.mot.grc.dto.LandscapeAssmtSummary;
 import com.dbs.mot.grc.service.LandscapeAssmtService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -30,6 +34,7 @@ import java.util.List;
 @RestController
 @RequestMapping("/landscapes")
 @RequiredArgsConstructor
+@Tag(name = "Landscape Assessments", description = "Listing of landscape assessment summaries.")
 public class LandscapeAssmtController {
 
     private final LandscapeAssmtService service;
@@ -42,8 +47,17 @@ public class LandscapeAssmtController {
      * @return HTTP 200 with an array of {@link LandscapeAssmtSummary} objects,
      *         or HTTP 401 when the header is missing / blank
      */
+    @Operation(summary = "List all landscape assessments",
+            description = "Returns every landscape assessment summary enriched with its landscape name, "
+                    + "ordered by landscape name then assessment period.")
+    @ApiResponses(value = {
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "Assessments returned"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "Missing or blank X-EGRC-UserId header"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "500", description = "Unexpected server error")
+    })
     @GetMapping
     public ResponseEntity<ApiResponse<List<LandscapeAssmtSummary>>> getAll(
+            @Parameter(description = "Operator identity", required = true)
             @RequestHeader(value = "X-EGRC-UserId", required = false) String username) {
 
         // ── Authentication guard ──────────────────────────────────────────────

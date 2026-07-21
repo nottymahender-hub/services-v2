@@ -47,12 +47,12 @@ class LandscapeAssmtControllerTest {
         jdbc.execute("""
                 INSERT INTO orl_lndscp_dim
                     (id, CONFIG_ID, LNDSCP_NM, EFFECT_START_DT, VERSION, RISK_AREA, LOCATIONS, CREATED_BY)
-                VALUES (1, 'CFG001', 'Landscape Alpha', DATE '2024-01-01', 1, '{"Cyber Risk":["OR"]}', 'SG', 'seed')
+                VALUES (1, 'CFG001', 'Landscape Alpha', DATE '2024-01-01', 1, '[{"groupName":"IT","isGroup":false,"riskAreas":[{"riskArea":"Cyber Risk","riskClusters":["OR"]}]}]', 'SG', 'seed')
                 """);
         jdbc.execute("""
                 INSERT INTO orl_lndscp_dim
                     (id, CONFIG_ID, LNDSCP_NM, EFFECT_START_DT, VERSION, RISK_AREA, LOCATIONS, CREATED_BY)
-                VALUES (2, 'CFG002', 'Landscape Beta', DATE '2024-01-01', 1, '{"Conduct Risk":["CR"]}', 'HK', 'seed')
+                VALUES (2, 'CFG002', 'Landscape Beta', DATE '2024-01-01', 1, '[{"groupName":"Conduct","isGroup":false,"riskAreas":[{"riskArea":"Conduct Risk","riskClusters":["CR"]}]}]', 'HK', 'seed')
                 """);
 
         // Seed assessments:
@@ -121,6 +121,7 @@ class LandscapeAssmtControllerTest {
 
     @Test
     void getAll_firstRecord_hasCorrectLandscapeName() throws Exception {
+        // Most recently modified first: Alpha/Q2 (2024-04-01)
         mvc.perform(get(URL).header("X-EGRC-UserId", "tester"))
            .andExpect(status().isOk())
            .andExpect(jsonPath("$.data[0].landscapeName", is("Landscape Alpha")));
@@ -130,46 +131,45 @@ class LandscapeAssmtControllerTest {
     void getAll_firstRecord_hasCorrectAssessmentPeriod() throws Exception {
         mvc.perform(get(URL).header("X-EGRC-UserId", "tester"))
            .andExpect(status().isOk())
-           .andExpect(jsonPath("$.data[0].assessmentPeriod", is("Q1-2024")));
+           .andExpect(jsonPath("$.data[0].assessmentPeriod", is("Q2-2024")));
     }
 
     @Test
     void getAll_firstRecord_hasCorrectStatus() throws Exception {
         mvc.perform(get(URL).header("X-EGRC-UserId", "tester"))
            .andExpect(status().isOk())
-           .andExpect(jsonPath("$.data[0].status", is("Open")));
+           .andExpect(jsonPath("$.data[0].status", is("Draft")));
     }
 
     @Test
     void getAll_recordWithUpdate_usesUpdateDtTmAndUpdatedBy() throws Exception {
-        // Assessment id=1: UPDATE_DT_TM and UPDATED_BY are both set
+        // Assessment id=1 (Alpha/Q1) has UPDATE_DT_TM + UPDATED_BY; it is the oldest → last row.
         mvc.perform(get(URL).header("X-EGRC-UserId", "tester"))
            .andExpect(status().isOk())
-           // First row = Landscape Alpha / Q1-2024 (has update)
-           .andExpect(jsonPath("$.data[0].lastModifiedBy", is("updater1")))
-           .andExpect(jsonPath("$.data[0].lastModifiedOn", is("2024-01-15 12:00:00")));
+           .andExpect(jsonPath("$.data[2].lastModifiedBy", is("updater1")))
+           .andExpect(jsonPath("$.data[2].lastModifiedOn", is("2024-01-15 12:00:00")));
     }
 
     @Test
     void getAll_recordWithoutUpdate_fallsBackToCreateDtTmAndCreatedBy() throws Exception {
-        // Assessment id=2: UPDATE_DT_TM and UPDATED_BY are NULL → fall back to CREATE columns
+        // Assessment id=2 (Alpha/Q2) has no update → falls back to CREATE columns; newest → first row.
         mvc.perform(get(URL).header("X-EGRC-UserId", "tester"))
            .andExpect(status().isOk())
-           // Second row = Landscape Alpha / Q2-2024 (no update)
-           .andExpect(jsonPath("$.data[1].lastModifiedBy", is("creator2")))
-           .andExpect(jsonPath("$.data[1].lastModifiedOn", is("2024-04-01 08:00:00")));
+           .andExpect(jsonPath("$.data[0].lastModifiedBy", is("creator2")))
+           .andExpect(jsonPath("$.data[0].lastModifiedOn", is("2024-04-01 08:00:00")));
     }
 
     @Test
-    void getAll_orderedByLandscapeNameThenPeriod() throws Exception {
-        // Expected order: Alpha/Q1, Alpha/Q2, Beta/Q1
+    void getAll_orderedByLastModifiedOnDescending() throws Exception {
+        // lastModifiedOn desc: Alpha/Q2 (2024-04-01), Beta/Q1 (2024-01-20), Alpha/Q1 (2024-01-15)
         mvc.perform(get(URL).header("X-EGRC-UserId", "tester"))
            .andExpect(status().isOk())
            .andExpect(jsonPath("$.data[0].landscapeName", is("Landscape Alpha")))
-           .andExpect(jsonPath("$.data[0].assessmentPeriod", is("Q1-2024")))
-           .andExpect(jsonPath("$.data[1].landscapeName", is("Landscape Alpha")))
-           .andExpect(jsonPath("$.data[1].assessmentPeriod", is("Q2-2024")))
-           .andExpect(jsonPath("$.data[2].landscapeName", is("Landscape Beta")));
+           .andExpect(jsonPath("$.data[0].assessmentPeriod", is("Q2-2024")))
+           .andExpect(jsonPath("$.data[1].landscapeName", is("Landscape Beta")))
+           .andExpect(jsonPath("$.data[1].assessmentPeriod", is("Q1-2024")))
+           .andExpect(jsonPath("$.data[2].landscapeName", is("Landscape Alpha")))
+           .andExpect(jsonPath("$.data[2].assessmentPeriod", is("Q1-2024")));
     }
 
     @Test
@@ -221,9 +221,9 @@ class LandscapeAssmtControllerTest {
 
     @Test
     void getAll_landscapeAssmtIdMatchesDbId() throws Exception {
-        // Assessment id=1 is Alpha/Q1-2024 (first in order)
+        // First row is Alpha/Q2-2024 = assessment id 2 (most recently modified)
         mvc.perform(get(URL).header("X-EGRC-UserId", "tester"))
            .andExpect(status().isOk())
-           .andExpect(jsonPath("$.data[0].landscapeAssmtId", is(1)));
+           .andExpect(jsonPath("$.data[0].landscapeAssmtId", is(2)));
     }
 }

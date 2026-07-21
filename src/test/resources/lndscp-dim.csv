@@ -1,2 +1,53 @@
 CONFIG_ID,LNDSCP_NM,EFFECT_START_DT,EFFECT_END_DT,RISK_AREA,BIZ_UNITS,BIZ_UNIT_LVL,LOCATIONS
-DBS GROUP_v2,DBS GROUP SG-CN,2026-07-02,2029-07-02,"{""Market Abuse"": [""OR"",""LCS""],""AML, CFT and Sanctions"": [""OR""]}","Technology,Operations",2,"SG,CN"
+DBS GROUP_v2,DBS GROUP SG-CN,2026-07-02,2029-07-02,"[
+    {
+        ""groupName"": ""IT"",
+        ""isGroup"": true,
+        ""riskAreas"": [
+            {
+                ""riskArea"": ""IT Resiliency and Continuity"",
+                ""riskClusters"": [
+                    ""OR"",
+                    ""LCS""
+                ]
+            },
+            {
+                ""riskArea"": ""IT Change and Release Management"",
+                ""riskClusters"": [
+                    ""LCS""
+                ]
+            }
+        ]
+    },
+    {
+        ""groupName"": ""Data"",
+        ""isGroup"": true,
+        ""riskAreas"": [
+            {
+                ""riskArea"": ""Data Governance"",
+                ""riskClusters"": [
+                    ""OR"",
+                    ""LCS""
+                ]
+            },
+            {
+                ""riskArea"": ""Data Management"",
+                ""riskClusters"": [
+                    ""LCS""
+                ]
+            }
+        ]
+    },
+    {
+        ""groupName"": ""Transaction Capture and Execution"",
+        ""isGroup"": false,
+        ""riskAreas"": [
+            {
+                ""riskArea"": ""Transaction Capture and Execution"",
+                ""riskClusters"": [
+                    ""OR""
+                ]
+            }
+        ]
+    }
+]","CBG Products,Channels",3,"SG,CN"

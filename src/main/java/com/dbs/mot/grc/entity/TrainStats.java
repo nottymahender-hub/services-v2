@@ -1,5 +1,7 @@
 package com.dbs.mot.grc.entity;
 
+import com.dbs.mot.grc.common.enums.LevelCategory;
+import com.dbs.mot.grc.common.enums.Module;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -27,13 +29,13 @@ public class TrainStats {
     @Column("config_version")
     private Integer configVersion;
     @Column("lvl")
-    private String lvl;
+    private LevelCategory lvl;
     @Column("train_mean")
     private BigDecimal trainMean;
     @Column("train_var")
     private BigDecimal trainVar;
     @Column("module")
-    private String module;
+    private Module module;
     @Column("CREATED_BY")
     private String createdBy;
     @Column("CREATE_DT_TM")

@@ -2,6 +2,8 @@ package com.dbs.mot.grc.csv.handler;
 
 import com.dbs.mot.grc.common.csv.CsvHandler;
 import com.dbs.mot.grc.common.csv.CsvImportProcessor;
+import com.dbs.mot.grc.common.enums.LevelCategory;
+import com.dbs.mot.grc.common.enums.Module;
 import com.dbs.mot.grc.common.util.ConfigVersionResolver;
 import com.dbs.mot.grc.csv.mapper.TrainStatsCsvRowMapper;
 import com.dbs.mot.grc.csv.validator.TrainStatsCsvRowValidator;
@@ -85,9 +87,9 @@ public class TrainStatsCsvHandler implements CsvHandler {
                 .map(r -> {
                     String key = ConfigVersionResolver.groupKey(r.getLvl(), r.getModule());
                     return TrainStats.builder()
-                            .configVersion(nextVersions.get(key)).lvl(r.getLvl())
+                            .configVersion(nextVersions.get(key)).lvl(LevelCategory.fromDbValue(r.getLvl()))
                             .trainMean(r.getTrainMean()).trainVar(r.getTrainVar())
-                            .module(r.getModule()).createdBy(username).createDtTm(now).build();
+                            .module(Module.fromDbValue(r.getModule())).createdBy(username).createDtTm(now).build();
                 })
                 .toList();
 
@@ -100,9 +102,9 @@ public class TrainStatsCsvHandler implements CsvHandler {
     public void writeDataRows(CSVWriter writer) {
         latestPerGroup().forEach(r ->
                 writer.writeNext(new String[]{
-                        s(r.getId()), s(r.getConfigVersion()), r.getLvl(),
+                        s(r.getId()), s(r.getConfigVersion()), r.getLvl().getDbValue(),
                         s(r.getTrainMean()), s(r.getTrainVar()),
-                        r.getModule(), r.getCreatedBy(), fmt(r.getCreateDtTm())
+                        r.getModule().getDbValue(), r.getCreatedBy(), fmt(r.getCreateDtTm())
                 }));
     }
 
@@ -110,7 +112,7 @@ public class TrainStatsCsvHandler implements CsvHandler {
     private Collection<TrainStats> latestPerGroup() {
         Map<String, TrainStats> latestByGroup = new LinkedHashMap<>();
         for (TrainStats row : repository.findAll()) {
-            String key = ConfigVersionResolver.groupKey(row.getLvl(), row.getModule());
+            String key = ConfigVersionResolver.groupKey(row.getLvl().getDbValue(), row.getModule().getDbValue());
             latestByGroup.merge(key, row,
                     (existing, candidate) -> candidate.getConfigVersion() > existing.getConfigVersion()
                             ? candidate : existing);

@@ -2,6 +2,7 @@ package com.dbs.mot.grc.service;
 
 import com.dbs.mot.grc.common.exception.BadRequestException;
 import com.dbs.mot.grc.common.exception.NotFoundException;
+import com.dbs.mot.grc.common.util.RiskAreaParser;
 import com.dbs.mot.grc.dto.CalloutDimensions;
 import com.dbs.mot.grc.dto.CalloutListResponse;
 import com.dbs.mot.grc.dto.CalloutRequest;
@@ -28,9 +29,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 
 /**
  * Business logic for all {@code /landscape/{lndscpAssmtId}/callouts} endpoints.
@@ -71,6 +70,7 @@ public class LandscapeAssmtCalloutService {
     private final OrlLndscpAssmtRepository              assmtRepository;
     private final OrlLndscpDimRepository                dimRepository;
     private final JdbcTemplate                          jdbcTemplate;
+    private final RiskAreaParser                        riskAreaParser;
 
     // ── Public API ────────────────────────────────────────────────────────────
 
@@ -238,12 +238,12 @@ public class LandscapeAssmtCalloutService {
                 .orElseThrow(() -> new NotFoundException(
                         "No landscape config found for id: " + dimId));
 
-        List<String> riskAreaKeys = parseRiskAreaKeys(dim.getRiskArea());
-        List<String> locations    = parseCsv(dim.getLocations());
-        List<String> bizUnits     = parseCsv(dim.getBizUnits());
+        List<String> riskAreaNames = riskAreaParser.riskAreaNames(dim.getRiskArea());
+        List<String> locations     = parseCsv(dim.getLocations());
+        List<String> bizUnits      = parseCsv(dim.getBizUnits());
 
         // Append always-valid extra options per business rules
-        List<String> validRiskAreas = new ArrayList<>(riskAreaKeys);
+        List<String> validRiskAreas = new ArrayList<>(riskAreaNames);
         validRiskAreas.add(OTHERS);
 
         List<String> validLocations = new ArrayList<>(locations);
@@ -331,19 +331,6 @@ public class LandscapeAssmtCalloutService {
             return MAPPER.readValue(json, new TypeReference<List<String>>() {});
         } catch (JsonProcessingException e) {
             log.warn("Failed to parse JSON array '{}': {}", json, e.getMessage());
-            return Collections.emptyList();
-        }
-    }
-
-    /** Parses the RISK_AREA JSON string and returns its keys in insertion order. */
-    private List<String> parseRiskAreaKeys(String json) {
-        if (json == null || json.isBlank()) return Collections.emptyList();
-        try {
-            Map<String, Object> map = MAPPER.readValue(
-                    json, new TypeReference<LinkedHashMap<String, Object>>() {});
-            return new ArrayList<>(map.keySet());
-        } catch (JsonProcessingException e) {
-            log.warn("Failed to parse RISK_AREA JSON '{}': {}", json, e.getMessage());
             return Collections.emptyList();
         }
     }

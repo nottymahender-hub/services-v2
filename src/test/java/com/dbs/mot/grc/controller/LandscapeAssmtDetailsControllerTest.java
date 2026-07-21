@@ -50,18 +50,21 @@ class LandscapeAssmtDetailsControllerTest {
         jdbc.execute("DELETE FROM orl_lndscp_dim");
         jdbc.execute("DELETE FROM fact_orl");
 
-        // Dim 1: JSON RISK_AREA with two entries; Dim 2: single entry, null BIZ_UNITS, level 3
+        // Dim 1: grouped RISK_AREA — 'OR' in group "Cyber" (clusters C1,C2); 'CR' in group
+        // "Conduct" (cluster C3). Detail rows key on the risk area name (OR / CR).
         jdbc.execute("""
                 INSERT INTO orl_lndscp_dim (id,CONFIG_ID,LNDSCP_NM,EFFECT_START_DT,VERSION,
                     RISK_AREA,BIZ_UNITS,BIZ_UNIT_LVL,LOCATIONS,CREATED_BY)
                 VALUES(1,'CFG001','Alpha',DATE '2024-01-01',1,
-                    '{"Cyber Risk":["OR"],"Conduct Risk":["CR"]}','Tech,Ops',2,'SG,HK','seed')
+                    '[{"groupName":"Cyber","isGroup":true,"riskAreas":[{"riskArea":"OR","riskClusters":["C1","C2"]}]},{"groupName":"Conduct","isGroup":false,"riskAreas":[{"riskArea":"CR","riskClusters":["C3"]}]}]',
+                    'Tech,Ops',2,'SG,HK','seed')
                 """);
         jdbc.execute("""
                 INSERT INTO orl_lndscp_dim (id,CONFIG_ID,LNDSCP_NM,EFFECT_START_DT,VERSION,
                     RISK_AREA,BIZ_UNITS,BIZ_UNIT_LVL,LOCATIONS,CREATED_BY)
                 VALUES(2,'CFG002','Beta',DATE '2024-01-01',1,
-                    '{"Operational Risk":["OR"]}',NULL,3,'IN','seed')
+                    '[{"groupName":"Ops","isGroup":false,"riskAreas":[{"riskArea":"OR","riskClusters":["X1"]}]}]',
+                    NULL,3,'IN','seed')
                 """);
 
         // Assmt 4 is the previous assessment of assmt 5 (linked via PREV_ASSMT_NUM).
@@ -90,7 +93,7 @@ class LandscapeAssmtDetailsControllerTest {
         insertDetail(90, 4, "OR", "Tech", "DTI", "BCM", "SG", "L4", "High", "Completed");
         insertDetail(91, 4, "OR", "Tech", "DTI", null, "HK", "L3", null, "Completed");
 
-        // assmt 5 detail rows — ORDER BY RISK_AREA, LOCATION: CR/SG(110), OR/HK(102), OR/IN(103), OR/SG(101)
+        // assmt 5 detail rows — response is ordered by id asc: 101, 102, 103, 110
         insertDetail(101, 5, "OR", "Tech", "DTI", "BCM", "SG", "L4", "High", "Open");
         insertDetail(102, 5, "OR", "Tech", "DTI", null, "HK", "L3", null, "Locked");
         insertDetail(103, 5, "OR", "Tech", null, null, "IN", "L2", null, "Completed");
@@ -123,7 +126,7 @@ class LandscapeAssmtDetailsControllerTest {
                 INSERT INTO fact_orl
                     (biz_dt,RISK_AREA,ORL_BU_NM_L2,ORL_BU_NM_L3,ORL_BU_NM_L4,LOCATION,category,
                      CAL_NET_RISK_RTNG,RISK_RTNG_CHGE,CTRL_EFF_RTN,COMMENTARY)
-                VALUES(DATE %s,%s,%s,%s,%s,%s,'L2',%s,%s,'Satisfactory To Good',%s)
+                VALUES(DATE %s,%s,%s,%s,%s,%s,'L2',%s,%s,'Satisfactory to Good',%s)
                 """.formatted(q(bizDt), q(riskArea), qDim(l2), qDim(l3), qDim(l4), qDim(loc),
                 q(cal), q(rtngChge), q(commentary)));
     }
@@ -195,19 +198,37 @@ class LandscapeAssmtDetailsControllerTest {
     }
 
     @Test
-    void lndscpLastRefreshed_fallsBackToCreateDtTm_whenUpdateDtTmNull() throws Exception {
-        // assmt 5 has no UPDATE_DT_TM
+    void lndscpLastRefreshed_isLatestFactBizDt() throws Exception {
+        // Latest biz_dt across fact_orl is 2024-07-01 (a 2024-06-01 row also exists).
         mvc.perform(get(URL_TPL, 5).header("X-EGRC-UserId", "tester"))
            .andExpect(status().isOk())
-           .andExpect(jsonPath("$.data.lndscpLastRefreshed").exists());
+           .andExpect(jsonPath("$.data.lndscpLastRefreshed", is("2024-07-01")));
     }
 
     @Test
-    void lndscpLastRefreshed_usesUpdateDtTm_whenPresent() throws Exception {
-        // assmt 7 has UPDATE_DT_TM = 2024-06-01T10:00:00
+    void lndscpLastRefreshed_null_whenNoFacts() throws Exception {
+        jdbc.execute("DELETE FROM fact_orl");
+        mvc.perform(get(URL_TPL, 5).header("X-EGRC-UserId", "tester"))
+           .andExpect(status().isOk())
+           .andExpect(jsonPath("$.data.lndscpLastRefreshed").value(nullValue()));
+    }
+
+    @Test
+    void lndscpLastModifiedOn_fallsBackToCreateDtTm_whenUpdateNull() throws Exception {
+        // assmt 5 has no UPDATE_DT_TM → falls back to CREATE_DT_TM / CREATED_BY.
+        mvc.perform(get(URL_TPL, 5).header("X-EGRC-UserId", "tester"))
+           .andExpect(status().isOk())
+           .andExpect(jsonPath("$.data.lndscpLastModifiedOn", startsWith("2024-07-01T00:00:00")))
+           .andExpect(jsonPath("$.data.lndscpLastModifiedBy", is("seed")));
+    }
+
+    @Test
+    void lndscpLastModifiedOn_usesUpdateFields_whenPresent() throws Exception {
+        // assmt 7 has UPDATE_DT_TM = 2024-06-01T10:00:00 and UPDATED_BY = 'editor'.
         mvc.perform(get(URL_TPL, 7).header("X-EGRC-UserId", "tester"))
            .andExpect(status().isOk())
-           .andExpect(jsonPath("$.data.lndscpLastRefreshed", startsWith("2024-06-01T10:00:00")));
+           .andExpect(jsonPath("$.data.lndscpLastModifiedOn", startsWith("2024-06-01T10:00:00")))
+           .andExpect(jsonPath("$.data.lndscpLastModifiedBy", is("editor")));
     }
 
     // ── dimensions moved to the dedicated /dimensions endpoint ────────────────
@@ -230,37 +251,48 @@ class LandscapeAssmtDetailsControllerTest {
     }
 
     @Test
-    void assessmentItem_id_orderedByRiskAreaThenLocation() throws Exception {
-        // ORDER BY RISK_AREA, LOCATION: CR/SG(110), OR/HK(102), OR/IN(103), OR/SG(101)
+    void assessments_containAllExpectedRows() throws Exception {
+        // No ordering is applied; assert membership regardless of order.
         mvc.perform(get(URL_TPL, 5).header("X-EGRC-UserId", "tester"))
            .andExpect(status().isOk())
-           .andExpect(jsonPath("$.data.assessments[0].id", is(110)))
-           .andExpect(jsonPath("$.data.assessments[1].id", is(102)))
-           .andExpect(jsonPath("$.data.assessments[2].id", is(103)))
-           .andExpect(jsonPath("$.data.assessments[3].id", is(101)));
+           .andExpect(jsonPath("$.data.assessments[*].id", containsInAnyOrder(101, 102, 103, 110)));
     }
 
     @Test
     void assessmentItem_allFieldsPresent() throws Exception {
         mvc.perform(get(URL_TPL, 5).header("X-EGRC-UserId", "tester"))
            .andExpect(status().isOk())
-           .andExpect(jsonPath("$.data.assessments[1].id").exists())
-           .andExpect(jsonPath("$.data.assessments[1].bu").exists())
-           .andExpect(jsonPath("$.data.assessments[1].location").exists())
-           .andExpect(jsonPath("$.data.assessments[1].category").exists())
-           .andExpect(jsonPath("$.data.assessments[1].status").exists())
-           .andExpect(jsonPath("$.data.assessments[1].riskArea").exists())
-           .andExpect(jsonPath("$.data.assessments[1].nrrCalculated").exists())
-           .andExpect(jsonPath("$.data.assessments[1].nrrOverlaid").exists());
+           .andExpect(jsonPath("$.data.assessments[0].id").exists())
+           .andExpect(jsonPath("$.data.assessments[0].bu").exists())
+           .andExpect(jsonPath("$.data.assessments[0].location").exists())
+           .andExpect(jsonPath("$.data.assessments[0].category").exists())
+           .andExpect(jsonPath("$.data.assessments[0].status").exists())
+           .andExpect(jsonPath("$.data.assessments[0].riskArea").exists())
+           .andExpect(jsonPath("$.data.assessments[0].groupName").exists())
+           .andExpect(jsonPath("$.data.assessments[0].riskClusters").exists())
+           .andExpect(jsonPath("$.data.assessments[0].commentry").exists())
+           .andExpect(jsonPath("$.data.assessments[0].nrrCalculated").exists())
+           .andExpect(jsonPath("$.data.assessments[0].ctrlEffRtn").exists())
+           .andExpect(jsonPath("$.data.assessments[0].nrrOverlaid").exists());
+    }
+
+    @Test
+    void assessmentItem_groupNameAndRiskClusters_resolvedFromParentDim() throws Exception {
+        // id 101 (OR) → group "Cyber", clusters [C1,C2]; id 110 (CR) → group "Conduct", clusters [C3].
+        mvc.perform(get(URL_TPL, 5).header("X-EGRC-UserId", "tester"))
+           .andExpect(status().isOk())
+           .andExpect(jsonPath("$.data.assessments[?(@.id==101)].groupName", hasItem("Cyber")))
+           .andExpect(jsonPath("$.data.assessments[?(@.id==101)].riskClusters[*]", hasItems("C1", "C2")))
+           .andExpect(jsonPath("$.data.assessments[?(@.id==110)].groupName", hasItem("Conduct")))
+           .andExpect(jsonPath("$.data.assessments[?(@.id==110)].riskClusters[*]", hasItem("C3")));
     }
 
     @Test
     void assessmentItem_riskArea_matchesDetailColumn() throws Exception {
-        // assessments[0] = id 110 (CR); assessments[1] = id 102 (OR)
         mvc.perform(get(URL_TPL, 5).header("X-EGRC-UserId", "tester"))
            .andExpect(status().isOk())
-           .andExpect(jsonPath("$.data.assessments[0].riskArea", is("CR")))
-           .andExpect(jsonPath("$.data.assessments[1].riskArea", is("OR")));
+           .andExpect(jsonPath("$.data.assessments[?(@.id==101)].riskArea", hasItem("OR")))
+           .andExpect(jsonPath("$.data.assessments[?(@.id==110)].riskArea", hasItem("CR")));
     }
 
     @Test
@@ -277,18 +309,18 @@ class LandscapeAssmtDetailsControllerTest {
 
     @Test
     void bu_whenLvl2_usesOrlBuNmL2() throws Exception {
-        // dim 1 (assmt 5) has BIZ_UNIT_LVL=2; assessments[2] = id 103 (L2=Tech)
+        // dim 1 (assmt 5) has BIZ_UNIT_LVL=2; id 103 (L2=Tech)
         mvc.perform(get(URL_TPL, 5).header("X-EGRC-UserId", "tester"))
            .andExpect(status().isOk())
-           .andExpect(jsonPath("$.data.assessments[2].bu", is("Tech")));
+           .andExpect(jsonPath("$.data.assessments[?(@.id==103)].bu", hasItem("Tech")));
     }
 
     @Test
     void bu_whenLvl3_usesOrlBuNmL3() throws Exception {
-        // dim 2 (assmt 7) has BIZ_UNIT_LVL=3; assessments[0] = id 105 (L3=TechL3)
+        // dim 2 (assmt 7) has BIZ_UNIT_LVL=3; id 105 (L3=TechL3)
         mvc.perform(get(URL_TPL, 7).header("X-EGRC-UserId", "tester"))
            .andExpect(status().isOk())
-           .andExpect(jsonPath("$.data.assessments[0].bu", is("TechL3")));
+           .andExpect(jsonPath("$.data.assessments[?(@.id==105)].bu", hasItem("TechL3")));
     }
 
     @Test
@@ -297,94 +329,101 @@ class LandscapeAssmtDetailsControllerTest {
         // but 'loc' must take priority over the BIZ_UNIT_LVL-based lookup.
         mvc.perform(get(URL_TPL, 6).header("X-EGRC-UserId", "tester"))
            .andExpect(status().isOk())
-           .andExpect(jsonPath("$.data.assessments[?(@.id==106)].bu", hasItem("Group")));
+           .andExpect(jsonPath("$.data.assessments[?(@.id==106)].bu", hasItem("All")));
     }
 
     // ── location derivation (by category) ─────────────────────────────────────
 
     @Test
     void location_whenCategoryIsL4_returnsRawLocation() throws Exception {
-        // assessments[3] = id 101 (category=L4, LOCATION=SG)
+        // id 101 (category=L4, LOCATION=SG)
         mvc.perform(get(URL_TPL, 5).header("X-EGRC-UserId", "tester"))
            .andExpect(status().isOk())
-           .andExpect(jsonPath("$.data.assessments[3].location", is("SG")));
+           .andExpect(jsonPath("$.data.assessments[?(@.id==101)].location", hasItem("SG")));
     }
 
     @Test
     void location_whenCategoryIsGroupLevel_returnsLiteralGroup() throws Exception {
-        // assessments[0] = id 110 (category=grp_l2, LOCATION=SG) → must resolve to "Group"
+        // id 110 (category=grp_l2, LOCATION=SG) → must resolve to "Group"
         mvc.perform(get(URL_TPL, 5).header("X-EGRC-UserId", "tester"))
            .andExpect(status().isOk())
-           .andExpect(jsonPath("$.data.assessments[0].location", is("Group")));
+           .andExpect(jsonPath("$.data.assessments[?(@.id==110)].location", hasItem("All")));
     }
 
     // ── nrr fields ─────────────────────────────────────────────────────────────
 
     @Test
-    void nrrCalculated_returnsCalNetRiskRtngDirectly() throws Exception {
+    void nrrCalculated_returnsDisplayForm() throws Exception {
+        // id 101 (fact CAL='Low') → display "Low Risk"
         mvc.perform(get(URL_TPL, 5).header("X-EGRC-UserId", "tester"))
            .andExpect(status().isOk())
-           .andExpect(jsonPath("$.data.assessments[3].nrrCalculated", is("Low")));
+           .andExpect(jsonPath("$.data.assessments[?(@.id==101)].nrrCalculated", hasItem("Low Risk")));
     }
 
     @Test
-    void nrr_returnsOvrlyNetRiskRtngDirectly() throws Exception {
-        // assessments[3] = id 101 (OVRLY_NET_RISK_RTNG='High')
+    void nrr_returnsOvrlyNetRiskRtngDisplayForm() throws Exception {
+        // id 101 (OVRLY='High') → display "High Risk"
         mvc.perform(get(URL_TPL, 5).header("X-EGRC-UserId", "tester"))
            .andExpect(status().isOk())
-           .andExpect(jsonPath("$.data.assessments[3].nrr", is("High")));
+           .andExpect(jsonPath("$.data.assessments[?(@.id==101)].nrr", hasItem("High Risk")));
+    }
+
+    @Test
+    void ctrlEffRtn_returnsFactValue() throws Exception {
+        // id 101 matches a current fact with CTRL_EFF_RTN='Satisfactory to Good'
+        mvc.perform(get(URL_TPL, 5).header("X-EGRC-UserId", "tester"))
+           .andExpect(status().isOk())
+           .andExpect(jsonPath("$.data.assessments[?(@.id==101)].ctrlEffRtn", hasItem("Satisfactory to Good")));
     }
 
     @Test
     void nrrOverlaid_isY_whenOvrlyNetRiskRtngPresent() throws Exception {
-        // assessments[3] = id 101 has OVRLY_NET_RISK_RTNG='High'
+        // id 101 has OVRLY_NET_RISK_RTNG='High'
         mvc.perform(get(URL_TPL, 5).header("X-EGRC-UserId", "tester"))
            .andExpect(status().isOk())
-           .andExpect(jsonPath("$.data.assessments[3].nrrOverlaid", is("Y")));
+           .andExpect(jsonPath("$.data.assessments[?(@.id==101)].nrrOverlaid", hasItem("Y")));
     }
 
     @Test
     void nrrOverlaid_isN_whenOvrlyNetRiskRtngNull() throws Exception {
-        // assessments[1] = id 102 has OVRLY_NET_RISK_RTNG=null
+        // id 102 has OVRLY_NET_RISK_RTNG=null
         mvc.perform(get(URL_TPL, 5).header("X-EGRC-UserId", "tester"))
            .andExpect(status().isOk())
-           .andExpect(jsonPath("$.data.assessments[1].nrrOverlaid", is("N")));
+           .andExpect(jsonPath("$.data.assessments[?(@.id==102)].nrrOverlaid", hasItem("N")));
     }
 
     @Test
-    void riskRatingChangeAndSummary_arePassedThrough() throws Exception {
-        // assessments[3] = id 101
+    void riskRatingChangeAndCommentry_arePassedThrough() throws Exception {
         mvc.perform(get(URL_TPL, 5).header("X-EGRC-UserId", "tester"))
            .andExpect(status().isOk())
-           .andExpect(jsonPath("$.data.assessments[3].riskRatingChange", is("Improved")))
-           .andExpect(jsonPath("$.data.assessments[3].summary", is("Commentary for 101")));
+           .andExpect(jsonPath("$.data.assessments[?(@.id==101)].riskRatingChange", hasItem("Improved")))
+           .andExpect(jsonPath("$.data.assessments[?(@.id==101)].commentry", hasItem("Commentary for 101")));
     }
 
     // ── prevAssmtFinalNRR (derived from PREV_ASSMT_NUM assessment) ─────────────
 
     @Test
     void prevAssmtFinalNRR_usesOvrlyOfMatchedPrevRow_whenOverlaid() throws Exception {
-        // assessments[3] = id 101 → matched prev row 90 has OVRLY='High'
+        // id 101 → matched prev row 90 has OVRLY='High' → display "High Risk"
         mvc.perform(get(URL_TPL, 5).header("X-EGRC-UserId", "tester"))
            .andExpect(status().isOk())
-           .andExpect(jsonPath("$.data.assessments[3].prevAssmtFinalNRR", is("High")));
+           .andExpect(jsonPath("$.data.assessments[?(@.id==101)].prevAssmtFinalNRR", hasItem("High Risk")));
     }
 
     @Test
     void prevAssmtFinalNRR_fallsBackToCalOfMatchedPrevRow_whenNotOverlaid() throws Exception {
-        // assessments[1] = id 102 → matched prev row 91 has OVRLY=null, CAL='Med Low'
+        // id 102 → matched prev row 91 has OVRLY=null, CAL='Med Low' → display "Medium-Low Risk"
         mvc.perform(get(URL_TPL, 5).header("X-EGRC-UserId", "tester"))
            .andExpect(status().isOk())
-           .andExpect(jsonPath("$.data.assessments[1].prevAssmtFinalNRR", is("Med Low")));
+           .andExpect(jsonPath("$.data.assessments[?(@.id==102)].prevAssmtFinalNRR", hasItem("Medium-Low Risk")));
     }
 
     @Test
     void prevAssmtFinalNRR_null_whenNoMatchingPrevRow() throws Exception {
-        // assessments[0] = id 110 (CR row) has no dimension match in the previous assessment;
-        // the property is present with a null value (NON_NULL filtering is off).
+        // id 110 (CR row) has no dimension match in the previous assessment → null value present.
         mvc.perform(get(URL_TPL, 5).header("X-EGRC-UserId", "tester"))
            .andExpect(status().isOk())
-           .andExpect(jsonPath("$.data.assessments[0].prevAssmtFinalNRR").value(nullValue()));
+           .andExpect(jsonPath("$.data.assessments[?(@.id==110)].prevAssmtFinalNRR", hasItem(nullValue())));
     }
 
     @Test

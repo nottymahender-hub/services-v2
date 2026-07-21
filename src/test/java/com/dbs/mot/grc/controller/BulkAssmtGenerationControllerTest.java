@@ -56,14 +56,15 @@ class BulkAssmtGenerationControllerTest {
                 INSERT INTO orl_lndscp_dim (id,CONFIG_ID,LNDSCP_NM,EFFECT_START_DT,VERSION,
                     RISK_AREA,BIZ_UNITS,BIZ_UNIT_LVL,LOCATIONS,CREATED_BY)
                 VALUES(1,'CFG001','Alpha',DATE '2024-01-01',1,
-                    '{"Market Abuse":["OR","LCS"],"AML, CFT and Sanctions":["OR"]}',
+                    '[{"groupName":"Conduct","isGroup":true,"riskAreas":[{"riskArea":"Market Abuse","riskClusters":["OR","LCS"]},{"riskArea":"AML, CFT and Sanctions","riskClusters":["OR"]}]}]',
                     'Technology,Operations',2,'SG,CN','seed')
                 """);
         jdbc.execute("""
                 INSERT INTO orl_lndscp_dim (id,CONFIG_ID,LNDSCP_NM,EFFECT_START_DT,VERSION,
                     RISK_AREA,BIZ_UNITS,BIZ_UNIT_LVL,LOCATIONS,CREATED_BY)
                 VALUES(2,'CFG002','Beta',DATE '2024-01-01',1,
-                    '{"Market Abuse":["OR"]}','DTI',3,'SG','seed')
+                    '[{"groupName":"Conduct","isGroup":false,"riskAreas":[{"riskArea":"Market Abuse","riskClusters":["OR"]}]}]',
+                    'DTI',3,'SG','seed')
                 """);
 
         jdbc.execute("INSERT INTO orl_biz_unit(BU_NUM,BU_NM,LVL_OF_HIER,ORL_BU_NM_L2,CREATED_BY) VALUES(10,'Technology',2,'Technology','seed')");
@@ -142,7 +143,7 @@ class BulkAssmtGenerationControllerTest {
                 INSERT INTO orl_lndscp_dim (id,CONFIG_ID,LNDSCP_NM,EFFECT_START_DT,VERSION,
                     RISK_AREA,LOCATIONS,CREATED_BY)
                 VALUES(6,'CFG001','Alpha',DATE '2025-01-01',2,
-                    '{"Market Abuse":["OR"]}','SG','seed')
+                    '[{"groupName":"Conduct","isGroup":false,"riskAreas":[{"riskArea":"Market Abuse","riskClusters":["OR"]}]}]','SG','seed')
                 """);
 
         mvc.perform(post(URL).header("X-EGRC-UserId", "tester"))
@@ -173,13 +174,13 @@ class BulkAssmtGenerationControllerTest {
                 INSERT INTO orl_lndscp_dim (id,CONFIG_ID,LNDSCP_NM,EFFECT_START_DT,VERSION,STATUS,
                     RISK_AREA,LOCATIONS,CREATED_BY)
                 VALUES(3,'CFG003','Gamma',DATE '2024-01-01',1,'DEACTIVATED',
-                    '{"Market Abuse":["OR"]}','SG','seed')
+                    '[{"groupName":"Conduct","isGroup":false,"riskAreas":[{"riskArea":"Market Abuse","riskClusters":["OR"]}]}]','SG','seed')
                 """);
         jdbc.execute("""
                 INSERT INTO orl_lndscp_dim (id,CONFIG_ID,LNDSCP_NM,EFFECT_START_DT,EFFECT_END_DT,VERSION,
                     RISK_AREA,LOCATIONS,CREATED_BY)
                 VALUES(4,'CFG004','Delta',DATE '2020-01-01',DATE '2020-12-31',1,
-                    '{"Market Abuse":["OR"]}','SG','seed')
+                    '[{"groupName":"Conduct","isGroup":false,"riskAreas":[{"riskArea":"Market Abuse","riskClusters":["OR"]}]}]','SG','seed')
                 """);
 
         mvc.perform(post(URL).header("X-EGRC-UserId", "tester"))

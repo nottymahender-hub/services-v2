@@ -5,6 +5,10 @@
 
 -- Drop in FK-child-first order.
 DROP TABLE IF EXISTS fact_orl;
+DROP TABLE IF EXISTS rcsa_fact_orl;
+DROP TABLE IF EXISTS inc_fact_orl;
+DROP TABLE IF EXISTS ina_fact_orl;
+DROP TABLE IF EXISTS kri_fact_orl;
 DROP TABLE IF EXISTS orl_static_data_maintianance_csv_upload_audit;
 DROP TABLE IF EXISTS orl_lndscp_callout_comment_hist;
 DROP TABLE IF EXISTS orl_lndscp_callout;
@@ -116,7 +120,9 @@ CREATE TABLE orl_lndscp_dim (
     EFFECT_END_DT   DATE          NOT NULL DEFAULT DATE '9999-12-31',
     VERSION         INT           NOT NULL,
     STATUS          VARCHAR(20)   NOT NULL DEFAULT 'ACTIVE',
-    RISK_AREA       VARCHAR(1000) NOT NULL,
+    -- RISK_AREA holds the grouped risk-area JSON document; CLOB mirrors how the other
+    -- JSON columns (LOCATIONS/BIZ_UNITS/GRC_METRICS) are represented in the H2 test schema.
+    RISK_AREA       CLOB          NOT NULL,
     BIZ_UNITS       VARCHAR(500)  NULL,
     BIZ_UNIT_LVL    INT           NULL,
     LOCATIONS       VARCHAR(100)  NOT NULL,
@@ -227,8 +233,8 @@ CREATE TABLE orl_static_data_maintianance_csv_upload_audit (
 );
 
 -- ── fact_orl ─────────────────────────────────────────────────────────────────
--- Snapshot table with all computed assessment data, matched by dimension + biz_dt.
--- GRC_METRICS skips a JSON-validity CHECK in H2 (json_valid support is inconsistent).
+-- Snapshot table with the row-level computed values, matched by dimension + biz_dt.
+-- GRC metrics now live in the per-module *_fact_orl tables below.
 CREATE TABLE fact_orl (
     ID                INT          NOT NULL AUTO_INCREMENT,
     biz_dt            DATE         NOT NULL,
@@ -243,7 +249,90 @@ CREATE TABLE fact_orl (
     CAL_NET_RISK_RTNG VARCHAR(20)  NOT NULL,
     CTRL_EFF_RTN      VARCHAR(200) NULL,
     COMMENTARY        CLOB         NULL,
-    GRC_METRICS       CLOB         NULL,
     PRIMARY KEY (ID),
     UNIQUE (biz_dt, RISK_AREA, ORL_BU_NM_L2, ORL_BU_NM_L3, ORL_BU_NM_L4, LOCATION)
+);
+
+-- ── Per-module GRC-metric snapshot tables ────────────────────────────────────
+-- Each shares fact_orl's dimension key (biz_dt + RISK_AREA + ORL_BU_NM_L2/L3/L4 + LOCATION).
+-- These mirror the (superset) production tables; only the columns the app reads are declared.
+CREATE TABLE rcsa_fact_orl (
+    ID                          INT          NOT NULL AUTO_INCREMENT,
+    biz_date                    DATE         NOT NULL,
+    orl_risk_area               VARCHAR(200) NOT NULL,
+    orl_unit_l2                 VARCHAR(120) NOT NULL DEFAULT '',
+    orl_unit_l3                 VARCHAR(120) NOT NULL DEFAULT '',
+    orl_unit_l4                 VARCHAR(120) NOT NULL DEFAULT '',
+    orl_location                VARCHAR(50)  NOT NULL DEFAULT '',
+    NRR                         VARCHAR(20)  NULL,
+    RISK_RTNG_CHGE              VARCHAR(20)  NULL,
+    combined_count_high_risk    INT          NULL,
+    combined_count_med_high_risk INT         NULL,
+    combined_count_med_low_risk INT          NULL,
+    combined_count_low_risk     INT          NULL,
+    rcsa_high_risk_proportion   DECIMAL(18,6) NULL,
+    rcsa_med_high_proportion    DECIMAL(18,6) NULL,
+    rcsa_med_low_proportion     DECIMAL(18,6) NULL,
+    rcsa_low_risk_proportion    DECIMAL(18,6) NULL,
+    PRIMARY KEY (ID)
+);
+
+CREATE TABLE inc_fact_orl (
+    ID                                INT          NOT NULL AUTO_INCREMENT,
+    biz_dt                            DATE         NOT NULL,
+    RISK_AREA                         VARCHAR(200) NOT NULL,
+    ORL_BU_NM_L2                      VARCHAR(120) NOT NULL DEFAULT '',
+    ORL_BU_NM_L3                      VARCHAR(120) NOT NULL DEFAULT '',
+    ORL_BU_NM_L4                      VARCHAR(120) NOT NULL DEFAULT '',
+    LOCATION                          VARCHAR(50)  NOT NULL DEFAULT '',
+    NET_RISK_RTNG                     VARCHAR(20)  NULL,
+    RISK_RTNG_CHGE                    VARCHAR(20)  NULL,
+    inc_is_gorc_count_l3m_mtd         INT          NULL,
+    inc_is_min_reportable_count_l3m_mtd INT        NULL,
+    inc_is_sinp_count_l3m_mtd         INT          NULL,
+    inc_is_mi_count_l3m_mtd           INT          NULL,
+    PRIMARY KEY (ID)
+);
+
+CREATE TABLE ina_fact_orl (
+    ID                           INT          NOT NULL AUTO_INCREMENT,
+    biz_dt                       DATE         NOT NULL,
+    RISK_AREA                    VARCHAR(200) NOT NULL,
+    ORL_BU_NM_L2                 VARCHAR(120) NOT NULL DEFAULT '',
+    ORL_BU_NM_L3                 VARCHAR(120) NOT NULL DEFAULT '',
+    ORL_BU_NM_L4                 VARCHAR(120) NOT NULL DEFAULT '',
+    LOCATION                     VARCHAR(50)  NOT NULL DEFAULT '',
+    NET_RISK_RTNG                VARCHAR(20)  NULL,
+    RISK_RTNG_CHGE               VARCHAR(20)  NULL,
+    issue_repeated_count         INT          NULL,
+    issue_rating_high_count      INT          NULL,
+    issue_rating_medium_count    INT          NULL,
+    issue_type_regulatory_count  INT          NULL,
+    issue_type_audit_count       INT          NULL,
+    issue_type_others_count      INT          NULL,
+    residual_risk_approved_count INT          NULL,
+    issue_open_count             INT          NULL,
+    issue_closed_count_l3m_mtd   INT          NULL,
+    PRIMARY KEY (ID)
+);
+
+CREATE TABLE kri_fact_orl (
+    ID                                          INT          NOT NULL AUTO_INCREMENT,
+    biz_dt                                      DATE         NOT NULL,
+    ORL_RISK_AREA                               VARCHAR(200) NOT NULL,
+    ORL_BU_NM_L2                                VARCHAR(120) NOT NULL DEFAULT '',
+    ORL_BU_NM_L3                                VARCHAR(120) NOT NULL DEFAULT '',
+    ORL_BU_NM_L4                                VARCHAR(120) NOT NULL DEFAULT '',
+    LOCATION                                    VARCHAR(50)  NOT NULL DEFAULT '',
+    NET_RISK_RATING                             VARCHAR(20)  NULL,
+    RISK_RTNG_CHGE                              VARCHAR(20)  NULL,
+    KRI_ACTIVE_CNT                              INT          NULL,
+    KRI_SUSTND_RED_3M_OR_QTRLY_RED_CNT          INT          NULL,
+    KRI_SUSTND_RED_2M_CNT                       INT          NULL,
+    KRI_SUSTND_RED_AMBER_4M_OR_QTRLY_AMBER_CNT  INT          NULL,
+    KRI_AMBER_SUSTND_RED_AMBER_3M_CNT           INT          NULL,
+    KRI_RED_CNT                                 INT          NULL,
+    KRI_AMBER_CNT                               INT          NULL,
+    KRI_GREEN_CNT                               INT          NULL,
+    PRIMARY KEY (ID)
 );

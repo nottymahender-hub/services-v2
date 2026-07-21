@@ -27,9 +27,12 @@ public class OrlLndscpDimCsvRow {
     @NotNull(message = "EFFECT_END_DT is required and must be a valid date (yyyy-MM-dd).")
     private final LocalDate effectEndDt;
 
-    /** JSON string, e.g. {@code {"Cyber Risk": ["OR"], "Conduct Risk": ["CR"]}}. */
+    /**
+     * JSON array of risk-area groups; structure validated by
+     * {@link com.dbs.mot.grc.csv.validator.OrlLndscpDimCsvRowValidator}. Stored in the
+     * {@code JSON}-typed {@code RISK_AREA} column, so no character-length cap is applied here.
+     */
     @NotBlank(message = "RISK_AREA is required and must not be empty.")
-    @Size(max = 1000, message = "RISK_AREA must not exceed 1000 characters.")
     private final String riskArea;
 
     @Size(max = 500, message = "BIZ_UNITS must not exceed 500 characters.")

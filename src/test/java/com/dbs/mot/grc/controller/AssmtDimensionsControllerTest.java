@@ -47,13 +47,15 @@ class AssmtDimensionsControllerTest {
                 INSERT INTO orl_lndscp_dim (id,CONFIG_ID,LNDSCP_NM,EFFECT_START_DT,VERSION,
                     RISK_AREA,BIZ_UNITS,BIZ_UNIT_LVL,LOCATIONS,CREATED_BY)
                 VALUES(1,'CFG001','Alpha',DATE '2024-01-01',1,
-                    '{"Cyber Risk":["OR"],"Conduct Risk":["CR"]}','Tech,Ops',2,'SG,HK','seed')
+                    '[{"groupName":"IT","isGroup":true,"riskAreas":[{"riskArea":"Cyber Risk","riskClusters":["OR"]},{"riskArea":"Conduct Risk","riskClusters":["CR"]}]}]',
+                    'Tech,Ops',2,'SG,HK','seed')
                 """);
         jdbc.execute("""
                 INSERT INTO orl_lndscp_dim (id,CONFIG_ID,LNDSCP_NM,EFFECT_START_DT,VERSION,
                     RISK_AREA,BIZ_UNITS,BIZ_UNIT_LVL,LOCATIONS,CREATED_BY)
                 VALUES(2,'CFG002','Beta',DATE '2024-01-01',1,
-                    '{"Operational Risk":["OR"]}',NULL,3,'IN','seed')
+                    '[{"groupName":"Ops","isGroup":false,"riskAreas":[{"riskArea":"Operational Risk","riskClusters":["OR"]}]}]',
+                    NULL,3,'IN','seed')
                 """);
 
         jdbc.execute("INSERT INTO orl_lndscp_assmt(id,LNDSCP_NUM,ASSEMT_PERIOD,status,CREATED_BY) VALUES(5,1,'Q1-2024','Open','seed')");
@@ -87,19 +89,21 @@ class AssmtDimensionsControllerTest {
     // ── riskAreas ──────────────────────────────────────────────────────────────
 
     @Test
-    void dimensions_riskAreas_containsExpectedKeys() throws Exception {
+    void dimensions_riskAreas_returnFlatMapAndUniqueClusters() throws Exception {
         mvc.perform(get(URL_TPL, 5).header("X-EGRC-UserId", "tester"))
            .andExpect(status().isOk())
            .andExpect(jsonPath("$.data.riskAreas").isMap())
-           .andExpect(jsonPath("$.data.riskAreas['Cyber Risk'][0]", is("OR")))
-           .andExpect(jsonPath("$.data.riskAreas['Conduct Risk'][0]", is("CR")));
+           .andExpect(jsonPath("$.data.riskAreas['Cyber Risk']", contains("OR")))
+           .andExpect(jsonPath("$.data.riskAreas['Conduct Risk']", contains("CR")))
+           .andExpect(jsonPath("$.data.riskClusters", containsInAnyOrder("OR", "CR")));
     }
 
     @Test
     void dimensions_riskAreas_forDim2() throws Exception {
         mvc.perform(get(URL_TPL, 7).header("X-EGRC-UserId", "tester"))
            .andExpect(status().isOk())
-           .andExpect(jsonPath("$.data.riskAreas['Operational Risk'][0]", is("OR")));
+           .andExpect(jsonPath("$.data.riskAreas['Operational Risk']", contains("OR")))
+           .andExpect(jsonPath("$.data.riskClusters", contains("OR")));
     }
 
     // ── buDetails ──────────────────────────────────────────────────────────────

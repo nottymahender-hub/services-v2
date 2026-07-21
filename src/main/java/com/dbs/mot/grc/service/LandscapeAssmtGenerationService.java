@@ -1,6 +1,10 @@
 package com.dbs.mot.grc.service;
 
+import com.dbs.mot.grc.common.enums.AssmtStatus;
+import com.dbs.mot.grc.common.enums.DetailStatus;
+import com.dbs.mot.grc.common.enums.LevelCategory;
 import com.dbs.mot.grc.common.exception.ConflictException;
+import com.dbs.mot.grc.common.util.RiskAreaParser;
 import com.dbs.mot.grc.dto.AssmtGenerationResponse;
 import com.dbs.mot.grc.entity.OrlBizUnit;
 import com.dbs.mot.grc.entity.OrlLndscpAssmt;
@@ -8,10 +12,6 @@ import com.dbs.mot.grc.entity.OrlLndscpAssmtDetails;
 import com.dbs.mot.grc.entity.OrlLndscpDim;
 import com.dbs.mot.grc.repository.OrlBizUnitRepository;
 import com.dbs.mot.grc.repository.OrlLndscpAssmtRepository;
-import com.fasterxml.jackson.core.JsonParser;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.jdbc.core.mapping.AggregateReference;
@@ -64,15 +64,10 @@ public class LandscapeAssmtGenerationService {
 
     private static final DateTimeFormatter PERIOD_FMT =
             DateTimeFormatter.ofPattern("MMMM yyyy", Locale.ENGLISH);
-    private static final String STATUS_OPEN = "Open";
-    private static final String CATEGORY_LOC = "loc";
-
-    /** Shared mapper with duplicate-key detection for parsing the RISK_AREA JSON. */
-    private static final ObjectMapper MAPPER = new ObjectMapper()
-            .enable(JsonParser.Feature.STRICT_DUPLICATE_DETECTION);
 
     private final OrlLndscpAssmtRepository assmtRepository;
     private final OrlBizUnitRepository bizUnitRepository;
+    private final RiskAreaParser riskAreaParser;
 
     /**
      * Generates the assessment for an already-resolved config row. Called per landscape by
@@ -101,7 +96,7 @@ public class LandscapeAssmtGenerationService {
         }
 
         // ── Parse config dimensions ──────────────────────────────────────────────
-        List<String> riskAreas = parseRiskAreaKeys(dim.getRiskArea());
+        List<String> riskAreas = riskAreaParser.riskAreaNames(dim.getRiskArea());
         List<String> bizUnits = parseCsv(dim.getBizUnits());
         List<String> locations = parseCsv(dim.getLocations());
         Integer lvl = dim.getBizUnitLvl();
@@ -127,7 +122,7 @@ public class LandscapeAssmtGenerationService {
         OrlLndscpAssmt assmt = OrlLndscpAssmt.builder()
                 .lndscpNum(AggregateReference.to(lndscpNum))
                 .assmtPeriod(currentPeriod)
-                .status(STATUS_OPEN)
+                .status(AssmtStatus.OPEN)
                 .prevAssmtNum(prevAssmtId.map(AggregateReference::<OrlLndscpAssmt, Long>to).orElse(null))
                 .createdBy(userId)
                 .createDtTm(now)
@@ -159,8 +154,8 @@ public class LandscapeAssmtGenerationService {
      */
     private List<RowSpec> expand(List<String> riskAreas, List<String> bizUnits,
                                  List<String> locations, Integer lvl) {
-        String levelCategory = "L" + lvl;
-        String groupCategory = "grp_l" + lvl;
+        LevelCategory levelCategory = LevelCategory.fromDbValue("L" + lvl);
+        LevelCategory groupCategory = LevelCategory.fromDbValue("grp_l" + lvl);
 
         List<RowSpec> specs = new ArrayList<>();
         for (String riskArea : riskAreas) {
@@ -173,7 +168,7 @@ public class LandscapeAssmtGenerationService {
                 specs.add(new RowSpec(riskArea, bu, null, groupCategory));
             }
             for (String location : locations) {
-                specs.add(new RowSpec(riskArea, null, location, CATEGORY_LOC));
+                specs.add(new RowSpec(riskArea, null, location, LevelCategory.LOC));
             }
         }
         return specs;
@@ -215,7 +210,7 @@ public class LandscapeAssmtGenerationService {
                 .orlBuNmL4(emptyIfNull(l4))
                 .location(emptyIfNull(spec.location()))
                 .category(spec.category())
-                .status(STATUS_OPEN)
+                .status(DetailStatus.OPEN)
                 .createdBy(userId)
                 .createDtTm(now)
                 .build();
@@ -258,21 +253,6 @@ public class LandscapeAssmtGenerationService {
 
     // ── Parsing helpers ────────────────────────────────────────────────────────
 
-    /** Parses the RISK_AREA JSON string and returns its keys in insertion order. */
-    private List<String> parseRiskAreaKeys(String json) {
-        if (json == null || json.isBlank()) {
-            return Collections.emptyList();
-        }
-        try {
-            Map<String, Object> map = MAPPER.readValue(
-                    json, new TypeReference<LinkedHashMap<String, Object>>() {});
-            return new ArrayList<>(map.keySet());
-        } catch (JsonProcessingException e) {
-            log.warn("Failed to parse RISK_AREA JSON '{}': {}", json, e.getMessage());
-            return Collections.emptyList();
-        }
-    }
-
     private List<String> parseCsv(String raw) {
         if (raw == null || raw.isBlank()) {
             return Collections.emptyList();
@@ -286,5 +266,5 @@ public class LandscapeAssmtGenerationService {
     // ── Internal value types ─────────────────────────────────────────────────────
 
     /** One expanded CSV row before BU-hierarchy resolution. */
-    private record RowSpec(String riskArea, String orlBu, String location, String category) {}
+    private record RowSpec(String riskArea, String orlBu, String location, LevelCategory category) {}
 }

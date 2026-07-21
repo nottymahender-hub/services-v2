@@ -3,6 +3,7 @@ package com.dbs.mot.grc.dto;
 import lombok.Builder;
 import lombok.Getter;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -15,7 +16,9 @@ import java.util.List;
  *   "lndscpAssmtId": 123,
  *   "lndscpAssmtPeriod": "June 2026",
  *   "lndscpAssmtStatus": "Draft",
- *   "lndscpLastRefreshed": "2026-07-03T12:18:40.802",
+ *   "lndscpLastRefreshed": "2026-07-03",
+ *   "lndscpLastModifiedOn": "2026-07-03T12:18:40.802",
+ *   "lndscpLastModifiedBy": "editor",
  *   "assessments": [ { "id": 1, "riskArea": "Market Abuse", ... } ]
  * }
  * </pre>
@@ -47,8 +50,18 @@ public class LandscapeAssmtDetailSummary {
     /** {@code orl_lndscp_assmt.status}. */
     private final String lndscpAssmtStatus;
 
-    /** {@code UPDATE_DT_TM} when present, else {@code CREATE_DT_TM}. */
-    private final LocalDateTime lndscpLastRefreshed;
+    /**
+     * The latest {@code fact_orl.biz_dt} across the snapshot rows matching this assessment's
+     * detail dimension keys — i.e. when the underlying computed data was last refreshed.
+     * {@code null} when no matching fact rows exist.
+     */
+    private final LocalDate lndscpLastRefreshed;
+
+    /** {@code orl_lndscp_assmt.UPDATE_DT_TM} when present, else {@code CREATE_DT_TM}. */
+    private final LocalDateTime lndscpLastModifiedOn;
+
+    /** {@code orl_lndscp_assmt.UPDATED_BY} when present, else {@code CREATED_BY}. */
+    private final String lndscpLastModifiedBy;
 
     /** Per-row detail items from {@code orl_lndscp_assmt_details}. */
     private final List<LandscapeAssmtDetailItem> assessments;

@@ -2,6 +2,7 @@ package com.dbs.mot.grc.csv.handler;
 
 import com.dbs.mot.grc.common.csv.CsvHandler;
 import com.dbs.mot.grc.common.csv.CsvImportProcessor;
+import com.dbs.mot.grc.common.enums.Module;
 import com.dbs.mot.grc.common.util.ConfigVersionResolver;
 import com.dbs.mot.grc.csv.mapper.FeatureScoreBandCsvRowMapper;
 import com.dbs.mot.grc.csv.validator.FeatureScoreBandCsvRowValidator;
@@ -98,7 +99,7 @@ public class FeatureScoreBandCsvHandler implements CsvHandler {
                             .configVersion(nextVersions.get(key))
                             .featureBin(r.getFeatureBin()).featureName(r.getFeatureName())
                             .rangeLow(r.getRangeLow()).rangeHigh(r.getRangeHigh())
-                            .score(r.getScore()).module(r.getModule())
+                            .score(r.getScore()).module(Module.fromDbValue(r.getModule()))
                             .createdBy(username).createDtTm(now).build();
                 })
                 .toList();
@@ -114,7 +115,7 @@ public class FeatureScoreBandCsvHandler implements CsvHandler {
                 writer.writeNext(new String[]{
                         s(r.getId()), s(r.getConfigVersion()), s(r.getFeatureBin()),
                         r.getFeatureName(), s(r.getRangeLow()), s(r.getRangeHigh()),
-                        s(r.getScore()), r.getModule(), r.getCreatedBy(), fmt(r.getCreateDtTm())
+                        s(r.getScore()), r.getModule().getDbValue(), r.getCreatedBy(), fmt(r.getCreateDtTm())
                 }));
     }
 
@@ -126,7 +127,7 @@ public class FeatureScoreBandCsvHandler implements CsvHandler {
         Map<String, FeatureScoreBand> latestByGroup = new LinkedHashMap<>();
         for (FeatureScoreBand row : repository.findAll()) {
             String key = ConfigVersionResolver.groupKey(
-                    row.getFeatureName(), String.valueOf(row.getFeatureBin()), row.getModule());
+                    row.getFeatureName(), String.valueOf(row.getFeatureBin()), row.getModule().getDbValue());
             latestByGroup.merge(key, row,
                     (existing, candidate) -> candidate.getConfigVersion() > existing.getConfigVersion()
                             ? candidate : existing);

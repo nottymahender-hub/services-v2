@@ -1,5 +1,10 @@
 package com.dbs.mot.grc.entity;
 
+import com.dbs.mot.grc.common.enums.ControlEffectiveness;
+import com.dbs.mot.grc.common.enums.InherentRisk;
+import com.dbs.mot.grc.common.enums.LevelCategory;
+import com.dbs.mot.grc.common.enums.NetRiskRating;
+import com.dbs.mot.grc.common.enums.RiskRatingChange;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -49,30 +54,23 @@ public class FactOrl {
     @Column("LOCATION")
     private String location;
 
-    /** One of {@code L2, L3, L4, grp_l2, grp_l3, grp_l4, loc}. */
     @Column("category")
-    private String category;
+    private LevelCategory category;
 
-    /** One of {@code Minor, Moderate, Major}. */
     @Column("INHERENT_RISK")
-    private String inherentRisk;
+    private InherentRisk inherentRisk;
 
-    /** One of {@code Improved, Deteriorated, Stable, N.A}. */
     @Column("RISK_RTNG_CHGE")
-    private String riskRtngChge;
+    private RiskRatingChange riskRtngChge;
 
-    /** Calculated net risk rating: one of {@code Low, Med Low, Med High, High}. */
+    /** Calculated net risk rating. */
     @Column("CAL_NET_RISK_RTNG")
-    private String calNetRiskRtng;
+    private NetRiskRating calNetRiskRtng;
 
-    /** Control-effectiveness rating (free text, e.g. {@code "Satisfactory To Good"}). */
+    /** Control-effectiveness rating. */
     @Column("CTRL_EFF_RTN")
-    private String ctrlEffRtn;
+    private ControlEffectiveness ctrlEffRtn;
 
     @Column("COMMENTARY")
     private String commentary;
-
-    /** JSON string of GRC metrics (DB enforces json_valid). */
-    @Column("GRC_METRICS")
-    private String grcMetrics;
 }

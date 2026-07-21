@@ -1,5 +1,8 @@
 package com.dbs.mot.grc.entity;
 
+import com.dbs.mot.grc.common.enums.DetailStatus;
+import com.dbs.mot.grc.common.enums.LevelCategory;
+import com.dbs.mot.grc.common.enums.NetRiskRating;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -36,7 +39,7 @@ public class OrlLndscpAssmtDetails {
     @Column("id")
     private Long id;
 
-    /** Risk area code, e.g. {@code "OR"} or {@code "CR"}. */
+    /** Risk area name (matches {@code riskAreas[*].riskArea} in the landscape config). */
     @Column("RISK_AREA")
     private String riskArea;
 
@@ -52,9 +55,8 @@ public class OrlLndscpAssmtDetails {
     @Column("LOCATION")
     private String location;
 
-    /** One of {@code L2, L3, L4, grp_l2, grp_l3, grp_l4, loc}. */
     @Column("category")
-    private String category;
+    private LevelCategory category;
 
     /** Analyst-revised commentary (distinct from the fact-sourced commentary). */
     @Column("REVISED_COMMENTARY")
@@ -62,14 +64,14 @@ public class OrlLndscpAssmtDetails {
 
     /** Analyst-overlaid net risk rating (overrides the calculated rating when set). */
     @Column("OVRLY_NET_RISK_RTNG")
-    private String ovrlyNetRiskRtng;
+    private NetRiskRating ovrlyNetRiskRtng;
 
     /** Justification for the overlay. */
     @Column("OVRLY_JSTFKN")
     private String ovrlyJstfkn;
 
     @Column("STATUS")
-    private String status;
+    private DetailStatus status;
 
     @Column("CREATED_BY")
     private String createdBy;

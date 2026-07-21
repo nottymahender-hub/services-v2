@@ -110,8 +110,10 @@ CREATE TABLE IF NOT EXISTS `net_risk_band` (
 );
 
 -- ── orl_lndscp_dim ───────────────────────────────────────────────────────────
--- RISK_AREA stores a JSON map of risk area names to lists of risk type codes,
--- e.g. {"Cyber Risk": ["OR"], "Conduct Risk": ["CR"]}
+-- RISK_AREA stores a JSON array of risk-area groups, e.g.
+-- [{"groupName":"IT","isGroup":true,"riskAreas":[{"riskArea":"IT Resiliency and Continuity",
+-- "riskClusters":["OR","LCS"]}]}]. The JSON type enforces json_valid and removes the
+-- previous 1000-character cap.
 CREATE TABLE IF NOT EXISTS `orl_lndscp_dim` (
     `id`              INT(11)                      NOT NULL AUTO_INCREMENT,
     `CONFIG_ID`       VARCHAR(100)                 NOT NULL,
@@ -120,7 +122,7 @@ CREATE TABLE IF NOT EXISTS `orl_lndscp_dim` (
     `EFFECT_END_DT`   DATE                         NOT NULL DEFAULT '9999-12-31',
     `VERSION`         INT(11)                      NOT NULL,
     `STATUS`          ENUM('ACTIVE','DEACTIVATED') NOT NULL DEFAULT 'ACTIVE',
-    `RISK_AREA`       VARCHAR(1000)                NOT NULL,
+    `RISK_AREA`       JSON                         NOT NULL,
     `BIZ_UNITS`       VARCHAR(500)                 NULL DEFAULT NULL,
     `BIZ_UNIT_LVL`    INT(11)                      NULL DEFAULT NULL,
     `LOCATIONS`       VARCHAR(100)                 NOT NULL,
@@ -244,10 +246,8 @@ CREATE TABLE IF NOT EXISTS `fact_orl` (
     `INHERENT_RISK` ENUM('Minor','Moderate','Major') NULL DEFAULT NULL,
     `RISK_RTNG_CHGE` ENUM('Improved','Deteriorated','Stable','N.A') NULL DEFAULT NULL,
     `CAL_NET_RISK_RTNG` ENUM('Low','Med Low','Med High','High') NOT NULL,
-    `CTRL_EFF_RTN` VARCHAR(200) NULL DEFAULT NULL,
+    `CTRL_EFF_RTN` ENUM('Poor/Fail', 'Attention Needed To Satisfactory', 'Good', 'Satisfactory to Good') NULL DEFAULT NULL,
     `COMMENTARY` LONGTEXT NULL DEFAULT NULL,
-    `GRC_METRICS` LONGTEXT NULL DEFAULT NULL,
     PRIMARY KEY (`ID`) USING BTREE,
-    UNIQUE INDEX `Index 2` (`biz_dt`, `RISK_AREA`, `ORL_BU_NM_L2`, `ORL_BU_NM_L3`, `ORL_BU_NM_L4`, `LOCATION`) USING BTREE,
-    CONSTRAINT `GRC_METRICS` CHECK (json_valid(`GRC_METRICS`))
+    UNIQUE INDEX `Index 2` (`biz_dt`, `RISK_AREA`, `ORL_BU_NM_L2`, `ORL_BU_NM_L3`, `ORL_BU_NM_L4`, `LOCATION`) USING BTREE
 );

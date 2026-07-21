@@ -1,5 +1,6 @@
 package com.dbs.mot.grc.entity;
 
+import com.dbs.mot.grc.common.enums.DimStatus;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -38,7 +39,7 @@ public class OrlLndscpDim {
     private Integer version;
 
     @Column("STATUS")
-    private String status;
+    private DimStatus status;
 
     /** JSON map of risk area → risk type codes, e.g. {"Cyber Risk": ["OR"]}. */
     @Column("RISK_AREA")
@@ -59,15 +60,12 @@ public class OrlLndscpDim {
     @Column("CREATE_DT_TM")
     private LocalDateTime createDtTm;
 
-    /** Status value marking a config row as usable for assessment generation. */
-    private static final String STATUS_ACTIVE = "ACTIVE";
-
     /**
      * Whether this config row is ACTIVE and its effective window
      * ({@code EFFECT_START_DT}..{@code EFFECT_END_DT}, inclusive) contains the given date.
      */
     public boolean isActiveAndEffectiveOn(LocalDate date) {
-        return STATUS_ACTIVE.equalsIgnoreCase(status)
+        return status == DimStatus.ACTIVE
                 && !date.isBefore(effectStartDt)
                 && !date.isAfter(effectEndDt);
     }

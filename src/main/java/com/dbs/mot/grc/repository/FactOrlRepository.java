@@ -1,26 +1,49 @@
 package com.dbs.mot.grc.repository;
 
 import com.dbs.mot.grc.entity.FactOrl;
+import org.springframework.data.jdbc.repository.query.Query;
 import org.springframework.data.repository.CrudRepository;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Optional;
 
 /**
- * Repository for {@code fact_orl}. Both queries are plain single-table lookups;
- * dimension matching (which involves nullable columns) is done in the service layer
- * rather than via derived queries, so {@code IS NULL} semantics are handled correctly.
+ * Repository for {@code fact_orl}. Dimension columns are {@code NOT NULL DEFAULT ''}, so the
+ * dimension predicates below match on plain equality (no {@code IS NULL} handling needed).
  */
 @Repository
 public interface FactOrlRepository extends CrudRepository<FactOrl, Long> {
 
-    /** All snapshot rows for a given business date (one assessment's worth of dimensions). */
+    /** All snapshot rows for a business date — batch-loaded once for the list endpoint. */
     List<FactOrl> findByBizDt(LocalDate bizDt);
 
-    /**
-     * All snapshot rows (across every business date) for a given risk area — used to find
-     * the latest-{@code biz_dt} row for a dimension when building the live NRR snapshot.
-     */
-    List<FactOrl> findByRiskArea(String riskArea);
+    /** The single snapshot row for a (business date, dimension key); at most one per the unique index. */
+    @Query("""
+            SELECT * FROM fact_orl
+            WHERE biz_dt = :bizDt AND RISK_AREA = :riskArea
+              AND ORL_BU_NM_L2 = :l2 AND ORL_BU_NM_L3 = :l3 AND ORL_BU_NM_L4 = :l4 AND LOCATION = :location
+            """)
+    Optional<FactOrl> findByBizDtAndDimension(@Param("bizDt") LocalDate bizDt,
+                                              @Param("riskArea") String riskArea,
+                                              @Param("l2") String l2, @Param("l3") String l3,
+                                              @Param("l4") String l4, @Param("location") String location);
+
+    /** The latest-{@code biz_dt} snapshot row for a dimension key — the live snapshot. */
+    @Query("""
+            SELECT * FROM fact_orl
+            WHERE RISK_AREA = :riskArea
+              AND ORL_BU_NM_L2 = :l2 AND ORL_BU_NM_L3 = :l3 AND ORL_BU_NM_L4 = :l4 AND LOCATION = :location
+            ORDER BY biz_dt DESC
+            LIMIT 1
+            """)
+    Optional<FactOrl> findLatestByDimension(@Param("riskArea") String riskArea,
+                                            @Param("l2") String l2, @Param("l3") String l3,
+                                            @Param("l4") String l4, @Param("location") String location);
+
+    /** The latest business date present in {@code fact_orl}, or {@code null} when the table is empty. */
+    @Query("SELECT MAX(biz_dt) FROM fact_orl")
+    LocalDate findMaxBizDt();
 }

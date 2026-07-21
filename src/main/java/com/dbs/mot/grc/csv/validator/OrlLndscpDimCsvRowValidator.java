@@ -2,11 +2,11 @@ package com.dbs.mot.grc.csv.validator;
 
 import com.dbs.mot.grc.common.csv.CsvRowValidator;
 import com.dbs.mot.grc.common.dto.ValidationErrorDetail;
+import com.dbs.mot.grc.common.exception.RiskAreaParseException;
+import com.dbs.mot.grc.common.util.RiskAreaParser;
 import com.dbs.mot.grc.dto.OrlLndscpDimCsvRow;
-import com.fasterxml.jackson.core.JsonParser;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.dbs.mot.grc.dto.RiskAreaEntry;
+import com.dbs.mot.grc.dto.RiskAreaGroup;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -22,8 +22,12 @@ import java.util.*;
  *   <li>CONFIG_ID and LNDSCP_NM must not contain commas.</li>
  *   <li>CONFIG_ID must be unique within the CSV batch.</li>
  *   <li>BIZ_UNIT_LVL must be the same across all rows and within range (1, MAX_HIER).</li>
- *   <li>RISK_AREA must be valid JSON; duplicate JSON keys are rejected;
- *       each value must be a non-empty array.</li>
+ *   <li>RISK_AREA must be a valid JSON array of risk-area groups (see
+ *       {@link RiskAreaParser}); duplicate JSON keys are rejected; a grouped entry
+ *       ({@code isGroup=true}) requires a non-empty {@code groupName} (a standalone
+ *       {@code isGroup=false} entry may leave it blank); each group must have a non-empty
+ *       risk-area list; each risk area must have a name and a non-empty cluster list; and
+ *       risk-area names must be unique across the whole document.</li>
  *   <li>BIZ_UNITS (optional): each token must exist in orl_biz_unit at BIZ_UNIT_LVL;
  *       no duplicates within a cell.</li>
  *   <li>LOCATIONS: each token must exist in orl_entity_mstr.orl_location; no duplicates.</li>
@@ -34,10 +38,8 @@ import java.util.*;
 @RequiredArgsConstructor
 public class OrlLndscpDimCsvRowValidator implements CsvRowValidator<OrlLndscpDimCsvRow> {
 
-    private static final ObjectMapper STRICT_MAPPER = new ObjectMapper()
-            .enable(JsonParser.Feature.STRICT_DUPLICATE_DETECTION);
-
     private final JdbcTemplate jdbcTemplate;
+    private final RiskAreaParser riskAreaParser;
 
     @Override
     public List<ValidationErrorDetail> validate(List<OrlLndscpDimCsvRow> rows) {
@@ -90,28 +92,72 @@ public class OrlLndscpDimCsvRowValidator implements CsvRowValidator<OrlLndscpDim
     // ── Private helpers ───────────────────────────────────────────────────────
 
     /**
-     * Validates that RISK_AREA is valid JSON, has no duplicate keys,
-     * and each value is a non-empty array.
+     * Validates the RISK_AREA grouped-JSON document: it must parse; a grouped entry
+     * ({@code isGroup=true}) must have a non-empty {@code groupName} while a standalone entry
+     * ({@code isGroup=false}) may leave it blank; every group must have at least one risk area;
+     * every risk area must have a name and at least one risk cluster; and risk-area names must
+     * be unique across the document (they become the dimension key on generated detail rows).
      */
     private void validateRiskAreaJson(int rowNum, String json,
                                        List<ValidationErrorDetail> errors) {
         if (json == null || json.isBlank()) return;
-        Map<String, List<String>> parsed;
+
+        List<RiskAreaGroup> groups;
         try {
-            parsed = STRICT_MAPPER.readValue(json,
-                    new TypeReference<LinkedHashMap<String, List<String>>>() {});
-        } catch (JsonProcessingException e) {
-            errors.add(error(rowNum, "RISK_AREA",
-                    "RISK_AREA must be valid JSON with no duplicate keys. Error: " + e.getMessage()));
+            groups = riskAreaParser.parseStrict(json);
+        } catch (RiskAreaParseException e) {
+            errors.add(error(rowNum, "RISK_AREA", e.getMessage()));
             return;
         }
-        for (Map.Entry<String, List<String>> entry : parsed.entrySet()) {
-            if (entry.getValue() == null || entry.getValue().isEmpty()) {
-                errors.add(error(rowNum, "RISK_AREA",
-                        "RISK_AREA key '" + entry.getKey()
-                                + "' must map to a non-empty array of risk type codes."));
-            }
+
+        if (groups.isEmpty()) {
+            errors.add(error(rowNum, "RISK_AREA", "RISK_AREA must contain at least one group."));
+            return;
         }
+
+        Set<String> seenRiskAreas = new HashSet<>();
+        for (RiskAreaGroup group : groups) {
+            validateGroup(rowNum, group, seenRiskAreas, errors);
+        }
+    }
+
+    private void validateGroup(int rowNum, RiskAreaGroup group, Set<String> seenRiskAreas,
+                               List<ValidationErrorDetail> errors) {
+        // groupName is mandatory only for a real group; a standalone risk area may leave it blank.
+        if (group.isGroup() && isBlank(group.groupName())) {
+            errors.add(error(rowNum, "RISK_AREA",
+                    "A grouped risk area (isGroup=true) must have a non-empty 'groupName'."));
+        } else if (!group.isGroup() && isBlank(group.groupName())) {
+            log.debug("Row {}: standalone risk-area group (isGroup=false) with blank groupName — allowed", rowNum);
+        }
+
+        if (group.riskAreas() == null || group.riskAreas().isEmpty()) {
+            errors.add(error(rowNum, "RISK_AREA", "Each RISK_AREA group must contain at least one risk area."));
+            return;
+        }
+        for (RiskAreaEntry entry : group.riskAreas()) {
+            validateRiskAreaEntry(rowNum, entry, seenRiskAreas, errors);
+        }
+    }
+
+    private void validateRiskAreaEntry(int rowNum, RiskAreaEntry entry, Set<String> seenRiskAreas,
+                                       List<ValidationErrorDetail> errors) {
+        if (isBlank(entry.riskArea())) {
+            errors.add(error(rowNum, "RISK_AREA", "Every risk area must have a non-empty 'riskArea' name."));
+            return;
+        }
+        if (!seenRiskAreas.add(entry.riskArea())) {
+            errors.add(error(rowNum, "RISK_AREA",
+                    "Duplicate risk area '" + entry.riskArea() + "'. Risk area names must be unique."));
+        }
+        if (entry.riskClusters() == null || entry.riskClusters().isEmpty()) {
+            errors.add(error(rowNum, "RISK_AREA",
+                    "Risk area '" + entry.riskArea() + "' must map to a non-empty list of risk clusters."));
+        }
+    }
+
+    private boolean isBlank(String value) {
+        return value == null || value.isBlank();
     }
 
     private Integer resolveBatchBizUnitLvl(List<OrlLndscpDimCsvRow> rows,

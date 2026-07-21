@@ -33,6 +33,9 @@ public class AssmtDetailResponse {
     /** {@code orl_lndscp_assmt_details.id}. */
     private final Long id;
 
+    /** {@code orl_lndscp_assmt.LNDSCP_NUM} — the parent landscape config id. */
+    private final Long landscapeId;
+
     /** {@code RISK_AREA}. */
     private final String riskArea;
 
@@ -66,10 +69,4 @@ public class AssmtDetailResponse {
 
     /** {@code category}. */
     private final String category;
-
-    /** {@code "Y"} when {@code OVRLY_NET_RISK_RTNG} is set, else {@code "N"}. */
-    private final String nrrOverlaid;
-
-    /** {@code OVRLY_JSTFKN}. */
-    private final String overlayJustfkn;
 }

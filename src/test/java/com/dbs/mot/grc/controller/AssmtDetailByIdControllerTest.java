@@ -14,22 +14,19 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 /**
- * Integration tests for {@code GET /landscape/{lndscpAssmtId}/{assmtDetailId}}
- * (drill-down view of one assessment detail row).
+ * Integration tests for {@code GET /landscape/{lndscpAssmtId}/{assmtDetailId}} (drill-down).
  *
- * <p>Computed values now come from {@code fact_orl}, matched by dimension + business date
- * (an assessment's {@code CREATE_DT_TM} date for its month; the latest {@code biz_dt} for
- * the live block).
+ * <p>Row-level values come from {@code fact_orl}; GRC metrics are assembled from the per-module
+ * fact tables ({@code rcsa/inc/ina/kri _fact_orl}) at the block's business date (current/previous)
+ * or each module's own latest date (live).
  *
  * <h3>Seed data (dimension: AML Sanctions / CBG / SG)</h3>
  * <ul>
- *   <li>Assmt 10 ("June 2026", created 2026-06-30) — previous assessment; detail 200
- *       (OVRLY='Med High'); fact @2026-06-30 (CAL='Low', CTRL='Improving').</li>
- *   <li>Assmt 11 ("July 2026", created 2026-07-15, PREV=10) — current; detail 300
- *       (OVRLY='High'); fact @2026-07-15 (CAL='Low', CTRL='Deteriorated', GRC json);
- *       a later fact @2026-07-31 (CAL='Med Low', CTRL='Stable') is the live snapshot.</li>
- *   <li>Detail 301 (grp_l2, no matching fact) and 302 (loc) under assmt 11.</li>
+ *   <li>Assmt 10 ("June 2026", 2026-06-30) — previous; detail 200 (OVRLY='Med High').</li>
+ *   <li>Assmt 11 ("July 2026", 2026-07-15, PREV=10) — current; detail 300 (OVRLY='High').</li>
+ *   <li>Detail 301 (grp_l2, no matching facts/modules), 302 (loc) under assmt 11.</li>
  *   <li>Assmt 12 ("July 2026", dim 2, no PREV) with detail 310.</li>
+ *   <li>Module rows for the dimension: INC @06-30/07-15/07-31, KRI @07-15, RCSA @07-15.</li>
  * </ul>
  */
 @SpringBootTest
@@ -38,8 +35,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class AssmtDetailByIdControllerTest {
 
     private static final String URL_TPL = "/landscape/{assmtId}/{detailId}";
-    private static final String GRC_JSON =
-            "{\"INC\":{\"nrr\":\"High\",\"inc_is_sinp_count_l3m_mtd\":{\"count\":7,\"riskRatingChange\":\"Improved\"}}}";
 
     @Autowired MockMvc mvc;
     @Autowired JdbcTemplate jdbc;
@@ -51,44 +46,47 @@ class AssmtDetailByIdControllerTest {
         jdbc.execute("DELETE FROM orl_lndscp_assmt");
         jdbc.execute("DELETE FROM orl_lndscp_dim");
         jdbc.execute("DELETE FROM fact_orl");
+        jdbc.execute("DELETE FROM inc_fact_orl");
+        jdbc.execute("DELETE FROM kri_fact_orl");
+        jdbc.execute("DELETE FROM rcsa_fact_orl");
 
         jdbc.execute("""
                 INSERT INTO orl_lndscp_dim (id,CONFIG_ID,LNDSCP_NM,EFFECT_START_DT,VERSION,
                     RISK_AREA,BIZ_UNITS,BIZ_UNIT_LVL,LOCATIONS,CREATED_BY)
                 VALUES(1,'CFG001','Alpha',DATE '2024-01-01',1,
-                    '{"AML Sanctions":["OR"]}','CBG',2,'SG','seed')
+                    '[{"groupName":"Financial Crime","isGroup":false,"riskAreas":[{"riskArea":"AML Sanctions","riskClusters":["OR"]}]}]','CBG',2,'SG','seed')
                 """);
         jdbc.execute("""
                 INSERT INTO orl_lndscp_dim (id,CONFIG_ID,LNDSCP_NM,EFFECT_START_DT,VERSION,
                     RISK_AREA,BIZ_UNITS,BIZ_UNIT_LVL,LOCATIONS,CREATED_BY)
                 VALUES(2,'CFG002','Beta',DATE '2024-01-01',1,
-                    '{"AML Sanctions":["OR"]}','CBG',2,'SG','seed')
+                    '[{"groupName":"Financial Crime","isGroup":false,"riskAreas":[{"riskArea":"AML Sanctions","riskClusters":["OR"]}]}]','CBG',2,'SG','seed')
                 """);
 
-        // Assessments with explicit CREATE_DT_TM (their fact_orl business date).
         jdbc.execute("INSERT INTO orl_lndscp_assmt(id,LNDSCP_NUM,ASSEMT_PERIOD,status,CREATED_BY,CREATE_DT_TM) VALUES(10,1,'June 2026','Closed','seed',TIMESTAMP '2026-06-30 00:00:00')");
         jdbc.execute("INSERT INTO orl_lndscp_assmt(id,LNDSCP_NUM,ASSEMT_PERIOD,status,PREV_ASSMT_NUM,CREATED_BY,CREATE_DT_TM) VALUES(11,1,'July 2026','Open',10,'seed',TIMESTAMP '2026-07-15 00:00:00')");
         jdbc.execute("INSERT INTO orl_lndscp_assmt(id,LNDSCP_NUM,ASSEMT_PERIOD,status,CREATED_BY,CREATE_DT_TM) VALUES(12,2,'July 2026','Open','seed',TIMESTAMP '2026-07-15 00:00:00')");
 
-        // fact_orl for dimension (AML Sanctions, CBG, -, -, SG):
-        insertFact("2026-06-30", "Low", "Improving", "June commentary", null);       // prev month
-        insertFact("2026-07-15", "Low", "Deteriorated", "July commentary", GRC_JSON); // current month
-        insertFact("2026-07-31", "Med Low", "Stable", "Live commentary", GRC_JSON);   // latest → live
+        // fact_orl (row-level values) for (AML Sanctions, CBG, -, -, SG).
+        insertFact("2026-06-30", "Low", "Attention Needed To Satisfactory", "June commentary"); // prev
+        insertFact("2026-07-15", "Low", "Good", "July commentary");                             // current
+        insertFact("2026-07-31", "Med Low", "Satisfactory to Good", "Live commentary");         // live
 
-        // Previous assessment (10) thin row matching the dimension; OVRLY='Med High'.
+        // Per-module rows for the same dimension.
+        insertIncFact("2026-06-30", "Low", "Improved", 5);
+        insertIncFact("2026-07-15", "High", "Improved", 7);
+        insertIncFact("2026-07-31", "Med Low", "Stable", 9);
+        insertKriFact("2026-07-15", "High", "Improved", 4, 2, 1);
+        insertRcsaFact("2026-07-15", "High", "Stable", 3);
+
         insertDetail(200, 10, "CBG", "SG", "L2", "Med High", null, "Completed", null, null);
-        // Current row 300 — overlay + revised commentary + audit fields.
         insertDetail(300, 11, "CBG", "SG", "L2", "High", "Overlaid due to audit findings",
                 "Open", "Revised July commentary", "user1");
-        // Row 301 — grp_l2 (L2=CBG, no location) → no matching fact.
         insertDetail(301, 11, "CBG", null, "grp_l2", null, null, "Open", null, null);
-        // Row 302 — loc: bu must resolve to the literal "Group".
         insertDetailNoBu(302, 11, "SG", "loc", "Open");
-        // Assessment 12 (no PREV) row.
         insertDetail(310, 12, "CBG", "SG", "L2", null, null, "Open", null, null);
     }
 
-    /** Thin detail row with a BU (L2). */
     private void insertDetail(long id, long assmtId, String l2, String loc, String category,
                               String ovrly, String ovrlyJstfkn, String status,
                               String revisedCommentary, String updatedBy) {
@@ -102,7 +100,6 @@ class AssmtDetailByIdControllerTest {
                 q(revisedCommentary), q(status), updateDtTm, q(updatedBy)));
     }
 
-    /** Thin detail row without a BU (loc category); empty BU columns default to ''. */
     private void insertDetailNoBu(long id, long assmtId, String loc, String category, String status) {
         jdbc.execute("""
                 INSERT INTO orl_lndscp_assmt_details
@@ -111,20 +108,43 @@ class AssmtDetailByIdControllerTest {
                 """.formatted(id, assmtId, qDim(loc), q(category), q(status)));
     }
 
-    /** fact_orl row for the (AML Sanctions, CBG, -, -, SG) dimension at the given biz_dt. */
-    private void insertFact(String bizDt, String cal, String ctrl, String commentary, String grcJson) {
+    private void insertFact(String bizDt, String cal, String ctrl, String commentary) {
         jdbc.execute("""
                 INSERT INTO fact_orl
-                    (biz_dt,RISK_AREA,ORL_BU_NM_L2,LOCATION,category,CAL_NET_RISK_RTNG,CTRL_EFF_RTN,COMMENTARY,GRC_METRICS)
-                VALUES(DATE %s,'AML Sanctions','CBG','SG','L2',%s,%s,%s,%s)
-                """.formatted(q(bizDt), q(cal), q(ctrl), q(commentary), q(grcJson)));
+                    (biz_dt,RISK_AREA,ORL_BU_NM_L2,LOCATION,category,CAL_NET_RISK_RTNG,CTRL_EFF_RTN,COMMENTARY)
+                VALUES(DATE %s,'AML Sanctions','CBG','SG','L2',%s,%s,%s)
+                """.formatted(q(bizDt), q(cal), q(ctrl), q(commentary)));
+    }
+
+    private void insertIncFact(String bizDt, String nrr, String chge, int sinp) {
+        jdbc.execute("""
+                INSERT INTO inc_fact_orl
+                    (biz_dt,RISK_AREA,ORL_BU_NM_L2,LOCATION,NET_RISK_RTNG,RISK_RTNG_CHGE,inc_is_sinp_count_l3m_mtd)
+                VALUES(DATE %s,'AML Sanctions','CBG','SG',%s,%s,%d)
+                """.formatted(q(bizDt), q(nrr), q(chge), sinp));
+    }
+
+    private void insertKriFact(String bizDt, String nrr, String chge, int active, int red, int green) {
+        jdbc.execute("""
+                INSERT INTO kri_fact_orl
+                    (biz_dt,ORL_RISK_AREA,ORL_BU_NM_L2,LOCATION,NET_RISK_RATING,RISK_RTNG_CHGE,
+                     KRI_ACTIVE_CNT,KRI_RED_CNT,KRI_GREEN_CNT)
+                VALUES(DATE %s,'AML Sanctions','CBG','SG',%s,%s,%d,%d,%d)
+                """.formatted(q(bizDt), q(nrr), q(chge), active, red, green));
+    }
+
+    private void insertRcsaFact(String bizDt, String nrr, String chge, int highRisk) {
+        jdbc.execute("""
+                INSERT INTO rcsa_fact_orl
+                    (biz_date,orl_risk_area,orl_unit_l2,orl_location,NRR,RISK_RTNG_CHGE,combined_count_high_risk)
+                VALUES(DATE %s,'AML Sanctions','CBG','SG',%s,%s,%d)
+                """.formatted(q(bizDt), q(nrr), q(chge), highRisk));
     }
 
     private String q(String value) {
         return value == null ? "NULL" : "'" + value.replace("'", "''") + "'";
     }
 
-    /** SQL literal for a NOT NULL dimension column: null becomes the empty string ''. */
     private String qDim(String value) {
         return "'" + (value == null ? "" : value.replace("'", "''")) + "'";
     }
@@ -147,7 +167,6 @@ class AssmtDetailByIdControllerTest {
 
     @Test
     void detailNotBelongingToAssessment_returns404() throws Exception {
-        // Row 310 exists, but under assessment 12 — asking for it under 11 is a 404.
         mvc.perform(get(URL_TPL, 11, 310).header("X-EGRC-UserId", "tester"))
            .andExpect(status().isNotFound())
            .andExpect(jsonPath("$.message", containsString("310")));
@@ -159,13 +178,14 @@ class AssmtDetailByIdControllerTest {
            .andExpect(status().isBadRequest());
     }
 
-    // ── Happy path — flat fields ────────────────────────────────────────────────
+    // ── Flat fields + landscapeId ─────────────────────────────────────────────────
 
     @Test
     void detail_flatFields_mappedFromRow() throws Exception {
         mvc.perform(get(URL_TPL, 11, 300).header("X-EGRC-UserId", "tester"))
            .andExpect(status().isOk())
            .andExpect(jsonPath("$.data.id", is(300)))
+           .andExpect(jsonPath("$.data.landscapeId", is(1)))
            .andExpect(jsonPath("$.data.riskArea", is("AML Sanctions")))
            .andExpect(jsonPath("$.data.bu", is("CBG")))
            .andExpect(jsonPath("$.data.location", is("SG")))
@@ -173,52 +193,63 @@ class AssmtDetailByIdControllerTest {
            .andExpect(jsonPath("$.data.lastModified", startsWith("2026-07-05T09:00:00")))
            .andExpect(jsonPath("$.data.lastModifiedBy", is("user1")))
            .andExpect(jsonPath("$.data.category", is("L2")))
-           .andExpect(jsonPath("$.data.nrrOverlaid", is("Y")))
-           .andExpect(jsonPath("$.data.overlayJustfkn", is("Overlaid due to audit findings")));
+           // Overlay fields are no longer top-level (moved into the month blocks).
+           .andExpect(jsonPath("$.data.nrrOverlaid").doesNotExist())
+           .andExpect(jsonPath("$.data.overlayJustfkn").doesNotExist());
     }
 
-    // ── currentMonthNRRDetails (fact_orl at the assessment's biz date) ───────────
+    // ── currentMonthNRRDetails ────────────────────────────────────────────────────
 
     @Test
     void detail_currentMonthNRRDetails_fromFactAndOverlay() throws Exception {
         mvc.perform(get(URL_TPL, 11, 300).header("X-EGRC-UserId", "tester"))
            .andExpect(status().isOk())
-           .andExpect(jsonPath("$.data.currentMonthNRRDetails.nrrCalculated", is("Low")))
-           .andExpect(jsonPath("$.data.currentMonthNRRDetails.nrr", is("High")))
-           .andExpect(jsonPath("$.data.currentMonthNRRDetails.ctrlEffRtn", is("Deteriorated")))
+           .andExpect(jsonPath("$.data.currentMonthNRRDetails.nrrCalculated", is("Low Risk")))
+           .andExpect(jsonPath("$.data.currentMonthNRRDetails.nrr", is("High Risk")))
+           .andExpect(jsonPath("$.data.currentMonthNRRDetails.nrrOverlaid", is("Y")))
+           .andExpect(jsonPath("$.data.currentMonthNRRDetails.overlayJstfkn", is("Overlaid due to audit findings")))
+           .andExpect(jsonPath("$.data.currentMonthNRRDetails.ctrlEffRtn", is("Good")))
            .andExpect(jsonPath("$.data.currentMonthNRRDetails.assmtPeriod", is("July 2026")))
            .andExpect(jsonPath("$.data.currentMonthNRRDetails.commentry", is("July commentary")))
            .andExpect(jsonPath("$.data.currentMonthNRRDetails.revisedCommentry", is("Revised July commentary")));
     }
 
     @Test
-    void detail_currentMonthGrcMetrics_isParsedJsonObject_notString() throws Exception {
+    void detail_currentMonthGrcMetrics_assembledFromModuleTables() throws Exception {
         mvc.perform(get(URL_TPL, 11, 300).header("X-EGRC-UserId", "tester"))
            .andExpect(status().isOk())
            .andExpect(jsonPath("$.data.currentMonthNRRDetails.grcMetrics").isMap())
+           // INC block: nrr + risk_rating_chge + metric
            .andExpect(jsonPath("$.data.currentMonthNRRDetails.grcMetrics.INC.nrr", is("High")))
-           .andExpect(jsonPath("$.data.currentMonthNRRDetails.grcMetrics.INC.inc_is_sinp_count_l3m_mtd.count", is(7)))
-           .andExpect(jsonPath("$.data.currentMonthNRRDetails.grcMetrics.INC.inc_is_sinp_count_l3m_mtd.riskRatingChange", is("Improved")));
+           .andExpect(jsonPath("$.data.currentMonthNRRDetails.grcMetrics.INC.risk_rating_chge", is("Improved")))
+           .andExpect(jsonPath("$.data.currentMonthNRRDetails.grcMetrics.INC.inc_is_sinp_count_l3m_mtd", is(7)))
+           // RCSA block
+           .andExpect(jsonPath("$.data.currentMonthNRRDetails.grcMetrics.RCSA.combined_count_high_risk", is(3)))
+           // KRI block with derived proportions present
+           .andExpect(jsonPath("$.data.currentMonthNRRDetails.grcMetrics.KRI.KRI_RED_CNT", is(2)))
+           .andExpect(jsonPath("$.data.currentMonthNRRDetails.grcMetrics.KRI.KRI_RED_PROP").exists())
+           .andExpect(jsonPath("$.data.currentMonthNRRDetails.grcMetrics.KRI.KRI_GREEN_PROP").exists());
     }
 
-    // ── prevMonthNRRDetails (prev detail + prev-month fact) ──────────────────────
+    // ── prevMonthNRRDetails ───────────────────────────────────────────────────────
 
     @Test
     void detail_prevMonthNRRDetails_fromPrevRowAndPrevFact() throws Exception {
         mvc.perform(get(URL_TPL, 11, 300).header("X-EGRC-UserId", "tester"))
            .andExpect(status().isOk())
            .andExpect(jsonPath("$.data.prevMonthNRRDetails.id", is(200)))
-           .andExpect(jsonPath("$.data.prevMonthNRRDetails.nrrCalculated", is("Low")))
-           .andExpect(jsonPath("$.data.prevMonthNRRDetails.nrr", is("Med High")))
-           .andExpect(jsonPath("$.data.prevMonthNRRDetails.ctrlEffRtn", is("Improving")))
+           .andExpect(jsonPath("$.data.prevMonthNRRDetails.nrrCalculated", is("Low Risk")))
+           .andExpect(jsonPath("$.data.prevMonthNRRDetails.nrr", is("Medium-High Risk")))
+           .andExpect(jsonPath("$.data.prevMonthNRRDetails.nrrOverlaid", is("Y")))
+           .andExpect(jsonPath("$.data.prevMonthNRRDetails.overlayJstfkn").value(nullValue()))
+           .andExpect(jsonPath("$.data.prevMonthNRRDetails.ctrlEffRtn", is("Attention Needed To Satisfactory")))
            .andExpect(jsonPath("$.data.prevMonthNRRDetails.assmtPeriod", is("June 2026")))
-           .andExpect(jsonPath("$.data.prevMonthNRRDetails.commentry", is("June commentary")));
+           .andExpect(jsonPath("$.data.prevMonthNRRDetails.commentry", is("June commentary")))
+           .andExpect(jsonPath("$.data.prevMonthNRRDetails.grcMetrics.INC.inc_is_sinp_count_l3m_mtd", is(5)));
     }
 
     @Test
     void detail_prevMonthNRRDetails_null_whenNoMatchingPrevRow() throws Exception {
-        // Row 301 (grp_l2, no location) has no dimension match in assessment 10.
-        // The block is rendered as JSON null (present, not omitted).
         mvc.perform(get(URL_TPL, 11, 301).header("X-EGRC-UserId", "tester"))
            .andExpect(status().isOk())
            .andExpect(jsonPath("$.data.prevMonthNRRDetails").value(nullValue()));
@@ -226,43 +257,44 @@ class AssmtDetailByIdControllerTest {
 
     @Test
     void detail_prevMonthNRRDetails_null_whenNoPreviousAssessment() throws Exception {
-        // Assessment 12 has PREV_ASSMT_NUM=null.
         mvc.perform(get(URL_TPL, 12, 310).header("X-EGRC-UserId", "tester"))
            .andExpect(status().isOk())
            .andExpect(jsonPath("$.data.prevMonthNRRDetails").value(nullValue()));
     }
 
-    // ── liveNRRDetails (latest biz_dt fact) ──────────────────────────────────────
+    // ── liveNRRDetails ─────────────────────────────────────────────────────────────
 
     @Test
-    void detail_liveNRRDetails_fromLatestFact() throws Exception {
+    void detail_liveNRRDetails_fromLatestFactAndModuleLatest() throws Exception {
         mvc.perform(get(URL_TPL, 11, 300).header("X-EGRC-UserId", "tester"))
            .andExpect(status().isOk())
-           .andExpect(jsonPath("$.data.liveNRRDetails.nrr", is("Med Low")))
+           .andExpect(jsonPath("$.data.liveNRRDetails.nrr", is("Medium-Low Risk")))
+           .andExpect(jsonPath("$.data.liveNRRDetails.nrrOverlaid", is("N")))
+           .andExpect(jsonPath("$.data.liveNRRDetails.overlayJstfkn").value(nullValue()))
            .andExpect(jsonPath("$.data.liveNRRDetails.lastRefreshed", is("2026-07-31")))
-           .andExpect(jsonPath("$.data.liveNRRDetails.ctrlEffRtn", is("Stable")))
-           .andExpect(jsonPath("$.data.liveNRRDetails.commentry", is("Live commentary")));
+           .andExpect(jsonPath("$.data.liveNRRDetails.ctrlEffRtn", is("Satisfactory to Good")))
+           .andExpect(jsonPath("$.data.liveNRRDetails.commentry", is("Live commentary")))
+           // Live GRC metrics use each module's own latest row (INC @ 2026-07-31 → sinp 9).
+           .andExpect(jsonPath("$.data.liveNRRDetails.grcMetrics.INC.inc_is_sinp_count_l3m_mtd", is(9)));
     }
 
     @Test
     void detail_liveNRRDetails_null_whenNoFactForDimension() throws Exception {
-        // Row 301 (grp_l2, no location) has no fact_orl row at all → block rendered as null.
         mvc.perform(get(URL_TPL, 11, 301).header("X-EGRC-UserId", "tester"))
            .andExpect(status().isOk())
            .andExpect(jsonPath("$.data.liveNRRDetails").value(nullValue()));
     }
 
     @Test
-    void detail_nullValuedPropertiesAreIncluded_notOmitted() throws Exception {
-        // Row 301 has no overlay and no matching facts: within the present current-month
-        // block, the null properties must still appear (NON_NULL filtering is off).
+    void detail_currentMonthGrcMetrics_emptyWhenNoModuleRows() throws Exception {
+        // Row 301 (grp_l2, empty location) matches no module rows → empty grcMetrics map.
         mvc.perform(get(URL_TPL, 11, 301).header("X-EGRC-UserId", "tester"))
            .andExpect(status().isOk())
            .andExpect(jsonPath("$.data.currentMonthNRRDetails.nrr").value(nullValue()))
            .andExpect(jsonPath("$.data.currentMonthNRRDetails.nrrCalculated").value(nullValue()))
-           .andExpect(jsonPath("$.data.currentMonthNRRDetails.grcMetrics").value(nullValue()))
-           .andExpect(jsonPath("$.data.overlayJustfkn").value(nullValue()))
-           .andExpect(jsonPath("$.data.lastModifiedBy").value(nullValue()));
+           .andExpect(jsonPath("$.data.currentMonthNRRDetails.nrrOverlaid", is("N")))
+           .andExpect(jsonPath("$.data.currentMonthNRRDetails.overlayJstfkn").value(nullValue()))
+           .andExpect(jsonPath("$.data.currentMonthNRRDetails.grcMetrics", anEmptyMap()));
     }
 
     // ── bu / location category rules ────────────────────────────────────────────
@@ -271,7 +303,7 @@ class AssmtDetailByIdControllerTest {
     void detail_bu_isGroup_forLocCategory() throws Exception {
         mvc.perform(get(URL_TPL, 11, 302).header("X-EGRC-UserId", "tester"))
            .andExpect(status().isOk())
-           .andExpect(jsonPath("$.data.bu", is("Group")))
+           .andExpect(jsonPath("$.data.bu", is("All")))
            .andExpect(jsonPath("$.data.location", is("SG")));
     }
 
@@ -280,13 +312,6 @@ class AssmtDetailByIdControllerTest {
         mvc.perform(get(URL_TPL, 11, 301).header("X-EGRC-UserId", "tester"))
            .andExpect(status().isOk())
            .andExpect(jsonPath("$.data.bu", is("CBG")))
-           .andExpect(jsonPath("$.data.location", is("Group")));
-    }
-
-    @Test
-    void detail_nrrOverlaid_isN_whenNotOverlaid() throws Exception {
-        mvc.perform(get(URL_TPL, 11, 301).header("X-EGRC-UserId", "tester"))
-           .andExpect(status().isOk())
-           .andExpect(jsonPath("$.data.nrrOverlaid", is("N")));
+           .andExpect(jsonPath("$.data.location", is("All")));
     }
 }

@@ -303,7 +303,7 @@ class AssmtDetailByIdControllerTest {
     void detail_bu_isGroup_forLocCategory() throws Exception {
         mvc.perform(get(URL_TPL, 11, 302).header("X-EGRC-UserId", "tester"))
            .andExpect(status().isOk())
-           .andExpect(jsonPath("$.data.bu", is("All")))
+           .andExpect(jsonPath("$.data.bu", is("Group")))
            .andExpect(jsonPath("$.data.location", is("SG")));
     }
 
@@ -312,6 +312,6 @@ class AssmtDetailByIdControllerTest {
         mvc.perform(get(URL_TPL, 11, 301).header("X-EGRC-UserId", "tester"))
            .andExpect(status().isOk())
            .andExpect(jsonPath("$.data.bu", is("CBG")))
-           .andExpect(jsonPath("$.data.location", is("All")));
+           .andExpect(jsonPath("$.data.location", is("Group")));
     }
 }

@@ -61,7 +61,7 @@ public class LandscapeAssmtDetailsService {
             Set.of(LevelCategory.L2, LevelCategory.L3, LevelCategory.L4, LevelCategory.LOC);
     private static final Set<LevelCategory> GROUP_CATEGORIES =
             Set.of(LevelCategory.GRP_L2, LevelCategory.GRP_L3, LevelCategory.GRP_L4);
-    private static final String GROUP_LOCATION = "All";
+    private static final String GROUP_LOCATION = "Group";
     private static final String OVERLAID_YES = "Y";
     private static final String OVERLAID_NO = "N";
 

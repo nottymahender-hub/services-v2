@@ -38,8 +38,8 @@ import java.util.Set;
  *       one bad stored document degrades gracefully rather than failing the whole response.</li>
  * </ul>
  *
- * <p>Centralising this here removes the previously duplicated parsing logic across the
- * generation, callout and assessment-details services.
+ * <p>This is the single place risk-area JSON is parsed: the generation, callout and
+ * assessment-details services all delegate here rather than parsing it themselves.
  */
 @Slf4j
 @Component

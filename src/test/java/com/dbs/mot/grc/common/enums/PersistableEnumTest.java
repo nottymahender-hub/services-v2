@@ -24,12 +24,6 @@ class PersistableEnumTest {
     }
 
     @Test
-    void controlEffectiveness_dbValues() {
-        assertThat(ControlEffectiveness.SATISFACTORY_TO_GOOD.getDbValue()).isEqualTo("Satisfactory to Good");
-        assertThat(ControlEffectiveness.fromDbValue("Poor/Fail")).isEqualTo(ControlEffectiveness.POOR_FAIL);
-    }
-
-    @Test
     void fromDbValue_blankReturnsNull_unknownThrows() {
         assertThat(PersistableEnums.fromDbValue(Module.class, null)).isNull();
         assertThat(PersistableEnums.fromDbValue(Module.class, "  ")).isNull();

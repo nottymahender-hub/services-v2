@@ -12,8 +12,8 @@ import java.util.List;
  * <p>Contains only per-row fields; landscape-config metadata is served by the dedicated
  * {@code GET /landscape/{lndscpAssmtId}/dimensions} endpoint.
  *
- * <p>Null properties are serialized (no {@code NON_NULL} filtering) so every field
- * is always present in each assessment item.
+ * <p>Every field is always serialized, including nulls, so each assessment item has a
+ * fixed shape.
  */
 @Getter
 @Builder

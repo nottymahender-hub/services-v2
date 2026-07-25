@@ -67,11 +67,6 @@ public class InaFactOrl implements ModuleFact {
     private Integer issueClosedCountL3mMtd;
 
     @Override
-    public String moduleKey() {
-        return "INA";
-    }
-
-    @Override
     public Map<String, Object> metrics() {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("issue_repeated_count", issueRepeatedCount);

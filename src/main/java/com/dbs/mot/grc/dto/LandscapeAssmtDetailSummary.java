@@ -31,8 +31,8 @@ import java.util.List;
  * throws {@link com.dbs.mot.grc.common.exception.NotFoundException} (HTTP 404)
  * rather than returning a partially-empty object.
  *
- * <p>Null properties are serialized (no {@code NON_NULL} filtering) so the response
- * shape is stable regardless of which optional values are present.
+ * <p>Every field is always serialized, including nulls, so the response shape is stable
+ * regardless of which optional values are present.
  */
 @Getter
 @Builder

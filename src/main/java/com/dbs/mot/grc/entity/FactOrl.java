@@ -1,6 +1,5 @@
 package com.dbs.mot.grc.entity;
 
-import com.dbs.mot.grc.common.enums.ControlEffectiveness;
 import com.dbs.mot.grc.common.enums.InherentRisk;
 import com.dbs.mot.grc.common.enums.LevelCategory;
 import com.dbs.mot.grc.common.enums.NetRiskRating;
@@ -67,9 +66,9 @@ public class FactOrl {
     @Column("CAL_NET_RISK_RTNG")
     private NetRiskRating calNetRiskRtng;
 
-    /** Control-effectiveness rating. */
+    /** Control-effectiveness rating (free text). */
     @Column("CTRL_EFF_RTN")
-    private ControlEffectiveness ctrlEffRtn;
+    private String ctrlEffRtn;
 
     @Column("COMMENTARY")
     private String commentary;

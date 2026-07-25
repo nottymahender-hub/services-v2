@@ -17,7 +17,7 @@ public interface KriFactOrlRepository extends CrudRepository<KriFactOrl, Long> {
 
     @Query("""
             SELECT * FROM kri_fact_orl
-            WHERE biz_dt = :bizDt AND ORL_RISK_AREA = :riskArea
+            WHERE biz_dt = :bizDt AND RISK_AREA = :riskArea
               AND ORL_BU_NM_L2 = :l2 AND ORL_BU_NM_L3 = :l3 AND ORL_BU_NM_L4 = :l4 AND LOCATION = :location
             """)
     Optional<KriFactOrl> findByBizDtAndDimension(@Param("bizDt") LocalDate bizDt,
@@ -27,10 +27,11 @@ public interface KriFactOrlRepository extends CrudRepository<KriFactOrl, Long> {
 
     @Query("""
             SELECT * FROM kri_fact_orl
-            WHERE ORL_RISK_AREA = :riskArea
-              AND ORL_BU_NM_L2 = :l2 AND ORL_BU_NM_L3 = :l3 AND ORL_BU_NM_L4 = :l4 AND LOCATION = :location
-            ORDER BY biz_dt DESC
-            LIMIT 1
+            WHERE biz_dt = (SELECT MAX(biz_dt) FROM kri_fact_orl
+                            WHERE RISK_AREA = :riskArea AND ORL_BU_NM_L2 = :l2 AND ORL_BU_NM_L3 = :l3
+                              AND ORL_BU_NM_L4 = :l4 AND LOCATION = :location)
+              AND RISK_AREA = :riskArea AND ORL_BU_NM_L2 = :l2 AND ORL_BU_NM_L3 = :l3
+              AND ORL_BU_NM_L4 = :l4 AND LOCATION = :location
             """)
     Optional<KriFactOrl> findLatestByDimension(@Param("riskArea") String riskArea,
                                                @Param("l2") String l2, @Param("l3") String l3,

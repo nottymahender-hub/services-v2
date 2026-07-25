@@ -27,10 +27,11 @@ public interface IncFactOrlRepository extends CrudRepository<IncFactOrl, Long> {
 
     @Query("""
             SELECT * FROM inc_fact_orl
-            WHERE RISK_AREA = :riskArea
-              AND ORL_BU_NM_L2 = :l2 AND ORL_BU_NM_L3 = :l3 AND ORL_BU_NM_L4 = :l4 AND LOCATION = :location
-            ORDER BY biz_dt DESC
-            LIMIT 1
+            WHERE biz_dt = (SELECT MAX(biz_dt) FROM inc_fact_orl
+                            WHERE RISK_AREA = :riskArea AND ORL_BU_NM_L2 = :l2 AND ORL_BU_NM_L3 = :l3
+                              AND ORL_BU_NM_L4 = :l4 AND LOCATION = :location)
+              AND RISK_AREA = :riskArea AND ORL_BU_NM_L2 = :l2 AND ORL_BU_NM_L3 = :l3
+              AND ORL_BU_NM_L4 = :l4 AND LOCATION = :location
             """)
     Optional<IncFactOrl> findLatestByDimension(@Param("riskArea") String riskArea,
                                                @Param("l2") String l2, @Param("l3") String l3,

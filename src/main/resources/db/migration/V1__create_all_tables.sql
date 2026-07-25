@@ -139,6 +139,7 @@ CREATE TABLE IF NOT EXISTS `orl_lndscp_assmt` (
     `id`             INT(11)                                                   NOT NULL AUTO_INCREMENT,
     `LNDSCP_NUM`     INT(11)                                                   NOT NULL,
     `ASSEMT_PERIOD`  VARCHAR(100)                                              NOT NULL DEFAULT '',
+    `biz_dt`         DATE                                                      NULL DEFAULT NULL,
     `status`         ENUM('Draft','Open','Locked','Partial locked','Closed')   NOT NULL DEFAULT 'Draft',
     `PREV_ASSMT_NUM` INT(11)                                                   NULL DEFAULT NULL,
     `CREATED_BY`     VARCHAR(50)                                               NOT NULL,
@@ -246,7 +247,7 @@ CREATE TABLE IF NOT EXISTS `fact_orl` (
     `INHERENT_RISK` ENUM('Minor','Moderate','Major') NULL DEFAULT NULL,
     `RISK_RTNG_CHGE` ENUM('Improved','Deteriorated','Stable','N.A') NULL DEFAULT NULL,
     `CAL_NET_RISK_RTNG` ENUM('Low','Med Low','Med High','High') NOT NULL,
-    `CTRL_EFF_RTN` ENUM('Poor/Fail', 'Attention Needed To Satisfactory', 'Good', 'Satisfactory to Good') NULL DEFAULT NULL,
+    `CTRL_EFF_RTN` VARCHAR(200) NULL DEFAULT NULL,
     `COMMENTARY` LONGTEXT NULL DEFAULT NULL,
     PRIMARY KEY (`ID`) USING BTREE,
     UNIQUE INDEX `Index 2` (`biz_dt`, `RISK_AREA`, `ORL_BU_NM_L2`, `ORL_BU_NM_L3`, `ORL_BU_NM_L4`, `LOCATION`) USING BTREE

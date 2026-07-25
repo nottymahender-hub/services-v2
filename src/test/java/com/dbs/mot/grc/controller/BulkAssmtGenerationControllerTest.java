@@ -38,8 +38,9 @@ class BulkAssmtGenerationControllerTest {
     private static final DateTimeFormatter PERIOD_FMT =
             DateTimeFormatter.ofPattern("MMMM yyyy", Locale.ENGLISH);
 
-    private final String currentPeriod = YearMonth.now().format(PERIOD_FMT);
-    private final String previousPeriod = YearMonth.now().minusMonths(1).format(PERIOD_FMT);
+    // A run in month M generates an assessment for the previous month (M-1) and links to M-2.
+    private final String assessmentPeriod = YearMonth.now().minusMonths(1).format(PERIOD_FMT);
+    private final String priorPeriod = YearMonth.now().minusMonths(2).format(PERIOD_FMT);
 
     @Autowired MockMvc mvc;
     @Autowired JdbcTemplate jdbc;
@@ -99,7 +100,7 @@ class BulkAssmtGenerationControllerTest {
 
         Integer assmtCount = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM orl_lndscp_assmt WHERE ASSEMT_PERIOD=? AND CREATED_BY='tester'",
-                Integer.class, currentPeriod);
+                Integer.class, assessmentPeriod);
         assert assmtCount != null && assmtCount == 2;
 
         Integer detailCount = jdbc.queryForObject(
@@ -248,13 +249,13 @@ class BulkAssmtGenerationControllerTest {
     void generation_linksPreviousMonthAssessment_viaPrevAssmtNum() throws Exception {
         // Previous month's assessment for Alpha (LNDSCP_NUM 1).
         jdbc.update("INSERT INTO orl_lndscp_assmt(id,LNDSCP_NUM,ASSEMT_PERIOD,status,CREATED_BY) VALUES(500,1,?,'Open','seed')",
-                previousPeriod);
+                priorPeriod);
 
         mvc.perform(post(URL).header("X-EGRC-UserId", "tester")).andExpect(status().isOk());
 
         Long prev = jdbc.queryForObject(
                 "SELECT PREV_ASSMT_NUM FROM orl_lndscp_assmt WHERE LNDSCP_NUM=1 AND ASSEMT_PERIOD=?",
-                Long.class, currentPeriod);
+                Long.class, assessmentPeriod);
         assert prev != null && prev == 500L;
     }
 
@@ -263,7 +264,7 @@ class BulkAssmtGenerationControllerTest {
         mvc.perform(post(URL).header("X-EGRC-UserId", "tester")).andExpect(status().isOk());
         Long prev = jdbc.queryForObject(
                 "SELECT PREV_ASSMT_NUM FROM orl_lndscp_assmt WHERE LNDSCP_NUM=1 AND ASSEMT_PERIOD=?",
-                Long.class, currentPeriod);
+                Long.class, assessmentPeriod);
         assert prev == null;
     }
 
@@ -271,13 +272,13 @@ class BulkAssmtGenerationControllerTest {
     void generation_previousAssessmentOfOtherLandscape_isNotLinked() throws Exception {
         // A previous-month assessment exists, but for LNDSCP_NUM=2 — must not link to Alpha (id 1).
         jdbc.update("INSERT INTO orl_lndscp_assmt(id,LNDSCP_NUM,ASSEMT_PERIOD,status,CREATED_BY) VALUES(501,2,?,'Open','seed')",
-                previousPeriod);
+                priorPeriod);
 
         mvc.perform(post(URL).header("X-EGRC-UserId", "tester")).andExpect(status().isOk());
 
         Long prev = jdbc.queryForObject(
                 "SELECT PREV_ASSMT_NUM FROM orl_lndscp_assmt WHERE LNDSCP_NUM=1 AND ASSEMT_PERIOD=?",
-                Long.class, currentPeriod);
+                Long.class, assessmentPeriod);
         assert prev == null;
     }
 

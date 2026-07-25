@@ -30,21 +30,20 @@ public class RcsaFactOrl implements ModuleFact {
     @Column("ID")
     private Long id;
 
-    // RCSA uses its own dimension/date/NRR column names (see rcsa_fact_orl schema).
-    @Column("biz_date")
+    @Column("biz_dt")
     private LocalDate bizDt;
-    @Column("orl_risk_area")
+    @Column("RISK_AREA")
     private String riskArea;
-    @Column("orl_unit_l2")
+    @Column("ORL_BU_NM_L2")
     private String orlBuNmL2;
-    @Column("orl_unit_l3")
+    @Column("ORL_BU_NM_L3")
     private String orlBuNmL3;
-    @Column("orl_unit_l4")
+    @Column("ORL_BU_NM_L4")
     private String orlBuNmL4;
-    @Column("orl_location")
+    @Column("LOCATION")
     private String location;
 
-    @Column("NRR")
+    @Column("NET_RISK_RTNG")
     private NetRiskRating netRiskRtng;
     @Column("RISK_RTNG_CHGE")
     private RiskRatingChange riskRtngChge;
@@ -65,11 +64,6 @@ public class RcsaFactOrl implements ModuleFact {
     private BigDecimal rcsaMedLowProportion;
     @Column("rcsa_low_risk_proportion")
     private BigDecimal rcsaLowRiskProportion;
-
-    @Override
-    public String moduleKey() {
-        return "RCSA";
-    }
 
     @Override
     public Map<String, Object> metrics() {

@@ -1,6 +1,5 @@
 package com.dbs.mot.grc.dto;
 
-import com.fasterxml.jackson.annotation.JsonInclude;
 import lombok.Builder;
 import lombok.Getter;
 
@@ -16,7 +15,6 @@ import java.util.List;
  */
 @Getter
 @Builder
-@JsonInclude(JsonInclude.Include.NON_NULL)
 public class CalloutResponse {
 
     private final Long          id;
@@ -26,7 +24,7 @@ public class CalloutResponse {
     private final String        comment;
     private final Boolean       deleted;
 
-    /** {@code SME} — current owner of the callout. */
+    /** {@code SME} â€” current owner of the callout. */
     private final String        sme;
 
     /** {@code CREATE_DT_TM}. */
@@ -35,6 +33,6 @@ public class CalloutResponse {
     /** {@code UPDATE_DT_TM}; null until the callout is updated. */
     private final LocalDateTime updatedOn;
 
-    /** {@code LAST_MODIFIED_SME} — SME that owned the callout before the last update. */
+    /** {@code LAST_MODIFIED_SME} â€” SME that owned the callout before the last update. */
     private final String        lastModifiedBy;
 }

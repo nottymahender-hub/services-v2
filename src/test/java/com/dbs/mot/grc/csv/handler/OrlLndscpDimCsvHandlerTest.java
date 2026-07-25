@@ -14,6 +14,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
 
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.is;
@@ -38,6 +40,7 @@ class OrlLndscpDimCsvHandlerTest {
 
     @Autowired MockMvc mvc;
     @Autowired JdbcTemplate jdbc;
+    @Autowired OrlLndscpDimCsvHandler handler;
 
     @BeforeEach
     void setUp() {
@@ -88,6 +91,37 @@ class OrlLndscpDimCsvHandlerTest {
         mvc.perform(multipart(UPLOAD).file(valid()).header("X-EGRC-UserId", "user1"));
         Integer count = jdbc.queryForObject("SELECT COUNT(*) FROM orl_lndscp_dim", Integer.class);
         assert count != null && count == 3;
+    }
+
+    // ── resolveVersion: the IN-list is bound as one named collection parameter ──────
+
+    @Test void resolveVersion_isOne_whenNoConfigIdsSupplied() {
+        assert handler.resolveVersion(List.of()) == 1;
+        assert handler.resolveVersion(null) == 1;
+    }
+
+    @Test void resolveVersion_isOne_whenConfigIdIsUnknown() {
+        assert handler.resolveVersion(List.of("NOT-STORED")) == 1;
+    }
+
+    @Test void resolveVersion_usesHighestVersionAcrossAllSuppliedConfigIds() throws Exception {
+        // Two uploads leave CONFIG_IDs of the sample file at VERSION 2.
+        mvc.perform(multipart(UPLOAD).file(valid()).header("X-EGRC-UserId", "user1"))
+           .andExpect(status().isCreated());
+        mvc.perform(multipart(UPLOAD).file(valid()).header("X-EGRC-UserId", "user1"))
+           .andExpect(status().isCreated());
+
+        List<String> storedIds = jdbc.queryForList(
+                "SELECT DISTINCT CONFIG_ID FROM orl_lndscp_dim", String.class);
+        assert storedIds.size() > 1 : "expected a multi-value IN list, got " + storedIds;
+
+        // A single id, and the whole set, must both resolve to one above the stored max.
+        assert handler.resolveVersion(storedIds) == 3;
+        assert handler.resolveVersion(List.of(storedIds.get(0))) == 3;
+        // An unknown id mixed in must not lower the result.
+        List<String> withUnknown = new ArrayList<>(storedIds);
+        withUnknown.add("NOT-STORED");
+        assert handler.resolveVersion(withUnknown) == 3;
     }
 
     @Test void upload_setsVersionToOne_firstUpload() throws Exception {

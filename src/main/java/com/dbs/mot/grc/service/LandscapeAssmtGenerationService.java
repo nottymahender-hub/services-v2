@@ -10,6 +10,7 @@ import com.dbs.mot.grc.entity.OrlBizUnit;
 import com.dbs.mot.grc.entity.OrlLndscpAssmt;
 import com.dbs.mot.grc.entity.OrlLndscpAssmtDetails;
 import com.dbs.mot.grc.entity.OrlLndscpDim;
+import com.dbs.mot.grc.repository.FactOrlRepository;
 import com.dbs.mot.grc.repository.OrlBizUnitRepository;
 import com.dbs.mot.grc.repository.OrlLndscpAssmtRepository;
 import lombok.RequiredArgsConstructor;
@@ -37,14 +38,17 @@ import java.util.function.Function;
  * Generates a landscape assessment and all of its detail rows for a given landscape config.
  *
  * <h3>Flow</h3>
+ * <p>An assessment generated in month M reports the <b>previous</b> calendar month (M-1): its
+ * {@code ASSEMT_PERIOD} is M-1 and its {@code biz_dt} is that month's end (or the latest
+ * {@code fact_orl.biz_dt} within it). It links back to the M-2 assessment.
+ *
  * <ol>
- *   <li>Reject if an assessment already exists for this landscape + current month — 409.</li>
+ *   <li>Reject if an assessment already exists for this landscape + reported period (M-1) — 409.</li>
  *   <li>Expand the config into detail-row specs: {@code RISK_AREA} keys × business units ×
  *       locations, producing {@code L{lvl}}, {@code grp_l{lvl}} and {@code loc} category rows.</li>
  *   <li>Resolve each business unit name to its full (L2, L3, L4) hierarchy path.</li>
- *   <li>Link the new assessment to the previous month's assessment (same
- *       {@code LNDSCP_NUM}, period = current month − 1) via {@code PREV_ASSMT_NUM};
- *       {@code null} when this is the config's first assessment.</li>
+ *   <li>Link the new assessment to the prior period's assessment (same {@code LNDSCP_NUM},
+ *       period = M-2) via {@code PREV_ASSMT_NUM}; {@code null} when none exists.</li>
  *   <li>Persist the assessment aggregate (root + all thin detail children) in one
  *       transaction.</li>
  * </ol>
@@ -68,6 +72,7 @@ public class LandscapeAssmtGenerationService {
     private final OrlLndscpAssmtRepository assmtRepository;
     private final OrlBizUnitRepository bizUnitRepository;
     private final RiskAreaParser riskAreaParser;
+    private final FactOrlRepository factRepository;
 
     /**
      * Generates the assessment for an already-resolved config row. Called per landscape by
@@ -85,14 +90,17 @@ public class LandscapeAssmtGenerationService {
         log.debug("Generating assessment for lndscpNum={} ('{}') by '{}'",
                 lndscpNum, dim.getLndscpNm(), userId);
 
-        LocalDate today = LocalDate.now();
-        String currentPeriod = YearMonth.from(today).format(PERIOD_FMT);
-        String previousPeriod = YearMonth.from(today).minusMonths(1).format(PERIOD_FMT);
+        // An assessment generated in month M reports the previous calendar month (M-1):
+        // its period label is M-1 and it links back to the M-2 assessment.
+        YearMonth assmtMonth = YearMonth.from(LocalDate.now()).minusMonths(1);
+        String assmtPeriod = assmtMonth.format(PERIOD_FMT);
+        String priorPeriod = assmtMonth.minusMonths(1).format(PERIOD_FMT);
+        LocalDate bizDt = resolveBizDate(assmtMonth);
 
-        if (assmtRepository.existsByLndscpNumAndPeriod(lndscpNum, currentPeriod)) {
+        if (assmtRepository.existsByLndscpNumAndPeriod(lndscpNum, assmtPeriod)) {
             throw new ConflictException("An assessment already exists for landscape '"
                     + dim.getLndscpNm() + "' (id " + lndscpNum + ") and period '"
-                    + currentPeriod + "'.");
+                    + assmtPeriod + "'.");
         }
 
         // ── Parse config dimensions ──────────────────────────────────────────────
@@ -106,9 +114,9 @@ public class LandscapeAssmtGenerationService {
         // ── Lookups reused across all rows ───────────────────────────────────────
         Map<String, OrlBizUnit> buByName = loadBuHierarchy(lvl);
         Optional<Long> prevAssmtId =
-                assmtRepository.findIdByLndscpNumAndPeriod(lndscpNum, previousPeriod);
+                assmtRepository.findIdByLndscpNumAndPeriod(lndscpNum, priorPeriod);
         log.debug("Previous assessment for lndscpNum={} period='{}': {}",
-                lndscpNum, previousPeriod, prevAssmtId.map(String::valueOf).orElse("none"));
+                lndscpNum, priorPeriod, prevAssmtId.map(String::valueOf).orElse("none"));
 
         // ── Build the (thin) detail rows ─────────────────────────────────────────
         LocalDateTime now = LocalDateTime.now();
@@ -121,7 +129,8 @@ public class LandscapeAssmtGenerationService {
         // ── Persist the aggregate (root + children) in one transaction ───────────
         OrlLndscpAssmt assmt = OrlLndscpAssmt.builder()
                 .lndscpNum(AggregateReference.to(lndscpNum))
-                .assmtPeriod(currentPeriod)
+                .assmtPeriod(assmtPeriod)
+                .bizDt(bizDt)
                 .status(AssmtStatus.OPEN)
                 .prevAssmtNum(prevAssmtId.map(AggregateReference::<OrlLndscpAssmt, Long>to).orElse(null))
                 .createdBy(userId)
@@ -130,16 +139,29 @@ public class LandscapeAssmtGenerationService {
                 .build();
         OrlLndscpAssmt saved = assmtRepository.save(assmt);
 
-        log.info("Generated assessment id={} ({} detail rows) for lndscpNum={} period='{}' by '{}'",
-                saved.getId(), details.size(), lndscpNum, currentPeriod, userId);
+        log.info("Generated assessment id={} ({} detail rows) for lndscpNum={} period='{}' bizDt={} by '{}'",
+                saved.getId(), details.size(), lndscpNum, assmtPeriod, bizDt, userId);
 
         return AssmtGenerationResponse.builder()
                 .lndscpAssmtId(saved.getId())
                 .lndscpNm(dim.getLndscpNm())
                 .lndscpNum(lndscpNum)
-                .assmtPeriod(currentPeriod)
+                .assmtPeriod(assmtPeriod)
                 .detailRowCount(details.size())
                 .build();
+    }
+
+    /**
+     * Resolves the assessment's business date for the reported month: the month-end date, or the
+     * latest {@code fact_orl.biz_dt} within that month when the exact month-end has no snapshot.
+     */
+    private LocalDate resolveBizDate(YearMonth assmtMonth) {
+        LocalDate monthEnd = assmtMonth.atEndOfMonth();
+        LocalDate latestInMonth = factRepository.findMaxBizDtBetween(assmtMonth.atDay(1), monthEnd);
+        LocalDate bizDt = latestInMonth != null ? latestInMonth : monthEnd;
+        log.debug("Resolved biz_dt={} for period '{}' (month-end {}, latest fact in month {})",
+                bizDt, assmtMonth.format(PERIOD_FMT), monthEnd, latestInMonth);
+        return bizDt;
     }
 
     // ── Expansion ────────────────────────────────────────────────────────────────

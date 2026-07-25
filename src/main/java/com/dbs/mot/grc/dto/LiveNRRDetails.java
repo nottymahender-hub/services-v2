@@ -34,7 +34,11 @@ public class LiveNRRDetails {
     /** {@code fact_orl.CTRL_EFF_RTN} of the latest snapshot. */
     private final String ctrlEffRtn;
 
-    /** Per-module GRC metrics assembled from each module fact table's latest row. */
+    /**
+     * Per-module GRC metrics assembled from each module fact table's own latest row. All four
+     * module keys ({@code RCSA}, {@code INC}, {@code INA}, {@code KRI}) are always present; a
+     * module with no row for the dimension maps to {@code null}.
+     */
     private final Map<String, Object> grcMetrics;
 
     /** {@code fact_orl.COMMENTARY} of the latest snapshot. */

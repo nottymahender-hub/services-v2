@@ -18,8 +18,8 @@ public interface RcsaFactOrlRepository extends CrudRepository<RcsaFactOrl, Long>
 
     @Query("""
             SELECT * FROM rcsa_fact_orl
-            WHERE biz_date = :bizDt AND orl_risk_area = :riskArea
-              AND orl_unit_l2 = :l2 AND orl_unit_l3 = :l3 AND orl_unit_l4 = :l4 AND orl_location = :location
+            WHERE biz_dt = :bizDt AND RISK_AREA = :riskArea
+              AND ORL_BU_NM_L2 = :l2 AND ORL_BU_NM_L3 = :l3 AND ORL_BU_NM_L4 = :l4 AND LOCATION = :location
             """)
     Optional<RcsaFactOrl> findByBizDtAndDimension(@Param("bizDt") LocalDate bizDt,
                                                   @Param("riskArea") String riskArea,
@@ -28,10 +28,11 @@ public interface RcsaFactOrlRepository extends CrudRepository<RcsaFactOrl, Long>
 
     @Query("""
             SELECT * FROM rcsa_fact_orl
-            WHERE orl_risk_area = :riskArea
-              AND orl_unit_l2 = :l2 AND orl_unit_l3 = :l3 AND orl_unit_l4 = :l4 AND orl_location = :location
-            ORDER BY biz_date DESC
-            LIMIT 1
+            WHERE biz_dt = (SELECT MAX(biz_dt) FROM rcsa_fact_orl
+                            WHERE RISK_AREA = :riskArea AND ORL_BU_NM_L2 = :l2 AND ORL_BU_NM_L3 = :l3
+                              AND ORL_BU_NM_L4 = :l4 AND LOCATION = :location)
+              AND RISK_AREA = :riskArea AND ORL_BU_NM_L2 = :l2 AND ORL_BU_NM_L3 = :l3
+              AND ORL_BU_NM_L4 = :l4 AND LOCATION = :location
             """)
     Optional<RcsaFactOrl> findLatestByDimension(@Param("riskArea") String riskArea,
                                                 @Param("l2") String l2, @Param("l3") String l3,

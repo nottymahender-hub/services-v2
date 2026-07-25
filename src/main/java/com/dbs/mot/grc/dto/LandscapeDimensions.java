@@ -18,7 +18,7 @@ import java.util.Map;
  * }
  * </pre>
  *
- * <p>Null properties are serialized (no {@code NON_NULL} filtering).
+ * <p>Every field is always serialized, including nulls.
  */
 @Getter
 @Builder

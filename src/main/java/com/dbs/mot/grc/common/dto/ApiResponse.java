@@ -1,6 +1,5 @@
 package com.dbs.mot.grc.common.dto;
 
-import com.fasterxml.jackson.annotation.JsonInclude;
 import lombok.Builder;
 import lombok.Getter;
 
@@ -8,11 +7,13 @@ import java.util.List;
 
 /**
  * Standard JSON envelope returned by every API endpoint.
- * Null fields are omitted from the serialized output.
+ *
+ * <p>Every field is always serialized, including nulls, so the envelope has one fixed shape:
+ * a success response still carries {@code "errors": null} and an error response still carries
+ * {@code "data": null}. Clients can read a field without first checking whether it is present.
  */
 @Getter
 @Builder
-@JsonInclude(JsonInclude.Include.NON_NULL)
 public class ApiResponse<T> {
 
     private final boolean success;

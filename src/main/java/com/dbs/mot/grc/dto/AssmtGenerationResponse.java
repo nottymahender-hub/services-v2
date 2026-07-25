@@ -1,16 +1,14 @@
 package com.dbs.mot.grc.dto;
 
-import com.fasterxml.jackson.annotation.JsonInclude;
 import lombok.Builder;
 import lombok.Getter;
 
 /**
- * Response body for {@code POST /landscape/{lndscpNm}/assessments/generate} — a summary
+ * Response body for {@code POST /landscape/{lndscpNm}/assessments/generate} â€” a summary
  * of the assessment that was generated.
  */
 @Getter
 @Builder
-@JsonInclude(JsonInclude.Include.NON_NULL)
 public class AssmtGenerationResponse {
 
     /** Primary key of the newly created {@code orl_lndscp_assmt} row. */

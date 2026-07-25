@@ -37,10 +37,9 @@ public class KriFactOrl implements ModuleFact {
     @Column("ID")
     private Long id;
 
-    // KRI uses ORL_RISK_AREA and NET_RISK_RATING (see kri_fact_orl schema); the rest are shared.
     @Column("biz_dt")
     private LocalDate bizDt;
-    @Column("ORL_RISK_AREA")
+    @Column("RISK_AREA")
     private String riskArea;
     @Column("ORL_BU_NM_L2")
     private String orlBuNmL2;
@@ -51,7 +50,7 @@ public class KriFactOrl implements ModuleFact {
     @Column("LOCATION")
     private String location;
 
-    @Column("NET_RISK_RATING")
+    @Column("NET_RISK_RTNG")
     private NetRiskRating netRiskRtng;
     @Column("RISK_RTNG_CHGE")
     private RiskRatingChange riskRtngChge;
@@ -72,11 +71,6 @@ public class KriFactOrl implements ModuleFact {
     private Integer kriAmberCnt;
     @Column("KRI_GREEN_CNT")
     private Integer kriGreenCnt;
-
-    @Override
-    public String moduleKey() {
-        return "KRI";
-    }
 
     @Override
     public Map<String, Object> metrics() {

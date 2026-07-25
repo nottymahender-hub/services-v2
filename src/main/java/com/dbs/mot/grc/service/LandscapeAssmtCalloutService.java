@@ -202,8 +202,8 @@ public class LandscapeAssmtCalloutService {
      * Fetches the assessment reference ({@code id} + {@code LNDSCP_NUM}) or throws.
      * Centralised here so every public method pays for exactly one assessment lookup.
      * Uses the reference projection rather than {@code findById} so it never triggers the
-     * eager load of the assessment's {@code details} {@code MappedCollection} (which
-     * carries large {@code GRC_METRICS} blobs the callout flow never reads).
+     * eager load of the assessment's {@code details} {@code MappedCollection} — the callout
+     * flow needs only the two reference columns, not every detail row.
      */
     private LandscapeAssmtRef getAssmtOrThrow(Long lndscpAssmtId) {
         return assmtRepository.findRefById(lndscpAssmtId)

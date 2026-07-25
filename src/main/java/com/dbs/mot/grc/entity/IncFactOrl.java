@@ -57,11 +57,6 @@ public class IncFactOrl implements ModuleFact {
     private Integer incIsMiCountL3mMtd;
 
     @Override
-    public String moduleKey() {
-        return "INC";
-    }
-
-    @Override
     public Map<String, Object> metrics() {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("inc_is_gorc_count_l3m_mtd", incIsGorcCountL3mMtd);

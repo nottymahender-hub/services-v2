@@ -3,6 +3,7 @@ package com.dbs.mot.grc.csv.handler;
 import com.dbs.mot.grc.common.csv.CsvHandler;
 import com.dbs.mot.grc.common.csv.CsvImportProcessor;
 import com.dbs.mot.grc.common.enums.Module;
+import com.dbs.mot.grc.common.util.ConfigTable;
 import com.dbs.mot.grc.common.util.ConfigVersionResolver;
 import com.dbs.mot.grc.csv.mapper.FeatureScoreBandCsvRowMapper;
 import com.dbs.mot.grc.csv.validator.FeatureScoreBandCsvRowValidator;
@@ -44,7 +45,6 @@ import java.util.stream.Collectors;
 public class FeatureScoreBandCsvHandler implements CsvHandler {
 
     static final String TABLE_NAME = "feature-score-band";
-    static final String DB_TABLE = "feature_score_band";
     static final String[] EXPECTED_HEADERS = {
             "feature_name", "feature_bin", "range_low", "range_high", "score", "module"
     };
@@ -53,8 +53,6 @@ public class FeatureScoreBandCsvHandler implements CsvHandler {
             "range_low", "range_high", "score", "module", "CREATED_BY", "CREATE_DT_TM"
     };
     private static final DateTimeFormatter DT_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
-
-    private static final List<String> GROUP_COLS = List.of("feature_name", "feature_bin", "module");
 
     private final CsvImportProcessor csvImportProcessor;
     private final FeatureScoreBandCsvRowMapper rowMapper;
@@ -88,7 +86,7 @@ public class FeatureScoreBandCsvHandler implements CsvHandler {
                 .map(r -> List.of(r.getFeatureName(), String.valueOf(r.getFeatureBin()), r.getModule()))
                 .collect(Collectors.toSet());
         Map<String, Integer> nextVersions =
-                configVersionResolver.resolveNextVersions(DB_TABLE, GROUP_COLS, groupKeys);
+                configVersionResolver.resolveNextVersions(ConfigTable.FEATURE_SCORE_BAND, groupKeys);
 
         LocalDateTime now = LocalDateTime.now();
         List<FeatureScoreBand> entities = rows.stream()

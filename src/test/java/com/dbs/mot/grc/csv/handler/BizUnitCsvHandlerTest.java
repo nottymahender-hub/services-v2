@@ -95,8 +95,8 @@ class BizUnitCsvHandlerTest {
     }
 
     @Test void upload_hierarchyMismatch_isNotRejected() throws Exception {
-        // ORL_BU_NM_L2 referencing a BU_NM that does not exist in this batch used to be rejected;
-        // the reference check was removed since hierarchy no longer needs to resolve in-batch.
+        // Hierarchy references need not resolve within the batch, so ORL_BU_NM_L2 pointing at a
+        // BU_NM absent from this upload is accepted.
         String csv = "BU_NUM,BU_NM,LVL_OF_HIER,ORL_BU_NM_L2,ORL_BU_NM_L3,ORL_BU_NM_L4,BU_FULL_PATH\n"
                 + "2,DTI,3,DoesNotExist,,,\n";
         mvc.perform(multipart(UPLOAD).file(csv(csv)).header("X-EGRC-UserId", "u"))

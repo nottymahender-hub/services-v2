@@ -42,7 +42,11 @@ public class MonthNRRDetails {
     /** {@code orl_lndscp_assmt.ASSEMT_PERIOD}, e.g. {@code "July 2026"}. */
     private final String assmtPeriod;
 
-    /** Per-module GRC metrics assembled from the module fact tables ({@code RCSA/INC/INA/KRI}). */
+    /**
+     * Per-module GRC metrics assembled from the module fact tables. All four module keys
+     * ({@code RCSA}, {@code INC}, {@code INA}, {@code KRI}) are always present; a module with no
+     * snapshot row for this business date maps to {@code null}.
+     */
     private final Map<String, Object> grcMetrics;
 
     /** {@code fact_orl.COMMENTARY}. */

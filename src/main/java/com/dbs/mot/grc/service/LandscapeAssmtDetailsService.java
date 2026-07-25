@@ -160,7 +160,7 @@ public class LandscapeAssmtDetailsService {
                 .nrr(NetRiskRating.display(row.getOvrlyNetRiskRtng()))
                 .nrrOverlaid(row.getOvrlyNetRiskRtng() != null ? OVERLAID_YES : OVERLAID_NO)
                 .overlayJstfkn(row.getOvrlyJstfkn())
-                .ctrlEffRtn(PersistableEnum.dbValue(currentFact != null ? currentFact.getCtrlEffRtn() : null))
+                .ctrlEffRtn(currentFact != null ? currentFact.getCtrlEffRtn() : null)
                 .assmtPeriod(assmt.getAssmtPeriod())
                 .grcMetrics(grcMetricsService.forBizDate(currentBizDt, key))
                 .commentry(currentFact != null ? currentFact.getCommentary() : null)
@@ -176,13 +176,15 @@ public class LandscapeAssmtDetailsService {
 
         return AssmtDetailResponse.builder()
                 .id(row.getId())
+                .landscapeAssessmentId(assmt.getId())
                 .landscapeId(assmt.getLndscpNum() != null ? assmt.getLndscpNum().getId() : null)
                 .riskArea(row.getRiskArea())
                 .bu(resolveBuByCategory(row))
                 .location(resolveLocation(row))
                 .status(PersistableEnum.dbValue(row.getStatus()))
-                .lastModified(row.getUpdateDtTm())
-                .lastModifiedBy(row.getUpdatedBy())
+                .lastModifiedOn(row.getUpdateDtTm() != null ? row.getUpdateDtTm() : row.getCreateDtTm())
+                .lastModifiedBy(row.getUpdatedBy() != null ? row.getUpdatedBy() : row.getCreatedBy())
+                .lastRefreshed(factRepository.findMaxBizDt())
                 .currentMonthNRRDetails(current)
                 .prevMonthNRRDetails(previous)
                 .liveNRRDetails(live)
@@ -253,9 +255,9 @@ public class LandscapeAssmtDetailsService {
 
     // ── fact_orl lookups ─────────────────────────────────────────────────────
 
-    /** The business date used to match {@code fact_orl}: the assessment's creation date. */
+    /** The business date used to match {@code fact_orl}/module snapshots: the assessment's {@code biz_dt}. */
     private LocalDate bizDateOf(OrlLndscpAssmt assmt) {
-        return assmt.getCreateDtTm() != null ? assmt.getCreateDtTm().toLocalDate() : null;
+        return assmt.getBizDt();
     }
 
     /** All {@code fact_orl} rows for a business date, indexed by dimension key (batch, list endpoint). */
@@ -293,7 +295,7 @@ public class LandscapeAssmtDetailsService {
                 .nrrOverlaid(OVERLAID_NO)
                 .overlayJstfkn(null)
                 .lastRefreshed(latest.getBizDt())
-                .ctrlEffRtn(PersistableEnum.dbValue(latest.getCtrlEffRtn()))
+                .ctrlEffRtn(latest.getCtrlEffRtn())
                 .grcMetrics(grcMetricsService.live(key))
                 .commentry(latest.getCommentary())
                 .build();
@@ -402,7 +404,7 @@ public class LandscapeAssmtDetailsService {
                 .nrr(NetRiskRating.display(d.getOvrlyNetRiskRtng()))
                 .nrrOverlaid(d.getOvrlyNetRiskRtng() != null ? OVERLAID_YES : OVERLAID_NO)
                 .overlayJstfkn(d.getOvrlyJstfkn())
-                .ctrlEffRtn(PersistableEnum.dbValue(prevFact != null ? prevFact.getCtrlEffRtn() : null))
+                .ctrlEffRtn(prevFact != null ? prevFact.getCtrlEffRtn() : null)
                 .assmtPeriod(prev.get().getAssmtPeriod())
                 .grcMetrics(grcMetricsService.forBizDate(prevBizDt, key))
                 .commentry(prevFact != null ? prevFact.getCommentary() : null)
@@ -470,7 +472,7 @@ public class LandscapeAssmtDetailsService {
                 .nrrCalculated(NetRiskRating.display(currentFact != null ? currentFact.getCalNetRiskRtng() : null))
                 .nrr(NetRiskRating.display(row.getOvrlyNetRiskRtng()))
                 .riskRatingChange(PersistableEnum.dbValue(currentFact != null ? currentFact.getRiskRtngChge() : null))
-                .ctrlEffRtn(PersistableEnum.dbValue(currentFact != null ? currentFact.getCtrlEffRtn() : null))
+                .ctrlEffRtn(currentFact != null ? currentFact.getCtrlEffRtn() : null)
                 .commentry(currentFact != null ? currentFact.getCommentary() : null)
                 .category(PersistableEnum.dbValue(row.getCategory()))
                 .prevAssmtFinalNRR(NetRiskRating.display(prevAssmtFinalNRR))

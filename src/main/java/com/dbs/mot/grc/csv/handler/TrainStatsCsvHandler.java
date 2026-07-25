@@ -4,6 +4,7 @@ import com.dbs.mot.grc.common.csv.CsvHandler;
 import com.dbs.mot.grc.common.csv.CsvImportProcessor;
 import com.dbs.mot.grc.common.enums.LevelCategory;
 import com.dbs.mot.grc.common.enums.Module;
+import com.dbs.mot.grc.common.util.ConfigTable;
 import com.dbs.mot.grc.common.util.ConfigVersionResolver;
 import com.dbs.mot.grc.csv.mapper.TrainStatsCsvRowMapper;
 import com.dbs.mot.grc.csv.validator.TrainStatsCsvRowValidator;
@@ -40,9 +41,7 @@ import java.util.stream.Collectors;
 public class TrainStatsCsvHandler implements CsvHandler {
 
     static final String TABLE_NAME = "train-stats";
-    static final String DB_TABLE = "train_stats";
     static final String[] EXPECTED_HEADERS = {"lvl", "train_mean", "train_var", "module"};
-    private static final List<String> GROUP_COLS = List.of("lvl", "module");
     private static final String[] DOWNLOAD_HEADERS = {
             "id", "config_version", "lvl", "train_mean", "train_var", "module", "CREATED_BY", "CREATE_DT_TM"
     };
@@ -80,7 +79,7 @@ public class TrainStatsCsvHandler implements CsvHandler {
                 .map(r -> List.of(r.getLvl(), r.getModule()))
                 .collect(Collectors.toSet());
         Map<String, Integer> nextVersions =
-                configVersionResolver.resolveNextVersions(DB_TABLE, GROUP_COLS, groupKeys);
+                configVersionResolver.resolveNextVersions(ConfigTable.TRAIN_STATS, groupKeys);
 
         LocalDateTime now = LocalDateTime.now();
         List<TrainStats> entities = rows.stream()

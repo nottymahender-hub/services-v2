@@ -4,6 +4,7 @@ import com.dbs.mot.grc.common.csv.CsvHandler;
 import com.dbs.mot.grc.common.csv.CsvImportProcessor;
 import com.dbs.mot.grc.common.enums.Module;
 import com.dbs.mot.grc.common.enums.NetRiskRating;
+import com.dbs.mot.grc.common.util.ConfigTable;
 import com.dbs.mot.grc.common.util.ConfigVersionResolver;
 import com.dbs.mot.grc.csv.mapper.NetRiskBandCsvRowMapper;
 import com.dbs.mot.grc.csv.validator.NetRiskBandCsvRowValidator;
@@ -40,11 +41,9 @@ import java.util.stream.Collectors;
 public class NetRiskBandCsvHandler implements CsvHandler {
 
     static final String TABLE_NAME = "net-risk-band";
-    static final String DB_TABLE = "net_risk_band";
     static final String[] EXPECTED_HEADERS = {
             "range_low", "range_high", "net_risk_rtng", "module"
     };
-    private static final List<String> GROUP_COLS = List.of("net_risk_rtng", "module");
     private static final String[] DOWNLOAD_HEADERS = {
             "id", "config_version", "range_low", "range_high", "net_risk_rtng", "module", "CREATED_BY", "CREATE_DT_TM"
     };
@@ -82,7 +81,7 @@ public class NetRiskBandCsvHandler implements CsvHandler {
                 .map(r -> List.of(r.getNetRiskRtng(), r.getModule()))
                 .collect(Collectors.toSet());
         Map<String, Integer> nextVersions =
-                configVersionResolver.resolveNextVersions(DB_TABLE, GROUP_COLS, groupKeys);
+                configVersionResolver.resolveNextVersions(ConfigTable.NET_RISK_BAND, groupKeys);
 
         LocalDateTime now = LocalDateTime.now();
         List<NetRiskBand> entities = rows.stream()

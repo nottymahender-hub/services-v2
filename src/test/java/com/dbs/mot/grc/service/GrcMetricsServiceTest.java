@@ -24,6 +24,9 @@ class GrcMetricsServiceTest {
 
     private static final DimensionKey KEY = new DimensionKey("AML Sanctions", "CBG", "", "", "SG");
 
+    /** Every response must name all four modules, in this order. */
+    private static final String[] ALL_MODULES = {"RCSA", "INC", "INA", "KRI"};
+
     @Autowired GrcMetricsService service;
     @Autowired JdbcTemplate jdbc;
 
@@ -41,22 +44,26 @@ class GrcMetricsServiceTest {
     }
 
     private void insertKri(String bizDt, int active, int red, int green) {
-        jdbc.execute("INSERT INTO kri_fact_orl (biz_dt,ORL_RISK_AREA,ORL_BU_NM_L2,LOCATION,NET_RISK_RATING,"
+        jdbc.execute("INSERT INTO kri_fact_orl (biz_dt,RISK_AREA,ORL_BU_NM_L2,LOCATION,NET_RISK_RTNG,"
                 + "KRI_ACTIVE_CNT,KRI_RED_CNT,KRI_GREEN_CNT) VALUES(DATE '" + bizDt
                 + "','AML Sanctions','CBG','SG','High'," + active + "," + red + "," + green + ")");
     }
 
     @Test
     @SuppressWarnings("unchecked")
-    void forBizDate_assemblesPresentModulesOnly() {
+    void forBizDate_namesAllModules_populatingOnlyThoseWithRows() {
         insertInc("2026-07-15", "High", 7);
         insertKri("2026-07-15", 4, 2, 1);
 
         Map<String, Object> metrics = service.forBizDate(LocalDate.parse("2026-07-15"), KEY);
 
-        assertThat(metrics).containsOnlyKeys("INC", "KRI");
+        assertThat(metrics.keySet()).containsExactly(ALL_MODULES);
         Map<String, Object> inc = (Map<String, Object>) metrics.get("INC");
         assertThat(inc).containsEntry("nrr", "High").containsEntry("inc_is_sinp_count_l3m_mtd", 7);
+        assertThat(metrics.get("KRI")).isNotNull();
+        // Modules without a snapshot row are still named, mapped to null.
+        assertThat(metrics.get("RCSA")).isNull();
+        assertThat(metrics.get("INA")).isNull();
     }
 
     @Test
@@ -78,9 +85,20 @@ class GrcMetricsServiceTest {
     }
 
     @Test
-    void forBizDate_emptyWhenNoRowsOrNullDate() {
-        assertThat(service.forBizDate(LocalDate.parse("2026-07-15"), KEY)).isEmpty();
-        assertThat(service.forBizDate(null, KEY)).isEmpty();
+    void forBizDate_allModulesNullWhenNoRowsMatch() {
+        Map<String, Object> metrics = service.forBizDate(LocalDate.parse("2026-07-15"), KEY);
+
+        assertThat(metrics.keySet()).containsExactly(ALL_MODULES);
+        assertThat(metrics).containsOnlyKeys(ALL_MODULES).containsValue(null);
+        assertThat(metrics.values()).containsOnlyNulls();
+    }
+
+    @Test
+    void forBizDate_allModulesNullWhenBizDateIsNull() {
+        Map<String, Object> metrics = service.forBizDate(null, KEY);
+
+        assertThat(metrics.keySet()).containsExactly(ALL_MODULES);
+        assertThat(metrics.values()).containsOnlyNulls();
     }
 
     @Test
@@ -89,8 +107,19 @@ class GrcMetricsServiceTest {
         insertInc("2026-07-15", "High", 7);
         insertInc("2026-07-31", "Med Low", 9);
 
-        Map<String, Object> inc = (Map<String, Object>) service.live(KEY).get("INC");
+        Map<String, Object> metrics = service.live(KEY);
 
+        assertThat(metrics.keySet()).containsExactly(ALL_MODULES);
+        Map<String, Object> inc = (Map<String, Object>) metrics.get("INC");
         assertThat(inc).containsEntry("inc_is_sinp_count_l3m_mtd", 9);
+        assertThat(metrics.get("RCSA")).isNull();
+    }
+
+    @Test
+    void live_allModulesNullWhenDimensionHasNoRows() {
+        Map<String, Object> metrics = service.live(KEY);
+
+        assertThat(metrics.keySet()).containsExactly(ALL_MODULES);
+        assertThat(metrics.values()).containsOnlyNulls();
     }
 }

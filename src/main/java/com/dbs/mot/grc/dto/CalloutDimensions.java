@@ -1,6 +1,5 @@
 package com.dbs.mot.grc.dto;
 
-import com.fasterxml.jackson.annotation.JsonInclude;
 import lombok.Builder;
 import lombok.Getter;
 
@@ -11,14 +10,13 @@ import java.util.List;
  * returned as the {@code dimensions} block in the GET-all-callouts response.
  *
  * <ul>
- *   <li>{@code validRiskAreas} — JSON keys from {@code RISK_AREA} + {@code "Others"}</li>
- *   <li>{@code validLocations} — {@code LOCATIONS} CSV values + {@code "Others"} + {@code "ALL"}</li>
- *   <li>{@code validBizUnits}  — {@code BIZ_UNITS}  CSV values + {@code "Others"} + {@code "ALL"}</li>
+ *   <li>{@code validRiskAreas} â€” JSON keys from {@code RISK_AREA} + {@code "Others"}</li>
+ *   <li>{@code validLocations} â€” {@code LOCATIONS} CSV values + {@code "Others"} + {@code "ALL"}</li>
+ *   <li>{@code validBizUnits}  â€” {@code BIZ_UNITS}  CSV values + {@code "Others"} + {@code "ALL"}</li>
  * </ul>
  */
 @Getter
 @Builder
-@JsonInclude(JsonInclude.Include.NON_NULL)
 public class CalloutDimensions {
 
     private final List<String> validRiskAreas;

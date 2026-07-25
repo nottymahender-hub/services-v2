@@ -11,6 +11,7 @@ import org.springframework.data.relational.core.mapping.Column;
 import org.springframework.data.relational.core.mapping.MappedCollection;
 import org.springframework.data.relational.core.mapping.Table;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.Set;
 
@@ -51,6 +52,13 @@ public class OrlLndscpAssmt {
 
     @Column("ASSEMT_PERIOD")
     private String assmtPeriod;
+
+    /**
+     * Business date this assessment reports against: the previous month-end (or the latest
+     * {@code fact_orl.biz_dt} within that month). Used to match {@code fact_orl}/module snapshots.
+     */
+    @Column("biz_dt")
+    private LocalDate bizDt;
 
     @Column("status")
     private AssmtStatus status;

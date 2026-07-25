@@ -23,8 +23,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * Integration tests for the orl_bu_loctn_headcount CSV upload/download endpoints.
  *
  * <p>Happy-path upload uses the real {@code bu-loctn-headcount.csv} fixture from test
- * resources (34 rows). The {@code category} column has been removed from this table
- * entirely, so the CSV header/DTO/entity no longer carry it.
+ * resources (34 rows). This table has no {@code category} column, so neither the CSV header,
+ * the DTO nor the entity carries one.
  *
  * <p>Upsert is verified with an inline CSV row where all 4 key columns are non-null,
  * because MySQL/H2 treat each NULL as distinct in a unique index, so rows with NULL

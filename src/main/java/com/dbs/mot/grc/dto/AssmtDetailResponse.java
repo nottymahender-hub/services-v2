@@ -3,6 +3,7 @@ package com.dbs.mot.grc.dto;
 import lombok.Builder;
 import lombok.Getter;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 /**
@@ -23,8 +24,7 @@ import java.time.LocalDateTime;
  *       else the row's own {@code LOCATION}.</li>
  * </ul>
  *
- * <p>Unlike the list-item DTO, this response intentionally serializes null properties
- * (no {@code NON_NULL} filtering) so every field is always present in the payload.
+ * <p>Every field is always serialized, including nulls, so the payload shape is fixed.
  */
 @Getter
 @Builder
@@ -32,6 +32,9 @@ public class AssmtDetailResponse {
 
     /** {@code orl_lndscp_assmt_details.id}. */
     private final Long id;
+
+    /** {@code orl_lndscp_assmt.id} — the parent landscape assessment id. */
+    private final Long landscapeAssessmentId;
 
     /** {@code orl_lndscp_assmt.LNDSCP_NUM} — the parent landscape config id. */
     private final Long landscapeId;
@@ -48,11 +51,14 @@ public class AssmtDetailResponse {
     /** {@code STATUS}. */
     private final String status;
 
-    /** {@code UPDATE_DT_TM}. */
-    private final LocalDateTime lastModified;
+    /** Detail's {@code UPDATE_DT_TM} when present, else {@code CREATE_DT_TM}. */
+    private final LocalDateTime lastModifiedOn;
 
-    /** {@code UPDATED_BY}. */
+    /** Detail's {@code UPDATED_BY} when present, else {@code CREATED_BY}. */
     private final String lastModifiedBy;
+
+    /** Latest {@code fact_orl.biz_dt} across the whole table (when data was last refreshed). */
+    private final LocalDate lastRefreshed;
 
     /** This month's NRR snapshot (fact_orl at the assessment's business date). */
     private final MonthNRRDetails currentMonthNRRDetails;

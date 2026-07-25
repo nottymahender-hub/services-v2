@@ -63,9 +63,10 @@ class AssmtDetailByIdControllerTest {
                     '[{"groupName":"Financial Crime","isGroup":false,"riskAreas":[{"riskArea":"AML Sanctions","riskClusters":["OR"]}]}]','CBG',2,'SG','seed')
                 """);
 
-        jdbc.execute("INSERT INTO orl_lndscp_assmt(id,LNDSCP_NUM,ASSEMT_PERIOD,status,CREATED_BY,CREATE_DT_TM) VALUES(10,1,'June 2026','Closed','seed',TIMESTAMP '2026-06-30 00:00:00')");
-        jdbc.execute("INSERT INTO orl_lndscp_assmt(id,LNDSCP_NUM,ASSEMT_PERIOD,status,PREV_ASSMT_NUM,CREATED_BY,CREATE_DT_TM) VALUES(11,1,'July 2026','Open',10,'seed',TIMESTAMP '2026-07-15 00:00:00')");
-        jdbc.execute("INSERT INTO orl_lndscp_assmt(id,LNDSCP_NUM,ASSEMT_PERIOD,status,CREATED_BY,CREATE_DT_TM) VALUES(12,2,'July 2026','Open','seed',TIMESTAMP '2026-07-15 00:00:00')");
+        // biz_dt is the business date every fact/module lookup matches on; CREATE_DT_TM is audit only.
+        jdbc.execute("INSERT INTO orl_lndscp_assmt(id,LNDSCP_NUM,ASSEMT_PERIOD,biz_dt,status,CREATED_BY,CREATE_DT_TM) VALUES(10,1,'June 2026',DATE '2026-06-30','Closed','seed',TIMESTAMP '2026-06-30 00:00:00')");
+        jdbc.execute("INSERT INTO orl_lndscp_assmt(id,LNDSCP_NUM,ASSEMT_PERIOD,biz_dt,status,PREV_ASSMT_NUM,CREATED_BY,CREATE_DT_TM) VALUES(11,1,'July 2026',DATE '2026-07-15','Open',10,'seed',TIMESTAMP '2026-07-15 00:00:00')");
+        jdbc.execute("INSERT INTO orl_lndscp_assmt(id,LNDSCP_NUM,ASSEMT_PERIOD,biz_dt,status,CREATED_BY,CREATE_DT_TM) VALUES(12,2,'July 2026',DATE '2026-07-15','Open','seed',TIMESTAMP '2026-07-15 00:00:00')");
 
         // fact_orl (row-level values) for (AML Sanctions, CBG, -, -, SG).
         insertFact("2026-06-30", "Low", "Attention Needed To Satisfactory", "June commentary"); // prev
@@ -127,7 +128,7 @@ class AssmtDetailByIdControllerTest {
     private void insertKriFact(String bizDt, String nrr, String chge, int active, int red, int green) {
         jdbc.execute("""
                 INSERT INTO kri_fact_orl
-                    (biz_dt,ORL_RISK_AREA,ORL_BU_NM_L2,LOCATION,NET_RISK_RATING,RISK_RTNG_CHGE,
+                    (biz_dt,RISK_AREA,ORL_BU_NM_L2,LOCATION,NET_RISK_RTNG,RISK_RTNG_CHGE,
                      KRI_ACTIVE_CNT,KRI_RED_CNT,KRI_GREEN_CNT)
                 VALUES(DATE %s,'AML Sanctions','CBG','SG',%s,%s,%d,%d,%d)
                 """.formatted(q(bizDt), q(nrr), q(chge), active, red, green));
@@ -136,7 +137,7 @@ class AssmtDetailByIdControllerTest {
     private void insertRcsaFact(String bizDt, String nrr, String chge, int highRisk) {
         jdbc.execute("""
                 INSERT INTO rcsa_fact_orl
-                    (biz_date,orl_risk_area,orl_unit_l2,orl_location,NRR,RISK_RTNG_CHGE,combined_count_high_risk)
+                    (biz_dt,RISK_AREA,ORL_BU_NM_L2,LOCATION,NET_RISK_RTNG,RISK_RTNG_CHGE,combined_count_high_risk)
                 VALUES(DATE %s,'AML Sanctions','CBG','SG',%s,%s,%d)
                 """.formatted(q(bizDt), q(nrr), q(chge), highRisk));
     }
@@ -185,15 +186,17 @@ class AssmtDetailByIdControllerTest {
         mvc.perform(get(URL_TPL, 11, 300).header("X-EGRC-UserId", "tester"))
            .andExpect(status().isOk())
            .andExpect(jsonPath("$.data.id", is(300)))
+           .andExpect(jsonPath("$.data.landscapeAssessmentId", is(11)))
            .andExpect(jsonPath("$.data.landscapeId", is(1)))
            .andExpect(jsonPath("$.data.riskArea", is("AML Sanctions")))
            .andExpect(jsonPath("$.data.bu", is("CBG")))
            .andExpect(jsonPath("$.data.location", is("SG")))
            .andExpect(jsonPath("$.data.status", is("Open")))
-           .andExpect(jsonPath("$.data.lastModified", startsWith("2026-07-05T09:00:00")))
+           .andExpect(jsonPath("$.data.lastModifiedOn", startsWith("2026-07-05T09:00:00")))
            .andExpect(jsonPath("$.data.lastModifiedBy", is("user1")))
+           .andExpect(jsonPath("$.data.lastRefreshed", is("2026-07-31")))
            .andExpect(jsonPath("$.data.category", is("L2")))
-           // Overlay fields are no longer top-level (moved into the month blocks).
+           // Overlay fields belong to the per-month blocks, not the top level of the response.
            .andExpect(jsonPath("$.data.nrrOverlaid").doesNotExist())
            .andExpect(jsonPath("$.data.overlayJustfkn").doesNotExist());
     }
@@ -286,15 +289,20 @@ class AssmtDetailByIdControllerTest {
     }
 
     @Test
-    void detail_currentMonthGrcMetrics_emptyWhenNoModuleRows() throws Exception {
-        // Row 301 (grp_l2, empty location) matches no module rows → empty grcMetrics map.
+    void detail_currentMonthGrcMetrics_namesAllModulesAsNullWhenNoModuleRows() throws Exception {
+        // Row 301 (grp_l2, empty location) matches no module rows, so every module is still
+        // named in grcMetrics but maps to null — the block's shape never varies.
         mvc.perform(get(URL_TPL, 11, 301).header("X-EGRC-UserId", "tester"))
            .andExpect(status().isOk())
            .andExpect(jsonPath("$.data.currentMonthNRRDetails.nrr").value(nullValue()))
            .andExpect(jsonPath("$.data.currentMonthNRRDetails.nrrCalculated").value(nullValue()))
            .andExpect(jsonPath("$.data.currentMonthNRRDetails.nrrOverlaid", is("N")))
            .andExpect(jsonPath("$.data.currentMonthNRRDetails.overlayJstfkn").value(nullValue()))
-           .andExpect(jsonPath("$.data.currentMonthNRRDetails.grcMetrics", anEmptyMap()));
+           .andExpect(jsonPath("$.data.currentMonthNRRDetails.grcMetrics", aMapWithSize(4)))
+           .andExpect(jsonPath("$.data.currentMonthNRRDetails.grcMetrics.RCSA").value(nullValue()))
+           .andExpect(jsonPath("$.data.currentMonthNRRDetails.grcMetrics.INC").value(nullValue()))
+           .andExpect(jsonPath("$.data.currentMonthNRRDetails.grcMetrics.INA").value(nullValue()))
+           .andExpect(jsonPath("$.data.currentMonthNRRDetails.grcMetrics.KRI").value(nullValue()));
     }
 
     // ── bu / location category rules ────────────────────────────────────────────

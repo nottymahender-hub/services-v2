@@ -42,15 +42,15 @@ class BizUnitCsvRowValidatorTest {
 
     @Test
     void validate_commaInBuNm_isNotRejected() {
-        // The former "no comma" check was removed — BU_FULL_PATH and friends may legitimately
-        // contain literal commas (e.g. inside "&"-joined names).
+        // Commas are valid in BU names: BU_FULL_PATH and friends may legitimately contain
+        // literal commas (e.g. inside "&"-joined names).
         assertThat(validator.validate(List.of(row(1, "Tech,Ops", 1, null, null, null)))).isEmpty();
     }
 
     @Test
     void validate_invalidOrlBuNmL2Reference_isNotRejected() {
-        // The hierarchy reference check was removed — ORL_BU_NM_L2 no longer needs to resolve
-        // to a BU_NM present in the same upload batch.
+        // Hierarchy references are not validated: ORL_BU_NM_L2 need not resolve to a BU_NM
+        // present in the same upload batch.
         List<BizUnitCsvRow> rows = List.of(
                 row(2, "Tech", 2, "Tech",    null, null),
                 row(4, "DTI",  3, "INVALID", "DTI", null)

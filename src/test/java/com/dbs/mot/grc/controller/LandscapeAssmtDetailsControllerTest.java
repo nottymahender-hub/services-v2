@@ -68,14 +68,13 @@ class LandscapeAssmtDetailsControllerTest {
                 """);
 
         // Assmt 4 is the previous assessment of assmt 5 (linked via PREV_ASSMT_NUM).
-        // Explicit CREATE_DT_TM sets each assessment's fact_orl business date:
-        //   assmt 4 → 2024-06-01, assmt 5 → 2024-07-01.
-        jdbc.execute("INSERT INTO orl_lndscp_assmt(id,LNDSCP_NUM,ASSEMT_PERIOD,status,CREATED_BY,CREATE_DT_TM) VALUES(4,1,'Q4-2023','Closed','seed',TIMESTAMP '2024-06-01 00:00:00')");
-        jdbc.execute("INSERT INTO orl_lndscp_assmt(id,LNDSCP_NUM,ASSEMT_PERIOD,status,PREV_ASSMT_NUM,CREATED_BY,CREATE_DT_TM) VALUES(5,1,'Q1-2024','Open',4,'seed',TIMESTAMP '2024-07-01 00:00:00')");
-        jdbc.execute("INSERT INTO orl_lndscp_assmt(id,LNDSCP_NUM,ASSEMT_PERIOD,status,CREATED_BY,CREATE_DT_TM) VALUES(6,1,'Q2-2024','Draft','seed',TIMESTAMP '2024-07-01 00:00:00')");
+        // biz_dt sets each assessment's fact_orl business date: assmt 4 → 2024-06-01, assmt 5 → 2024-07-01.
+        jdbc.execute("INSERT INTO orl_lndscp_assmt(id,LNDSCP_NUM,ASSEMT_PERIOD,biz_dt,status,CREATED_BY,CREATE_DT_TM) VALUES(4,1,'Q4-2023',DATE '2024-06-01','Closed','seed',TIMESTAMP '2024-06-01 00:00:00')");
+        jdbc.execute("INSERT INTO orl_lndscp_assmt(id,LNDSCP_NUM,ASSEMT_PERIOD,biz_dt,status,PREV_ASSMT_NUM,CREATED_BY,CREATE_DT_TM) VALUES(5,1,'Q1-2024',DATE '2024-07-01','Open',4,'seed',TIMESTAMP '2024-07-01 00:00:00')");
+        jdbc.execute("INSERT INTO orl_lndscp_assmt(id,LNDSCP_NUM,ASSEMT_PERIOD,biz_dt,status,CREATED_BY,CREATE_DT_TM) VALUES(6,1,'Q2-2024',DATE '2024-07-01','Draft','seed',TIMESTAMP '2024-07-01 00:00:00')");
         jdbc.execute("""
-                INSERT INTO orl_lndscp_assmt(id,LNDSCP_NUM,ASSEMT_PERIOD,status,CREATED_BY,CREATE_DT_TM,UPDATE_DT_TM,UPDATED_BY)
-                VALUES(7,2,'Q1-2024','Open','seed',TIMESTAMP '2024-01-01 00:00:00',TIMESTAMP '2024-06-01 10:00:00','editor')
+                INSERT INTO orl_lndscp_assmt(id,LNDSCP_NUM,ASSEMT_PERIOD,biz_dt,status,CREATED_BY,CREATE_DT_TM,UPDATE_DT_TM,UPDATED_BY)
+                VALUES(7,2,'Q1-2024',DATE '2024-06-01','Open','seed',TIMESTAMP '2024-01-01 00:00:00',TIMESTAMP '2024-06-01 10:00:00','editor')
                 """);
 
         // ── fact_orl snapshots ────────────────────────────────────────────────

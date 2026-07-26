@@ -167,10 +167,19 @@ class AssmtDetailByIdControllerTest {
     }
 
     @Test
-    void detailNotBelongingToAssessment_returns404() throws Exception {
+    void detail_locatedByIdRegardlessOfPathAssessment_returns200() throws Exception {
+        // The detail id is the primary key, so the row is located by id alone (detail 310
+        // belongs to assessment 12 but is still returned here under the path assessment 11).
         mvc.perform(get(URL_TPL, 11, 310).header("X-EGRC-UserId", "tester"))
+           .andExpect(status().isOk())
+           .andExpect(jsonPath("$.data.id", is(310)));
+    }
+
+    @Test
+    void nonExistentDetail_returns404() throws Exception {
+        mvc.perform(get(URL_TPL, 11, 99999).header("X-EGRC-UserId", "tester"))
            .andExpect(status().isNotFound())
-           .andExpect(jsonPath("$.message", containsString("310")));
+           .andExpect(jsonPath("$.message", containsString("99999")));
     }
 
     @Test

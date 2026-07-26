@@ -85,12 +85,12 @@ class LandscapeAssmtCalloutControllerTest {
     void getCallouts_returnsOnlyActiveCallouts_withArrayFieldsAndSme() throws Exception {
         mvc.perform(get(SUMMARY_URL, 200).header("X-EGRC-UserId", USERNAME))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.callouts.callouts", hasSize(1)))
-                .andExpect(jsonPath("$.data.callouts.callouts[0].id").value(300))
-                .andExpect(jsonPath("$.data.callouts.callouts[0].riskArea").value("Cyber Risk"))
-                .andExpect(jsonPath("$.data.callouts.callouts[0].locations", contains("SG", "HK")))
-                .andExpect(jsonPath("$.data.callouts.callouts[0].bizUnits", contains("Tech")))
-                .andExpect(jsonPath("$.data.callouts.callouts[0].sme").value("bob"));
+                .andExpect(jsonPath("$.data.callouts", hasSize(1)))
+                .andExpect(jsonPath("$.data.callouts[0].id").value(300))
+                .andExpect(jsonPath("$.data.callouts[0].riskArea").value("Cyber Risk"))
+                .andExpect(jsonPath("$.data.callouts[0].locations", contains("SG", "HK")))
+                .andExpect(jsonPath("$.data.callouts[0].bizUnits", contains("Tech")))
+                .andExpect(jsonPath("$.data.callouts[0].sme").value("bob"));
     }
 
     @Test
@@ -143,6 +143,36 @@ class LandscapeAssmtCalloutControllerTest {
         // On create the sme is stored as both SME and LAST_MODIFIED_SME.
         assert "alice".equals(sme) && "alice".equals(lastSme);
         assert historyCount(id) == 1;
+    }
+
+    @Test
+    void timestamps_areFilledByTheDatabase() throws Exception {
+        // The app never sets CREATE_DT_TM / UPDATE_DT_TM; the DB fills them (default + ON UPDATE).
+        String create = """
+                {"riskArea":"Cyber Risk","locations":["SG"],"bizUnits":["Tech"],"comment":"ts test","sme":"alice"}
+                """;
+        mvc.perform(post(BASE_URL, 200).header("X-EGRC-UserId", USERNAME)
+                        .contentType(MediaType.APPLICATION_JSON).content(create))
+                .andExpect(status().isCreated());
+        Long id = jdbc.queryForObject(
+                "SELECT id FROM orl_lndscp_callout WHERE comment='ts test'", Long.class);
+
+        // CREATE_DT_TM populated on insert; UPDATE_DT_TM still null (no update yet).
+        assert jdbc.queryForObject("SELECT CREATE_DT_TM FROM orl_lndscp_callout WHERE id=?",
+                java.sql.Timestamp.class, id) != null : "CREATE_DT_TM should be DB-populated";
+        assert jdbc.queryForObject("SELECT UPDATE_DT_TM FROM orl_lndscp_callout WHERE id=?",
+                java.sql.Timestamp.class, id) == null : "UPDATE_DT_TM should be null before any update";
+
+        String update = """
+                {"riskArea":"Cyber Risk","locations":["SG"],"bizUnits":["Tech"],"comment":"ts test upd","sme":"bob"}
+                """;
+        mvc.perform(put(ITEM_URL, 200, id).header("X-EGRC-UserId", USERNAME)
+                        .contentType(MediaType.APPLICATION_JSON).content(update))
+                .andExpect(status().isOk());
+
+        // UPDATE_DT_TM populated by ON UPDATE CURRENT_TIMESTAMP.
+        assert jdbc.queryForObject("SELECT UPDATE_DT_TM FROM orl_lndscp_callout WHERE id=?",
+                java.sql.Timestamp.class, id) != null : "UPDATE_DT_TM should be DB-populated after update";
     }
 
     @Test
@@ -353,7 +383,7 @@ class LandscapeAssmtCalloutControllerTest {
                 .andExpect(jsonPath("$.message").value("Callout deleted successfully."));
 
         mvc.perform(get(SUMMARY_URL, 200).header("X-EGRC-UserId", USERNAME))
-                .andExpect(jsonPath("$.data.callouts.callouts", hasSize(0)));
+                .andExpect(jsonPath("$.data.callouts", hasSize(0)));
     }
 
     @Test

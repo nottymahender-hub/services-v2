@@ -23,9 +23,9 @@ import java.util.List;
  * }
  * </pre>
  *
- * <p>The landscape-config {@code dimensions} and the assessment's {@code callouts} are embedded
- * directly in this response, so a single {@code GET /landscape/assessments/{lndscpAssmtId}} call
- * returns the assessment, its dimensions and its callouts together.
+ * <p>The landscape-config {@code dimensions} and the assessment's active {@code callouts} are
+ * embedded directly in this response, so a single {@code GET /landscape/assessments/{lndscpAssmtId}}
+ * call returns the assessment, its dimensions and its callouts together.
  *
  * <p>All fields are populated from {@code orl_lndscp_assmt} joined with its parent
  * {@code orl_lndscp_dim}; when {@code lndscpAssmtId} does not exist, the service
@@ -70,6 +70,6 @@ public class LandscapeAssmtDetailSummary {
     /** Landscape-config dimensions (risk areas, risk clusters, BU details, locations). */
     private final LandscapeDimensions dimensions;
 
-    /** Active callouts for this assessment plus the valid dimension option sets. */
-    private final CalloutListResponse callouts;
+    /** Active (not soft-deleted) callouts for this assessment. */
+    private final List<CalloutResponse> callouts;
 }

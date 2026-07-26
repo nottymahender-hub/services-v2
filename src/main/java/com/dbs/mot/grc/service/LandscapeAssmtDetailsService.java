@@ -10,7 +10,7 @@ import com.dbs.mot.grc.util.RiskAreaParser;
 import com.dbs.mot.grc.dto.AssmtDetailRef;
 import com.dbs.mot.grc.dto.AssmtDetailResponse;
 import com.dbs.mot.grc.dto.AssmtHeader;
-import com.dbs.mot.grc.dto.CalloutListResponse;
+import com.dbs.mot.grc.dto.CalloutResponse;
 import com.dbs.mot.grc.dto.DimensionKey;
 import com.dbs.mot.grc.dto.LandscapeAssmtDetailItem;
 import com.dbs.mot.grc.dto.LandscapeAssmtDetailSummary;
@@ -100,12 +100,12 @@ public class LandscapeAssmtDetailsService {
                         riskAreaLookup.get(row.getRiskArea())))
                 .toList();
 
-        // Dimensions come from the already-loaded config (no extra query); callouts are one
-        // additional read. Both are embedded here so a single call returns the full picture.
-        CalloutListResponse callouts = calloutService.getCallouts(lndscpAssmtId);
+        // Dimensions are built from the already-loaded config; callouts are one additional read.
+        // Both are embedded so a single call returns the assessment, its dimensions and callouts.
+        List<CalloutResponse> callouts = calloutService.getCallouts(lndscpAssmtId);
 
         log.info("Returning {} assessment detail(s) plus {} callout(s) for lndscp_assmt_id={}",
-                items.size(), callouts.getCallouts().size(), lndscpAssmtId);
+                items.size(), callouts.size(), lndscpAssmtId);
 
         return LandscapeAssmtDetailSummary.builder()
                 .lndscpName(dim.getLndscpNm())
@@ -136,19 +136,20 @@ public class LandscapeAssmtDetailsService {
                 .orElseThrow(() -> new NotFoundException(
                         "Landscape assessment not found for id: " + lndscpAssmtId));
 
-        // Fetch just the one detail row, scoped to its assessment (ownership check in the query):
-        // a detail id from another assessment is a 404, not a data leak.
-        OrlLndscpAssmtDetails row = detailsRepository.findByIdAndAssmt(assmtDetailId, lndscpAssmtId)
-                .orElseThrow(() -> new NotFoundException("Assessment detail not found for id "
-                        + assmtDetailId + " under landscape assessment " + lndscpAssmtId + "."));
+        // The detail id is the primary key, so it uniquely identifies the row on its own.
+        OrlLndscpAssmtDetails row = detailsRepository.findById(assmtDetailId)
+                .orElseThrow(() -> new NotFoundException(
+                        "Assessment detail not found for id: " + assmtDetailId));
 
         DimensionKey key = keyOf(row);
         LocalDate currentBizDt = assmt.bizDt();
         FactOrl currentFact = factFor(currentBizDt, key).orElse(null);
 
+        String currentNrrCalculated =
+                NetRiskRating.display(currentFact != null ? currentFact.getCalNetRiskRtng() : null);
         MonthNRRDetails current = MonthNRRDetails.builder()
-                .nrrCalculated(NetRiskRating.display(currentFact != null ? currentFact.getCalNetRiskRtng() : null))
-                .nrr(NetRiskRating.display(row.getOvrlyNetRiskRtng()))
+                .nrrCalculated(currentNrrCalculated)
+                .nrr(resolveNrr(row.getOvrlyNetRiskRtng(), currentNrrCalculated))
                 .nrrOverlaid(row.getOvrlyNetRiskRtng() != null ? OVERLAID_YES : OVERLAID_NO)
                 .overlayJstfkn(row.getOvrlyJstfkn())
                 .ctrlEffRtn(currentFact != null ? currentFact.getCtrlEffRtn() : null)
@@ -225,7 +226,7 @@ public class LandscapeAssmtDetailsService {
                 blankToNull(request.getRevisedCommentry()),
                 blankToNull(request.getOverlaidNRR()),
                 blankToNull(request.getOverlayJstfkn()),
-                username, LocalDateTime.now());
+                username);
 
         log.info("Saved overlay for detail id={} of assessment id={} by '{}'",
                 assmtDetailId, lndscpAssmtId, username);
@@ -233,6 +234,14 @@ public class LandscapeAssmtDetailsService {
 
     private String blankToNull(String value) {
         return StringUtils.hasText(value) ? value : null;
+    }
+
+    /**
+     * The net risk rating to display: the analyst overlay when set, otherwise the calculated
+     * rating. Shared by the list items and the drill-down's current/previous-month blocks.
+     */
+    private String resolveNrr(NetRiskRating overlay, String nrrCalculated) {
+        return overlay != null ? NetRiskRating.display(overlay) : nrrCalculated;
     }
 
     // ── fact_orl lookups ─────────────────────────────────────────────────────
@@ -393,10 +402,12 @@ public class LandscapeAssmtDetailsService {
         }
         LocalDate prevBizDt = prev.bizDt();
         FactOrl prevFact = factFor(prevBizDt, key).orElse(null);
+        String prevNrrCalculated =
+                NetRiskRating.display(prevFact != null ? prevFact.getCalNetRiskRtng() : null);
         return MonthNRRDetails.builder()
                 .id(d.getId())
-                .nrrCalculated(NetRiskRating.display(prevFact != null ? prevFact.getCalNetRiskRtng() : null))
-                .nrr(NetRiskRating.display(d.getOvrlyNetRiskRtng()))
+                .nrrCalculated(prevNrrCalculated)
+                .nrr(resolveNrr(d.getOvrlyNetRiskRtng(), prevNrrCalculated))
                 .nrrOverlaid(d.getOvrlyNetRiskRtng() != null ? OVERLAID_YES : OVERLAID_NO)
                 .overlayJstfkn(d.getOvrlyJstfkn())
                 .ctrlEffRtn(prevFact != null ? prevFact.getCtrlEffRtn() : null)
@@ -456,6 +467,8 @@ public class LandscapeAssmtDetailsService {
             log.debug("Risk area '{}' of detail row id={} not found in the landscape config — "
                     + "groupName/riskClusters left empty", row.getRiskArea(), row.getId());
         }
+        String nrrCalculated =
+                NetRiskRating.display(currentFact != null ? currentFact.getCalNetRiskRtng() : null);
         return LandscapeAssmtDetailItem.builder()
                 .id(row.getId())
                 .riskArea(row.getRiskArea())
@@ -464,8 +477,8 @@ public class LandscapeAssmtDetailsService {
                 .bu(resolveBu(row, bizUnitLvl))
                 .location(resolveLocation(row))
                 .status(PersistableEnum.dbValue(row.getStatus()))
-                .nrrCalculated(NetRiskRating.display(currentFact != null ? currentFact.getCalNetRiskRtng() : null))
-                .nrr(NetRiskRating.display(row.getOvrlyNetRiskRtng()))
+                .nrrCalculated(nrrCalculated)
+                .nrr(resolveNrr(row.getOvrlyNetRiskRtng(), nrrCalculated))
                 .riskRatingChange(PersistableEnum.dbValue(currentFact != null ? currentFact.getRiskRtngChge() : null))
                 .ctrlEffRtn(currentFact != null ? currentFact.getCtrlEffRtn() : null)
                 .commentry(currentFact != null ? currentFact.getCommentary() : null)

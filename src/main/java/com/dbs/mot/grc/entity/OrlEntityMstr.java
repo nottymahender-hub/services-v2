@@ -5,6 +5,7 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import org.springframework.data.annotation.Id;
+import org.springframework.data.annotation.ReadOnlyProperty;
 import org.springframework.data.annotation.Transient;
 import org.springframework.data.domain.Persistable;
 import org.springframework.data.relational.core.mapping.Column;
@@ -38,10 +39,12 @@ public class OrlEntityMstr implements Persistable<Integer> {
     private String orlLocationIc;
     @Column("CREATED_BY")
     private String createdBy;
+    @ReadOnlyProperty
     @Column("CREATED_DT_TM")
     private LocalDateTime createdDtTm;
     @Column("UPDATED_BY")
     private String updatedBy;
+    @ReadOnlyProperty
     @Column("UPDATE_DT_TM")
     private LocalDateTime updateDtTm;
 

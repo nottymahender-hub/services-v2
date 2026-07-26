@@ -80,7 +80,7 @@ public class TrainStatsConfigImportService implements OrlConfigImporter {
                 .toList();
         Map<String, Integer> nextVersions = configVersionResolver.resolveNextVersions(existing, batchKeys);
 
-        LocalDateTime now = LocalDateTime.now();
+        // CREATE_DT_TM is filled by the DB default on insert — not set here.
         List<TrainStats> entities = rows.stream()
                 .map(r -> TrainStats.builder()
                         .configVersion(nextVersions.get(ConfigVersionResolver.groupKey(r.getLvl(), r.getModule())))
@@ -89,7 +89,6 @@ public class TrainStatsConfigImportService implements OrlConfigImporter {
                         .trainVar(r.getTrainVar())
                         .module(Module.fromDbValue(r.getModule()))
                         .createdBy(username)
-                        .createDtTm(now)
                         .build())
                 .toList();
 

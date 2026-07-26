@@ -63,14 +63,13 @@ public class RiskTypeRiskAreaMapConfigImportService implements OrlConfigImporter
         List<RiskTypeRiskAreaMapCsvRow> rows = csvImportProcessor.process(
                 file, EXPECTED_HEADERS, rowMapper, rowValidator);
 
-        LocalDateTime now = LocalDateTime.now();
+        // CREATED_DT_TM is filled by the DB default on insert — not set here.
         List<OrlRiskTypeRiskAreaMap> entities = rows.stream()
                 .map(r -> OrlRiskTypeRiskAreaMap.builder()
                         .riskArea(r.getRiskArea())
                         .riskTypeL4Num(r.getRiskTypeL4Num())
                         .riskTypeL4Nm(r.getRiskTypeL4Nm())
                         .createdBy(username)
-                        .createDtTm(now)
                         .build())
                 .toList();
 

@@ -88,7 +88,8 @@ public class BuLocationHeadcountConfigImportService implements OrlConfigImporter
         StreamSupport.stream(repository.findAll().spliterator(), false).forEach(e -> existing.put(
                 compositeKey(e.getOrlBuNmL2(), e.getOrlBuNmL3(), e.getOrlBuNmL4(), e.getLocation()), e));
 
-        LocalDateTime now = LocalDateTime.now();
+        // Timestamp columns are DB-managed (CREATE_DT_TM default on insert, UPDATE_DT_TM
+        // ON UPDATE on update); the update path only carries CREATED_BY forward.
         List<OrlBuLctnHeadcount> toInsert = new ArrayList<>();
         List<OrlBuLctnHeadcount> toUpdate = new ArrayList<>();
         byKey.forEach((key, r) -> {
@@ -101,12 +102,12 @@ public class BuLocationHeadcountConfigImportService implements OrlConfigImporter
                     .headcount(r.getHeadcount());
             if (prior == null) {
                 // id left null → Spring Data JDBC inserts (auto-generated key).
-                toInsert.add(builder.createdBy(username).createDtTm(now).build());
+                toInsert.add(builder.createdBy(username).build());
             } else {
                 // id set → Spring Data JDBC updates the existing row.
                 toUpdate.add(builder.id(prior.getId())
-                        .createdBy(prior.getCreatedBy()).createDtTm(prior.getCreateDtTm())
-                        .updatedBy(username).updateDtTm(now).build());
+                        .createdBy(prior.getCreatedBy())
+                        .updatedBy(username).build());
             }
         });
 

@@ -20,7 +20,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.time.YearMonth;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -119,10 +118,9 @@ public class LandscapeAssmtGenerationService {
                 lndscpNum, priorPeriod, prevAssmtId.map(String::valueOf).orElse("none"));
 
         // ── Build the (thin) detail rows ─────────────────────────────────────────
-        LocalDateTime now = LocalDateTime.now();
         List<OrlLndscpAssmtDetails> details = new ArrayList<>();
         for (RowSpec spec : expand(riskAreas, bizUnits, locations, lvl)) {
-            details.add(buildDetail(spec, lvl, buByName, userId, now));
+            details.add(buildDetail(spec, lvl, buByName, userId));
         }
         log.debug("Expanded {} detail row(s) for lndscpNum={}", details.size(), lndscpNum);
 
@@ -134,7 +132,6 @@ public class LandscapeAssmtGenerationService {
                 .status(AssmtStatus.OPEN)
                 .prevAssmtNum(prevAssmtId.map(AggregateReference::<OrlLndscpAssmt, Long>to).orElse(null))
                 .createdBy(userId)
-                .createDtTm(now)
                 .details(new LinkedHashSet<>(details))
                 .build();
         OrlLndscpAssmt saved = assmtRepository.save(assmt);
@@ -200,7 +197,7 @@ public class LandscapeAssmtGenerationService {
 
     private OrlLndscpAssmtDetails buildDetail(RowSpec spec, Integer lvl,
                                               Map<String, OrlBizUnit> buByName,
-                                              String userId, LocalDateTime now) {
+                                              String userId) {
         // Resolve the BU hierarchy columns (null for 'loc' rows which carry no BU).
         String l2 = null;
         String l3 = null;
@@ -234,7 +231,6 @@ public class LandscapeAssmtGenerationService {
                 .category(spec.category())
                 .status(DetailStatus.OPEN)
                 .createdBy(userId)
-                .createDtTm(now)
                 .build();
     }
 

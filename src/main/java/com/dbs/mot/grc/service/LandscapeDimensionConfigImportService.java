@@ -80,7 +80,7 @@ public class LandscapeDimensionConfigImportService implements OrlConfigImporter 
         int version = resolveVersion(configIds);
         log.debug("Resolved VERSION={} for {} CONFIG_ID(s)", version, configIds.size());
 
-        LocalDateTime now = LocalDateTime.now();
+        // CREATE_DT_TM is filled by the DB default on insert — not set here.
         List<OrlLndscpDim> entities = rows.stream()
                 .map(r -> OrlLndscpDim.builder()
                         .configId(r.getConfigId())
@@ -94,7 +94,6 @@ public class LandscapeDimensionConfigImportService implements OrlConfigImporter 
                         .bizUnitLvl(r.getBizUnitLvl())
                         .locations(r.getLocations())
                         .createdBy(username)
-                        .createDtTm(now)
                         .build())
                 .toList();
 

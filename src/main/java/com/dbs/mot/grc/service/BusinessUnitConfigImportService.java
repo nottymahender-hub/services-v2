@@ -82,7 +82,8 @@ public class BusinessUnitConfigImportService implements OrlConfigImporter {
         Map<Integer, OrlBizUnit> existing = new HashMap<>();
         repository.findAllById(byKey.keySet()).forEach(e -> existing.put(e.getBuNum(), e));
 
-        LocalDateTime now = LocalDateTime.now();
+        // Timestamp columns are DB-managed (CREATE_DT_TM default on insert, UPDATE_DT_TM
+        // ON UPDATE on update); the update path only carries CREATED_BY forward.
         List<OrlBizUnit> toInsert = new ArrayList<>();
         List<OrlBizUnit> toUpdate = new ArrayList<>();
         byKey.values().forEach(r -> {
@@ -96,11 +97,11 @@ public class BusinessUnitConfigImportService implements OrlConfigImporter {
                     .orlBuNmL4(r.getOrlBuNmL4())
                     .buFullPath(r.getBuFullPath());
             if (prior == null) {
-                toInsert.add(builder.createdBy(username).createDtTm(now).newRecord(true).build());
+                toInsert.add(builder.createdBy(username).newRecord(true).build());
             } else {
                 toUpdate.add(builder
-                        .createdBy(prior.getCreatedBy()).createDtTm(prior.getCreateDtTm())
-                        .updatedBy(username).updateDtTm(now).newRecord(false).build());
+                        .createdBy(prior.getCreatedBy())
+                        .updatedBy(username).newRecord(false).build());
             }
         });
 

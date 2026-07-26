@@ -81,7 +81,8 @@ public class EntityMasterConfigImportService implements OrlConfigImporter {
         Map<Integer, OrlEntityMstr> existing = new HashMap<>();
         repository.findAllById(byKey.keySet()).forEach(e -> existing.put(e.getEntityNum(), e));
 
-        LocalDateTime now = LocalDateTime.now();
+        // Timestamp columns are DB-managed (CREATED_DT_TM default on insert, UPDATE_DT_TM
+        // ON UPDATE on update); the update path only carries CREATED_BY forward.
         List<OrlEntityMstr> toInsert = new ArrayList<>();
         List<OrlEntityMstr> toUpdate = new ArrayList<>();
         byKey.values().forEach(r -> {
@@ -92,11 +93,11 @@ public class EntityMasterConfigImportService implements OrlConfigImporter {
                     .orlLocation(r.getOrlLocation() == null ? "" : r.getOrlLocation())
                     .orlLocationIc(r.getOrlLocationIc());
             if (prior == null) {
-                toInsert.add(builder.createdBy(username).createdDtTm(now).newRecord(true).build());
+                toInsert.add(builder.createdBy(username).newRecord(true).build());
             } else {
                 toUpdate.add(builder
-                        .createdBy(prior.getCreatedBy()).createdDtTm(prior.getCreatedDtTm())
-                        .updatedBy(username).updateDtTm(now).newRecord(false).build());
+                        .createdBy(prior.getCreatedBy())
+                        .updatedBy(username).newRecord(false).build());
             }
         });
 

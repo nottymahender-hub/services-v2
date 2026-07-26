@@ -7,8 +7,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.LocalDateTime;
-
 /**
  * Records one audit row per successful configuration upload.
  *
@@ -27,11 +25,11 @@ public class CsvUploadAuditService {
 
     @Transactional(propagation = Propagation.MANDATORY)
     public void recordUpload(String tableName, String fileName, String uploadedBy, int rowCount) {
+        // uploaded_dt_tm is filled by the DB default on insert — not set here.
         CsvUploadAudit audit = CsvUploadAudit.builder()
                 .fileName(fileName == null ? "unknown.csv" : fileName)
                 .tableName(tableName)
                 .uploadedBy(uploadedBy)
-                .uploadedDtTm(LocalDateTime.now())
                 .rowCount(rowCount)
                 .status("SUCCESS")
                 .build();

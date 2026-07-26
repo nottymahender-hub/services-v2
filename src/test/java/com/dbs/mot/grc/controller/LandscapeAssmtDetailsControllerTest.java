@@ -240,7 +240,7 @@ class LandscapeAssmtDetailsControllerTest {
            .andExpect(jsonPath("$.data.dimensions").exists())
            .andExpect(jsonPath("$.data.dimensions.riskAreas").exists())
            .andExpect(jsonPath("$.data.callouts").exists())
-           .andExpect(jsonPath("$.data.callouts.callouts").isArray());
+           .andExpect(jsonPath("$.data.callouts").isArray());
     }
 
     // ── assessments array ─────────────────────────────────────────────────────
@@ -368,6 +368,15 @@ class LandscapeAssmtDetailsControllerTest {
         mvc.perform(get(URL_TPL, 5).header("X-EGRC-UserId", "tester"))
            .andExpect(status().isOk())
            .andExpect(jsonPath("$.data.assessments[?(@.id==101)].nrr", hasItem("High Risk")));
+    }
+
+    @Test
+    void nrr_fallsBackToNrrCalculated_whenNoOverlay() throws Exception {
+        // id 102 has no overlay, so nrr falls back to the calculated rating (fact CAL='Low').
+        mvc.perform(get(URL_TPL, 5).header("X-EGRC-UserId", "tester"))
+           .andExpect(status().isOk())
+           .andExpect(jsonPath("$.data.assessments[?(@.id==102)].nrrCalculated", hasItem("Low Risk")))
+           .andExpect(jsonPath("$.data.assessments[?(@.id==102)].nrr", hasItem("Low Risk")));
     }
 
     @Test

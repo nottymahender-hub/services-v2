@@ -8,7 +8,6 @@ import org.springframework.data.repository.CrudRepository;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
-import java.time.LocalDateTime;
 import java.util.Optional;
 
 /**
@@ -27,17 +26,8 @@ public interface OrlLndscpAssmtDetailsRepository extends CrudRepository<OrlLndsc
     Optional<AssmtDetailRef> findRefById(@Param("id") Long id);
 
     /**
-     * The single detail row for a given id, scoped to its owning assessment. Returning empty for a
-     * mismatched assessment lets the drill-down answer 404 without loading the whole aggregate.
-     */
-    @Query("SELECT * FROM orl_lndscp_assmt_details WHERE id = :id AND lndscp_assmt_id = :assmtId")
-    Optional<OrlLndscpAssmtDetails> findByIdAndAssmt(@Param("id") Long id,
-                                                     @Param("assmtId") Long assmtId);
-
-    /**
-     * The single detail row for an assessment matching a full dimension key. Used to locate the
-     * previous month's matching row directly, instead of loading the previous assessment's whole
-     * detail collection and filtering in memory.
+     * The single detail row for an assessment matching a full dimension key. Locates the previous
+     * month's matching row directly, without loading the previous assessment's detail collection.
      */
     @Query("""
             SELECT * FROM orl_lndscp_assmt_details
@@ -50,21 +40,22 @@ public interface OrlLndscpAssmtDetailsRepository extends CrudRepository<OrlLndsc
                                                            @Param("l4") String l4,
                                                            @Param("location") String location);
 
-    /** Applies the analyst overlay to a single detail row and stamps the updater. */
+    /**
+     * Applies the analyst overlay to a single detail row and stamps the updater. {@code UPDATE_DT_TM}
+     * is filled by the DB ({@code ON UPDATE CURRENT_TIMESTAMP}), so it is not set here.
+     */
     @Modifying
     @Query("""
             UPDATE orl_lndscp_assmt_details
             SET REVISED_COMMENTARY = :revisedCommentary,
                 OVRLY_NET_RISK_RTNG = :overlaidNrr,
                 OVRLY_JSTFKN = :overlayJstfkn,
-                UPDATED_BY = :updatedBy,
-                UPDATE_DT_TM = :updateDtTm
+                UPDATED_BY = :updatedBy
             WHERE id = :id
             """)
     void saveOverlay(@Param("id") Long id,
                      @Param("revisedCommentary") String revisedCommentary,
                      @Param("overlaidNrr") String overlaidNrr,
                      @Param("overlayJstfkn") String overlayJstfkn,
-                     @Param("updatedBy") String updatedBy,
-                     @Param("updateDtTm") LocalDateTime updateDtTm);
+                     @Param("updatedBy") String updatedBy);
 }

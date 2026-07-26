@@ -80,7 +80,7 @@ public class NetRiskBandConfigImportService implements OrlConfigImporter {
                 .toList();
         Map<String, Integer> nextVersions = configVersionResolver.resolveNextVersions(existing, batchKeys);
 
-        LocalDateTime now = LocalDateTime.now();
+        // CREATE_DT_TM is filled by the DB default on insert — not set here.
         List<NetRiskBand> entities = rows.stream()
                 .map(r -> NetRiskBand.builder()
                         .configVersion(nextVersions.get(
@@ -90,7 +90,6 @@ public class NetRiskBandConfigImportService implements OrlConfigImporter {
                         .netRiskRtng(NetRiskRating.fromDbValue(r.getNetRiskRtng()))
                         .module(Module.fromDbValue(r.getModule()))
                         .createdBy(username)
-                        .createDtTm(now)
                         .build())
                 .toList();
 

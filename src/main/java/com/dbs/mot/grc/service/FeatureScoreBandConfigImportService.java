@@ -87,7 +87,7 @@ public class FeatureScoreBandConfigImportService implements OrlConfigImporter {
                 .toList();
         Map<String, Integer> nextVersions = configVersionResolver.resolveNextVersions(existing, batchKeys);
 
-        LocalDateTime now = LocalDateTime.now();
+        // CREATE_DT_TM is filled by the DB default on insert — not set here.
         List<FeatureScoreBand> entities = rows.stream()
                 .map(r -> FeatureScoreBand.builder()
                         .configVersion(nextVersions.get(ConfigVersionResolver.groupKey(
@@ -99,7 +99,6 @@ public class FeatureScoreBandConfigImportService implements OrlConfigImporter {
                         .score(r.getScore())
                         .module(Module.fromDbValue(r.getModule()))
                         .createdBy(username)
-                        .createDtTm(now)
                         .build())
                 .toList();
 

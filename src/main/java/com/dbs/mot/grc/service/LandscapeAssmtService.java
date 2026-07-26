@@ -14,11 +14,10 @@ import java.util.List;
 /**
  * Read logic for the landscape assessment listing API.
  *
- * <p>Issues a <em>single</em> query: {@link OrlLndscpAssmtRepository#findAllSummaries()} joins each
- * assessment to its parent {@code orl_lndscp_dim} to carry the landscape name, ordered
- * most-recently-modified first. Using the projection (rather than the {@code OrlLndscpAssmt} entity)
- * avoids eagerly loading each assessment's detail {@code MappedCollection}, and the join avoids a
- * second full load of every landscape config.
+ * <p>Backed by a single query, {@link OrlLndscpAssmtRepository#findAllSummaries()}, which joins
+ * each assessment to its parent {@code orl_lndscp_dim} for the landscape name and returns a flat
+ * projection ordered most-recently-modified first. The projection keeps the query to one table's
+ * worth of columns and does not materialise each assessment's detail {@code MappedCollection}.
  */
 @Slf4j
 @Service

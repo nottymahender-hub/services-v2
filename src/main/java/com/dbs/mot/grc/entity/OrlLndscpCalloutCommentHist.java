@@ -5,6 +5,7 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import org.springframework.data.annotation.Id;
+import org.springframework.data.annotation.ReadOnlyProperty;
 import org.springframework.data.jdbc.core.mapping.AggregateReference;
 import org.springframework.data.relational.core.mapping.Column;
 import org.springframework.data.relational.core.mapping.Table;
@@ -42,6 +43,8 @@ public class OrlLndscpCalloutCommentHist {
     @Column("SME")
     private String sme;
 
+    /** Filled by the DB default on insert; never written by the app. */
+    @ReadOnlyProperty
     @Column("CREATE_DT_TM")
     private LocalDateTime createDtTm;
 }

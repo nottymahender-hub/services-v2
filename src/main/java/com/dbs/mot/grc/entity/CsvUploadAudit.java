@@ -5,6 +5,7 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import org.springframework.data.annotation.Id;
+import org.springframework.data.annotation.ReadOnlyProperty;
 import org.springframework.data.relational.core.mapping.Column;
 import org.springframework.data.relational.core.mapping.Table;
 
@@ -34,6 +35,7 @@ public class CsvUploadAudit {
     @Column("uploaded_by")
     private String uploadedBy;
 
+    @ReadOnlyProperty
     @Column("uploaded_dt_tm")
     private LocalDateTime uploadedDtTm;
 

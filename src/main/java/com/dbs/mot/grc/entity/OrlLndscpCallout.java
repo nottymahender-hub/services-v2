@@ -5,6 +5,7 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import org.springframework.data.annotation.Id;
+import org.springframework.data.annotation.ReadOnlyProperty;
 import org.springframework.data.jdbc.core.mapping.AggregateReference;
 import org.springframework.data.relational.core.mapping.Column;
 import org.springframework.data.relational.core.mapping.Table;
@@ -70,9 +71,13 @@ public class OrlLndscpCallout {
     @Column("LAST_MODIFIED_SME")
     private String lastModifiedSme;
 
+    /** Filled by the DB default on insert; never written by the app. */
+    @ReadOnlyProperty
     @Column("CREATE_DT_TM")
     private LocalDateTime createDtTm;
 
+    /** Filled by the DB {@code ON UPDATE CURRENT_TIMESTAMP} on every update; never written by the app. */
+    @ReadOnlyProperty
     @Column("UPDATE_DT_TM")
     private LocalDateTime updateDtTm;
 }

@@ -2,7 +2,6 @@ package com.dbs.mot.grc.service;
 
 import com.dbs.mot.grc.exception.BadRequestException;
 import com.dbs.mot.grc.exception.NotFoundException;
-import com.dbs.mot.grc.dto.CalloutListResponse;
 import com.dbs.mot.grc.dto.CalloutRequest;
 import com.dbs.mot.grc.dto.CalloutResponse;
 import com.dbs.mot.grc.entity.OrlLndscpCallout;
@@ -19,7 +18,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.jdbc.core.mapping.AggregateReference;
 import org.springframework.stereotype.Service;
 
-import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.List;
 
@@ -63,14 +61,14 @@ public class LandscapeAssmtCalloutService {
      *
      * @param lndscpAssmtId {@code orl_lndscp_assmt.id}
      */
-    public CalloutListResponse getCallouts(Long lndscpAssmtId) {
+    public List<CalloutResponse> getCallouts(Long lndscpAssmtId) {
         log.debug("Fetching callouts for lndscp_assmt_id={}", lndscpAssmtId);
-        List<OrlLndscpCallout> callouts =
-                calloutRepository.findByLndscpAssmtIdAndDelFlgFalseOrderById(lndscpAssmtId);
+        List<CalloutResponse> callouts =
+                calloutRepository.findByLndscpAssmtIdAndDelFlgFalseOrderById(lndscpAssmtId).stream()
+                        .map(this::toResponse)
+                        .toList();
         log.info("Found {} active callout(s) for lndscp_assmt_id={}", callouts.size(), lndscpAssmtId);
-        return CalloutListResponse.builder()
-                .callouts(callouts.stream().map(this::toResponse).toList())
-                .build();
+        return callouts;
     }
 
     /**
@@ -86,7 +84,7 @@ public class LandscapeAssmtCalloutService {
                 lndscpAssmtId, username, req.getSme());
         requireAssmtExists(lndscpAssmtId);
 
-        LocalDateTime now = LocalDateTime.now();
+        // CREATE_DT_TM is filled by the DB default — not set here.
         OrlLndscpCallout callout = OrlLndscpCallout.builder()
                 .riskArea(req.getRiskArea())
                 .locations(toJsonArray(req.getLocations()))
@@ -97,11 +95,10 @@ public class LandscapeAssmtCalloutService {
                 // On create the SME both owns and is the last modifier.
                 .sme(req.getSme())
                 .lastModifiedSme(req.getSme())
-                .createDtTm(now)
                 .build();
 
         OrlLndscpCallout saved = calloutRepository.save(callout);
-        recordCommentHistory(saved.getId(), req.getComment(), req.getSme(), now);
+        recordCommentHistory(saved.getId(), req.getComment(), req.getSme());
         log.info("Created callout id={} for lndscp_assmt_id={} by '{}'",
                 saved.getId(), lndscpAssmtId, username);
     }
@@ -122,8 +119,8 @@ public class LandscapeAssmtCalloutService {
 
         String oldSme = existing.getSme();
         String newSme = req.getSme();
-        LocalDateTime now = LocalDateTime.now();
 
+        // UPDATE_DT_TM is filled by the DB (ON UPDATE CURRENT_TIMESTAMP) — not set here.
         OrlLndscpCallout updated = existing.toBuilder()
                 .riskArea(req.getRiskArea())
                 .locations(toJsonArray(req.getLocations()))
@@ -131,11 +128,10 @@ public class LandscapeAssmtCalloutService {
                 .comment(req.getComment())
                 .sme(newSme)
                 .lastModifiedSme(oldSme)
-                .updateDtTm(now)
                 .build();
         calloutRepository.save(updated);
 
-        recordCommentHistory(calloutId, req.getComment(), newSme, now);
+        recordCommentHistory(calloutId, req.getComment(), newSme);
         log.info("Updated callout id={} for lndscp_assmt_id={} by '{}' (sme '{}' -> '{}')",
                 calloutId, lndscpAssmtId, username, oldSme, newSme);
     }
@@ -181,13 +177,12 @@ public class LandscapeAssmtCalloutService {
         return callout;
     }
 
-    /** Inserts one append-only comment-history row for the given callout. */
-    private void recordCommentHistory(Long calloutId, String comment, String sme, LocalDateTime when) {
+    /** Inserts one append-only comment-history row for the given callout (CREATE_DT_TM via DB default). */
+    private void recordCommentHistory(Long calloutId, String comment, String sme) {
         commentHistRepository.save(OrlLndscpCalloutCommentHist.builder()
                 .calloutId(AggregateReference.to(calloutId))
                 .comment(comment)
                 .sme(sme)
-                .createDtTm(when)
                 .build());
         log.debug("Recorded comment history for callout id={} (sme='{}')", calloutId, sme);
     }

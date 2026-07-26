@@ -171,7 +171,7 @@ CREATE TABLE IF NOT EXISTS `orl_lndscp_assmt_details` (
     `STATUS` ENUM('Open','Locked','Pending unlock','Completed') NOT NULL DEFAULT 'Open',
     `CREATED_BY` VARCHAR(50) NOT NULL,
     `CREATE_DT_TM` DATETIME NOT NULL DEFAULT current_timestamp(),
-    `UPDATE_DT_TM` DATETIME NULL DEFAULT NULL,
+    `UPDATE_DT_TM` DATETIME NULL DEFAULT NULL ON UPDATE current_timestamp(),
     `UPDATED_BY` VARCHAR(50) NULL DEFAULT NULL,
     PRIMARY KEY (`id`) USING BTREE,
     UNIQUE INDEX `Index 3` (`lndscp_assmt_id`, `RISK_AREA`, `ORL_BU_NM_L2`, `ORL_BU_NM_L3`, `ORL_BU_NM_L4`, `LOCATION`) USING BTREE,

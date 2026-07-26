@@ -1,10 +1,10 @@
 package com.dbs.mot.grc.service;
 
-import com.dbs.mot.grc.common.enums.AssmtStatus;
-import com.dbs.mot.grc.common.enums.DetailStatus;
-import com.dbs.mot.grc.common.enums.LevelCategory;
-import com.dbs.mot.grc.common.exception.ConflictException;
-import com.dbs.mot.grc.common.util.RiskAreaParser;
+import com.dbs.mot.grc.enums.AssmtStatus;
+import com.dbs.mot.grc.enums.DetailStatus;
+import com.dbs.mot.grc.enums.LevelCategory;
+import com.dbs.mot.grc.exception.ConflictException;
+import com.dbs.mot.grc.util.RiskAreaParser;
 import com.dbs.mot.grc.dto.AssmtGenerationResponse;
 import com.dbs.mot.grc.entity.OrlBizUnit;
 import com.dbs.mot.grc.entity.OrlLndscpAssmt;

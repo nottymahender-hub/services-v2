@@ -31,8 +31,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @ActiveProfiles("test")
 class LandscapeAssmtCalloutControllerTest {
 
-    private static final String BASE_URL  = "/landscape/{assmtId}/callouts";
-    private static final String ITEM_URL  = "/landscape/{assmtId}/callouts/{calloutId}";
+    private static final String BASE_URL  = "/landscape/assessment/{assmtId}/callouts";
+    private static final String ITEM_URL  = "/landscape/assessment/{assmtId}/callouts/{calloutId}";
+    /** The callouts are now read via the embedded assessment-summary endpoint. */
+    private static final String SUMMARY_URL = "/landscape/assessments/{assmtId}";
     private static final String USERNAME  = "testuser";
 
     @Autowired MockMvc mvc;
@@ -55,8 +57,8 @@ class LandscapeAssmtCalloutControllerTest {
                 """);
 
         jdbc.execute("""
-                INSERT INTO orl_lndscp_assmt(id,LNDSCP_NUM,ASSEMT_PERIOD,status,CREATED_BY)
-                VALUES(200,100,'Q1-2024','Open','seed')
+                INSERT INTO orl_lndscp_assmt(id,LNDSCP_NUM,ASSEMT_PERIOD,biz_dt,status,CREATED_BY)
+                VALUES(200,100,'Q1-2024',DATE '2024-01-31','Open','seed')
                 """);
 
         // LOCATIONS/BIZ_UNITS are JSON arrays; comment/SME are NOT NULL.
@@ -81,35 +83,34 @@ class LandscapeAssmtCalloutControllerTest {
 
     @Test
     void getCallouts_returnsOnlyActiveCallouts_withArrayFieldsAndSme() throws Exception {
-        mvc.perform(get(BASE_URL, 200).header("X-EGRC-UserId", USERNAME))
+        mvc.perform(get(SUMMARY_URL, 200).header("X-EGRC-UserId", USERNAME))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.callouts", hasSize(1)))
-                .andExpect(jsonPath("$.data.callouts[0].id").value(300))
-                .andExpect(jsonPath("$.data.callouts[0].riskArea").value("Cyber Risk"))
-                .andExpect(jsonPath("$.data.callouts[0].locations", contains("SG", "HK")))
-                .andExpect(jsonPath("$.data.callouts[0].bizUnits", contains("Tech")))
-                .andExpect(jsonPath("$.data.callouts[0].sme").value("bob"));
+                .andExpect(jsonPath("$.data.callouts.callouts", hasSize(1)))
+                .andExpect(jsonPath("$.data.callouts.callouts[0].id").value(300))
+                .andExpect(jsonPath("$.data.callouts.callouts[0].riskArea").value("Cyber Risk"))
+                .andExpect(jsonPath("$.data.callouts.callouts[0].locations", contains("SG", "HK")))
+                .andExpect(jsonPath("$.data.callouts.callouts[0].bizUnits", contains("Tech")))
+                .andExpect(jsonPath("$.data.callouts.callouts[0].sme").value("bob"));
     }
 
     @Test
-    void getCallouts_returnsDimensions() throws Exception {
-        mvc.perform(get(BASE_URL, 200).header("X-EGRC-UserId", USERNAME))
+    void callouts_blockCarriesNoDimensions() throws Exception {
+        // Dimension option-sets were removed from the callouts block.
+        mvc.perform(get(SUMMARY_URL, 200).header("X-EGRC-UserId", USERNAME))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.dimensions.validRiskAreas", hasItems("Cyber Risk", "Conduct Risk", "Others")))
-                .andExpect(jsonPath("$.data.dimensions.validLocations", hasItems("SG", "HK", "Others", "ALL")))
-                .andExpect(jsonPath("$.data.dimensions.validBizUnits",  hasItems("Tech", "Ops", "Others", "ALL")));
+                .andExpect(jsonPath("$.data.callouts.dimensions").doesNotExist());
     }
 
     @Test
     void getCallouts_missingUsername_returns401() throws Exception {
-        mvc.perform(get(BASE_URL, 200))
+        mvc.perform(get(SUMMARY_URL, 200))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.success").value(false));
     }
 
     @Test
     void getCallouts_nonExistentAssmt_returns404() throws Exception {
-        mvc.perform(get(BASE_URL, 9999).header("X-EGRC-UserId", USERNAME))
+        mvc.perform(get(SUMMARY_URL, 9999).header("X-EGRC-UserId", USERNAME))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.success").value(false));
     }
@@ -165,8 +166,10 @@ class LandscapeAssmtCalloutControllerTest {
     }
 
     @Test
-    void createCallout_commentTruncatedTo400Chars() throws Exception {
-        String longComment = "A".repeat(500);
+    void createCallout_commentOver400Chars_returns400() throws Exception {
+        // The comment length cap is now enforced by Bean Validation (@Size), returning 400
+        // rather than silently truncating.
+        String longComment = "A".repeat(401);
         String body = String.format(
                 """
                 {"riskArea":"Cyber Risk","locations":["SG"],"bizUnits":["Tech"],"comment":"%s","sme":"alice"}
@@ -175,9 +178,22 @@ class LandscapeAssmtCalloutControllerTest {
                         .header("X-EGRC-UserId", USERNAME)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
-                .andExpect(status().isCreated());
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message", containsString("comment")));
+    }
 
-        // The persisted comment is truncated to 400 characters (verified in the DB).
+    @Test
+    void createCallout_commentExactly400Chars_returns201() throws Exception {
+        String maxComment = "A".repeat(400);
+        String body = String.format(
+                """
+                {"riskArea":"Cyber Risk","locations":["SG"],"bizUnits":["Tech"],"comment":"%s","sme":"alice"}
+                """, maxComment);
+        mvc.perform(post(BASE_URL, 200)
+                        .header("X-EGRC-UserId", USERNAME)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isCreated());
         Integer len = jdbc.queryForObject(
                 "SELECT LENGTH(comment) FROM orl_lndscp_callout WHERE SME='alice' AND RISK_AREA='Cyber Risk'",
                 Integer.class);
@@ -229,45 +245,6 @@ class LandscapeAssmtCalloutControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
                 .andExpect(status().isBadRequest());
-    }
-
-    @Test
-    void createCallout_invalidRiskArea_returns400() throws Exception {
-        String body = """
-                {"riskArea":"Not A Valid Area","locations":["SG"],"bizUnits":["Tech"],"comment":"c","sme":"alice"}
-                """;
-        mvc.perform(post(BASE_URL, 200)
-                        .header("X-EGRC-UserId", USERNAME)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(body))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.message", containsString("RISK_AREA")));
-    }
-
-    @Test
-    void createCallout_invalidLocation_returns400() throws Exception {
-        String body = """
-                {"riskArea":"Cyber Risk","locations":["InvalidLoc"],"bizUnits":["Tech"],"comment":"c","sme":"alice"}
-                """;
-        mvc.perform(post(BASE_URL, 200)
-                        .header("X-EGRC-UserId", USERNAME)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(body))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.message", containsString("LOCATIONS")));
-    }
-
-    @Test
-    void createCallout_invalidBizUnit_returns400() throws Exception {
-        String body = """
-                {"riskArea":"Cyber Risk","locations":["SG"],"bizUnits":["InvalidBU"],"comment":"c","sme":"alice"}
-                """;
-        mvc.perform(post(BASE_URL, 200)
-                        .header("X-EGRC-UserId", USERNAME)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(body))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.message", containsString("BIZ_UNITS")));
     }
 
     @Test
@@ -351,15 +328,20 @@ class LandscapeAssmtCalloutControllerTest {
     }
 
     @Test
-    void updateCallout_invalidRiskArea_returns400() throws Exception {
+    void updateCallout_anyRiskArea_isAccepted() throws Exception {
+        // Values are no longer validated against the landscape dimensions, so any non-blank
+        // risk area is accepted and persisted.
         String body = """
-                {"riskArea":"Bad Area","locations":["SG"],"bizUnits":["Tech"],"comment":"c","sme":"carol"}
+                {"riskArea":"Any Area","locations":["SG"],"bizUnits":["Tech"],"comment":"c","sme":"carol"}
                 """;
         mvc.perform(put(ITEM_URL, 200, 300)
                         .header("X-EGRC-UserId", USERNAME)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isOk());
+        String riskArea = jdbc.queryForObject(
+                "SELECT RISK_AREA FROM orl_lndscp_callout WHERE id=300", String.class);
+        assert "Any Area".equals(riskArea) : "expected updated risk area, got " + riskArea;
     }
 
     // ── DELETE ───────────────────────────────────────────────────────────────
@@ -370,8 +352,8 @@ class LandscapeAssmtCalloutControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.message").value("Callout deleted successfully."));
 
-        mvc.perform(get(BASE_URL, 200).header("X-EGRC-UserId", USERNAME))
-                .andExpect(jsonPath("$.data.callouts", hasSize(0)));
+        mvc.perform(get(SUMMARY_URL, 200).header("X-EGRC-UserId", USERNAME))
+                .andExpect(jsonPath("$.data.callouts.callouts", hasSize(0)));
     }
 
     @Test
@@ -390,7 +372,7 @@ class LandscapeAssmtCalloutControllerTest {
 
     @Test
     void invalidPathParamType_returns400() throws Exception {
-        mvc.perform(get("/landscape/abc/callouts").header("X-EGRC-UserId", USERNAME))
+        mvc.perform(delete("/landscape/assessment/abc/callouts/300").header("X-EGRC-UserId", USERNAME))
                 .andExpect(status().isBadRequest());
     }
 }

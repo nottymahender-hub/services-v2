@@ -1,7 +1,7 @@
 package com.dbs.mot.grc.csv.validator;
 
-import com.dbs.mot.grc.common.csv.CsvRowValidator;
-import com.dbs.mot.grc.common.dto.ValidationErrorDetail;
+import com.dbs.mot.grc.csv.CsvRowValidator;
+import com.dbs.mot.grc.dto.ValidationErrorDetail;
 import com.dbs.mot.grc.dto.BuLctnHeadcountCsvRow;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;

@@ -103,23 +103,17 @@ class GrcMetricsServiceTest {
 
     @Test
     @SuppressWarnings("unchecked")
-    void live_usesEachModulesOwnLatestRow() {
+    void forBizDate_selectsTheRowOnTheGivenDate() {
+        // The "live" drill-down now resolves the latest business date and calls forBizDate with it,
+        // so a plain by-date lookup must select exactly the row on that date.
         insertInc("2026-07-15", "High", 7);
         insertInc("2026-07-31", "Med Low", 9);
 
-        Map<String, Object> metrics = service.live(KEY);
+        Map<String, Object> metrics = service.forBizDate(LocalDate.parse("2026-07-31"), KEY);
 
         assertThat(metrics.keySet()).containsExactly(ALL_MODULES);
         Map<String, Object> inc = (Map<String, Object>) metrics.get("INC");
         assertThat(inc).containsEntry("inc_is_sinp_count_l3m_mtd", 9);
         assertThat(metrics.get("RCSA")).isNull();
-    }
-
-    @Test
-    void live_allModulesNullWhenDimensionHasNoRows() {
-        Map<String, Object> metrics = service.live(KEY);
-
-        assertThat(metrics.keySet()).containsExactly(ALL_MODULES);
-        assertThat(metrics.values()).containsOnlyNulls();
     }
 }

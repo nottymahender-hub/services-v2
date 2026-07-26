@@ -6,17 +6,12 @@ import lombok.Getter;
 import java.util.List;
 
 /**
- * Response DTO for GET {@code /landscape/{lndscp_assmt_id}/callouts}.
- *
- * <p>Bundles the valid dimension options (for UI dropdowns) with the list of
- * active callouts belonging to the given assessment.
+ * The active callouts belonging to a landscape assessment, embedded in the assessment-details
+ * response ({@code GET /landscape/assessments/{lndscpAssmtId}}).
  */
 @Getter
 @Builder
 public class CalloutListResponse {
-
-    /** Valid option sets for RISK_AREA, LOCATIONS, and BIZ_UNITS fields. */
-    private final CalloutDimensions dimensions;
 
     /** Active (not soft-deleted) callouts for the assessment. */
     private final List<CalloutResponse> callouts;

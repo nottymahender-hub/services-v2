@@ -1,6 +1,6 @@
 package com.dbs.mot.grc.entity;
 
-import com.dbs.mot.grc.common.enums.Module;
+import com.dbs.mot.grc.enums.Module;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;

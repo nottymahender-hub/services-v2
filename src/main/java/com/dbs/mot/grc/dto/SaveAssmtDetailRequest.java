@@ -1,7 +1,7 @@
 package com.dbs.mot.grc.dto;
 
-import com.dbs.mot.grc.common.enums.NetRiskRating;
-import com.dbs.mot.grc.common.validation.PersistableEnumValue;
+import com.dbs.mot.grc.enums.NetRiskRating;
+import com.dbs.mot.grc.validation.PersistableEnumValue;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.AssertTrue;

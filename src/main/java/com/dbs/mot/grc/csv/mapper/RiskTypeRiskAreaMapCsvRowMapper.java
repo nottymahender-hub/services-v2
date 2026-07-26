@@ -1,7 +1,7 @@
 package com.dbs.mot.grc.csv.mapper;
 
-import com.dbs.mot.grc.common.csv.AbstractCsvRowMapper;
-import com.dbs.mot.grc.common.dto.ValidationErrorDetail;
+import com.dbs.mot.grc.csv.AbstractCsvRowMapper;
+import com.dbs.mot.grc.dto.ValidationErrorDetail;
 import com.dbs.mot.grc.dto.RiskTypeRiskAreaMapCsvRow;
 import org.springframework.stereotype.Component;
 

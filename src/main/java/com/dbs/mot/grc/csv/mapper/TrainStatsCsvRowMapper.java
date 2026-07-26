@@ -1,8 +1,8 @@
 package com.dbs.mot.grc.csv.mapper;
 
-import com.dbs.mot.grc.common.csv.AbstractCsvRowMapper;
-import com.dbs.mot.grc.common.dto.ValidationErrorDetail;
-import com.dbs.mot.grc.common.util.ModuleConstants;
+import com.dbs.mot.grc.csv.AbstractCsvRowMapper;
+import com.dbs.mot.grc.dto.ValidationErrorDetail;
+import com.dbs.mot.grc.util.ModuleConstants;
 import com.dbs.mot.grc.dto.TrainStatsCsvRow;
 import org.springframework.stereotype.Component;
 

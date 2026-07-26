@@ -27,8 +27,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest @AutoConfigureMockMvc @ActiveProfiles("test")
 class FeatureScoreBandCsvHandlerTest {
 
-    private static final String UPLOAD   = "/api/csv/feature-score-band/upload";
-    private static final String DOWNLOAD = "/api/csv/feature-score-band/download";
+    private static final String UPLOAD   = "/api/orl-configurations/feature-score-band/upload";
+    private static final String DOWNLOAD = "/api/orl-configurations/feature-score-band/download";
 
     @Autowired MockMvc mvc;
     @Autowired JdbcTemplate jdbc;

@@ -23,12 +23,13 @@ import java.util.List;
  * }
  * </pre>
  *
- * <p>Landscape-config metadata (dimensions) is served separately by
- * {@code GET /landscape/{lndscpAssmtId}/dimensions}.
+ * <p>The landscape-config {@code dimensions} and the assessment's {@code callouts} are embedded
+ * directly in this response, so a single {@code GET /landscape/assessments/{lndscpAssmtId}} call
+ * returns the assessment, its dimensions and its callouts together.
  *
  * <p>All fields are populated from {@code orl_lndscp_assmt} joined with its parent
  * {@code orl_lndscp_dim}; when {@code lndscpAssmtId} does not exist, the service
- * throws {@link com.dbs.mot.grc.common.exception.NotFoundException} (HTTP 404)
+ * throws {@link com.dbs.mot.grc.exception.NotFoundException} (HTTP 404)
  * rather than returning a partially-empty object.
  *
  * <p>Every field is always serialized, including nulls, so the response shape is stable
@@ -65,4 +66,10 @@ public class LandscapeAssmtDetailSummary {
 
     /** Per-row detail items from {@code orl_lndscp_assmt_details}. */
     private final List<LandscapeAssmtDetailItem> assessments;
+
+    /** Landscape-config dimensions (risk areas, risk clusters, BU details, locations). */
+    private final LandscapeDimensions dimensions;
+
+    /** Active callouts for this assessment plus the valid dimension option sets. */
+    private final CalloutListResponse callouts;
 }

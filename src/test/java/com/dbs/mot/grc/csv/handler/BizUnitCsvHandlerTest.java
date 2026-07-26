@@ -24,8 +24,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest @AutoConfigureMockMvc @ActiveProfiles("test")
 class BizUnitCsvHandlerTest {
 
-    private static final String UPLOAD   = "/api/csv/biz-units/upload";
-    private static final String DOWNLOAD = "/api/csv/biz-units/download";
+    private static final String UPLOAD   = "/api/orl-configurations/biz-units/upload";
+    private static final String DOWNLOAD = "/api/orl-configurations/biz-units/download";
 
     @Autowired MockMvc mvc;
     @Autowired JdbcTemplate jdbc;
@@ -101,11 +101,6 @@ class BizUnitCsvHandlerTest {
                 + "2,DTI,3,DoesNotExist,,,\n";
         mvc.perform(multipart(UPLOAD).file(csv(csv)).header("X-EGRC-UserId", "u"))
            .andExpect(status().isCreated());
-    }
-
-    @Test void upload_unknownTable_returns400() throws Exception {
-        mvc.perform(multipart("/api/csv/unknown/upload").file(valid()).header("X-EGRC-UserId", "u"))
-           .andExpect(status().isBadRequest()).andExpect(jsonPath("$.message", containsString("unknown")));
     }
 
     @Test void download_returnsHeader() throws Exception {

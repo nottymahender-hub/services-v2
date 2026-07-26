@@ -12,8 +12,9 @@ import java.time.LocalDateTime;
 
 /**
  * Entity for the {@code orl_bu_loctn_headcount} table.
- * {@code id} is auto-generated; upsert is handled via JdbcTemplate
- * using the unique index on (ORL_BU_NM_L2, ORL_BU_NM_L3, ORL_BU_NM_L4, location).
+ * {@code id} is auto-generated; the import service upserts on the unique index
+ * {@code (ORL_BU_NM_L2, ORL_BU_NM_L3, ORL_BU_NM_L4, location)} by matching existing rows and
+ * reusing their id (see {@code BuLocationHeadcountConfigImportService}).
  */
 @Table("orl_bu_loctn_headcount")
 @Getter

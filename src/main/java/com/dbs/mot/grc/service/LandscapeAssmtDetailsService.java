@@ -1,17 +1,19 @@
 package com.dbs.mot.grc.service;
 
-import com.dbs.mot.grc.common.enums.DetailStatus;
-import com.dbs.mot.grc.common.enums.LevelCategory;
-import com.dbs.mot.grc.common.enums.NetRiskRating;
-import com.dbs.mot.grc.common.enums.PersistableEnum;
-import com.dbs.mot.grc.common.exception.ConflictException;
-import com.dbs.mot.grc.common.exception.NotFoundException;
-import com.dbs.mot.grc.common.util.RiskAreaParser;
+import com.dbs.mot.grc.enums.DetailStatus;
+import com.dbs.mot.grc.enums.LevelCategory;
+import com.dbs.mot.grc.enums.NetRiskRating;
+import com.dbs.mot.grc.enums.PersistableEnum;
+import com.dbs.mot.grc.exception.ConflictException;
+import com.dbs.mot.grc.exception.NotFoundException;
+import com.dbs.mot.grc.util.RiskAreaParser;
+import com.dbs.mot.grc.dto.AssmtDetailRef;
 import com.dbs.mot.grc.dto.AssmtDetailResponse;
+import com.dbs.mot.grc.dto.AssmtHeader;
+import com.dbs.mot.grc.dto.CalloutListResponse;
 import com.dbs.mot.grc.dto.DimensionKey;
 import com.dbs.mot.grc.dto.LandscapeAssmtDetailItem;
 import com.dbs.mot.grc.dto.LandscapeAssmtDetailSummary;
-import com.dbs.mot.grc.dto.LandscapeAssmtRef;
 import com.dbs.mot.grc.dto.LandscapeBuDetails;
 import com.dbs.mot.grc.dto.LandscapeDimensions;
 import com.dbs.mot.grc.dto.LiveNRRDetails;
@@ -22,11 +24,11 @@ import com.dbs.mot.grc.entity.OrlLndscpAssmt;
 import com.dbs.mot.grc.entity.OrlLndscpAssmtDetails;
 import com.dbs.mot.grc.entity.OrlLndscpDim;
 import com.dbs.mot.grc.repository.FactOrlRepository;
+import com.dbs.mot.grc.repository.OrlLndscpAssmtDetailsRepository;
 import com.dbs.mot.grc.repository.OrlLndscpAssmtRepository;
 import com.dbs.mot.grc.repository.OrlLndscpDimRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -65,12 +67,13 @@ public class LandscapeAssmtDetailsService {
     private static final String OVERLAID_YES = "Y";
     private static final String OVERLAID_NO = "N";
 
-    private final OrlLndscpAssmtRepository assmtRepository;
-    private final OrlLndscpDimRepository   dimRepository;
-    private final FactOrlRepository        factRepository;
-    private final RiskAreaParser           riskAreaParser;
-    private final JdbcTemplate              jdbcTemplate;
-    private final GrcMetricsService         grcMetricsService;
+    private final OrlLndscpAssmtRepository        assmtRepository;
+    private final OrlLndscpAssmtDetailsRepository detailsRepository;
+    private final OrlLndscpDimRepository          dimRepository;
+    private final FactOrlRepository               factRepository;
+    private final RiskAreaParser                  riskAreaParser;
+    private final GrcMetricsService               grcMetricsService;
+    private final LandscapeAssmtCalloutService    calloutService;
 
     /**
      * Returns the assessment header plus every detail row, each enriched with its current-month
@@ -97,7 +100,12 @@ public class LandscapeAssmtDetailsService {
                         riskAreaLookup.get(row.getRiskArea())))
                 .toList();
 
-        log.info("Returning {} assessment detail(s) for lndscp_assmt_id={}", items.size(), lndscpAssmtId);
+        // Dimensions come from the already-loaded config (no extra query); callouts are one
+        // additional read. Both are embedded here so a single call returns the full picture.
+        CalloutListResponse callouts = calloutService.getCallouts(lndscpAssmtId);
+
+        log.info("Returning {} assessment detail(s) plus {} callout(s) for lndscp_assmt_id={}",
+                items.size(), callouts.getCallouts().size(), lndscpAssmtId);
 
         return LandscapeAssmtDetailSummary.builder()
                 .lndscpName(dim.getLndscpNm())
@@ -107,28 +115,10 @@ public class LandscapeAssmtDetailsService {
                 .lndscpLastRefreshed(factRepository.findMaxBizDt())
                 .lndscpLastModifiedOn(resolveLastModifiedOn(assmt))
                 .lndscpLastModifiedBy(resolveLastModifiedBy(assmt))
+                .dimensions(toDimensions(dim))
+                .callouts(callouts)
                 .assessments(items)
                 .build();
-    }
-
-    /**
-     * Returns the landscape-config dimensions (risk areas, risk clusters, BU details, locations)
-     * for the assessment's parent config. Uses the {@code findRefById} projection so the
-     * assessment's detail {@code MappedCollection} is not loaded.
-     *
-     * @throws NotFoundException if the assessment or its landscape config does not exist
-     */
-    public LandscapeDimensions fetchDimensionsByAssmtId(Long lndscpAssmtId) {
-        log.debug("Fetching dimensions for lndscp_assmt_id={}", lndscpAssmtId);
-
-        LandscapeAssmtRef ref = assmtRepository.findRefById(lndscpAssmtId)
-                .orElseThrow(() -> new NotFoundException(
-                        "Landscape assessment not found for id: " + lndscpAssmtId));
-
-        OrlLndscpDim dim = getDimOrThrow(ref.lndscpNum(), lndscpAssmtId);
-        log.info("Returning dimensions for lndscp_assmt_id={} (landscape config id={})",
-                lndscpAssmtId, dim.getId());
-        return toDimensions(dim);
     }
 
     /**
@@ -141,18 +131,19 @@ public class LandscapeAssmtDetailsService {
     public AssmtDetailResponse fetchDetailById(Long lndscpAssmtId, Long assmtDetailId) {
         log.debug("Fetching detail id={} of assessment id={}", assmtDetailId, lndscpAssmtId);
 
-        OrlLndscpAssmt assmt = getAssmtOrThrow(lndscpAssmtId);
+        // Header projection only — avoids eagerly loading the assessment's whole detail collection.
+        AssmtHeader assmt = assmtRepository.findHeaderById(lndscpAssmtId)
+                .orElseThrow(() -> new NotFoundException(
+                        "Landscape assessment not found for id: " + lndscpAssmtId));
 
-        // Locating the row inside the aggregate's own collection also validates ownership:
+        // Fetch just the one detail row, scoped to its assessment (ownership check in the query):
         // a detail id from another assessment is a 404, not a data leak.
-        OrlLndscpAssmtDetails row = detailsOf(assmt).stream()
-                .filter(d -> assmtDetailId.equals(d.getId()))
-                .findFirst()
+        OrlLndscpAssmtDetails row = detailsRepository.findByIdAndAssmt(assmtDetailId, lndscpAssmtId)
                 .orElseThrow(() -> new NotFoundException("Assessment detail not found for id "
                         + assmtDetailId + " under landscape assessment " + lndscpAssmtId + "."));
 
         DimensionKey key = keyOf(row);
-        LocalDate currentBizDt = bizDateOf(assmt);
+        LocalDate currentBizDt = assmt.bizDt();
         FactOrl currentFact = factFor(currentBizDt, key).orElse(null);
 
         MonthNRRDetails current = MonthNRRDetails.builder()
@@ -161,14 +152,19 @@ public class LandscapeAssmtDetailsService {
                 .nrrOverlaid(row.getOvrlyNetRiskRtng() != null ? OVERLAID_YES : OVERLAID_NO)
                 .overlayJstfkn(row.getOvrlyJstfkn())
                 .ctrlEffRtn(currentFact != null ? currentFact.getCtrlEffRtn() : null)
-                .assmtPeriod(assmt.getAssmtPeriod())
+                .assmtPeriod(assmt.assmtPeriod())
                 .grcMetrics(grcMetricsService.forBizDate(currentBizDt, key))
                 .commentry(currentFact != null ? currentFact.getCommentary() : null)
                 .revisedCommentry(row.getRevisedCommentary())
                 .build();
 
         MonthNRRDetails previous = previousMonthDetails(assmt, key);
-        LiveNRRDetails live = liveDetails(key);
+
+        // The "live" snapshot is the fact row on the latest business date across fact_orl, matched
+        // to this dimension — fetched via the same by-date path as current/previous (one MAX(biz_dt)
+        // read, reused for both the live lookup and the top-level lastRefreshed).
+        LocalDate maxBizDt = factRepository.findMaxBizDt();
+        LiveNRRDetails live = liveDetails(maxBizDt, key);
 
         log.info("Returning detail id={} of assessment id={} (prev {}, live {})",
                 assmtDetailId, lndscpAssmtId,
@@ -176,15 +172,15 @@ public class LandscapeAssmtDetailsService {
 
         return AssmtDetailResponse.builder()
                 .id(row.getId())
-                .landscapeAssessmentId(assmt.getId())
-                .landscapeId(assmt.getLndscpNum() != null ? assmt.getLndscpNum().getId() : null)
+                .landscapeAssessmentId(assmt.id())
+                .landscapeId(assmt.lndscpNum())
                 .riskArea(row.getRiskArea())
                 .bu(resolveBuByCategory(row))
                 .location(resolveLocation(row))
                 .status(PersistableEnum.dbValue(row.getStatus()))
                 .lastModifiedOn(row.getUpdateDtTm() != null ? row.getUpdateDtTm() : row.getCreateDtTm())
                 .lastModifiedBy(row.getUpdatedBy() != null ? row.getUpdatedBy() : row.getCreatedBy())
-                .lastRefreshed(factRepository.findMaxBizDt())
+                .lastRefreshed(maxBizDt)
                 .currentMonthNRRDetails(current)
                 .prevMonthNRRDetails(previous)
                 .liveNRRDetails(live)
@@ -206,11 +202,11 @@ public class LandscapeAssmtDetailsService {
         log.debug("Saving overlay for detail id={} of assessment id={} by '{}'",
                 assmtDetailId, lndscpAssmtId, username);
 
-        assmtRepository.findRefById(lndscpAssmtId)
-                .orElseThrow(() -> new NotFoundException(
-                        "Landscape assessment not found for id: " + lndscpAssmtId));
+        if (!assmtRepository.existsById(lndscpAssmtId)) {
+            throw new NotFoundException("Landscape assessment not found for id: " + lndscpAssmtId);
+        }
 
-        DetailRef detail = loadDetailRef(assmtDetailId)
+        AssmtDetailRef detail = detailsRepository.findRefById(assmtDetailId)
                 .orElseThrow(() -> new NotFoundException(
                         "Assessment detail not found for id: " + assmtDetailId));
 
@@ -225,32 +221,18 @@ public class LandscapeAssmtDetailsService {
                     + detail.status() + ").");
         }
 
-        jdbcTemplate.update(
-                "UPDATE orl_lndscp_assmt_details SET REVISED_COMMENTARY = ?, OVRLY_NET_RISK_RTNG = ?, "
-                        + "OVRLY_JSTFKN = ?, UPDATED_BY = ?, UPDATE_DT_TM = ? WHERE id = ?",
+        detailsRepository.saveOverlay(assmtDetailId,
                 blankToNull(request.getRevisedCommentry()),
                 blankToNull(request.getOverlaidNRR()),
                 blankToNull(request.getOverlayJstfkn()),
-                username, LocalDateTime.now(), assmtDetailId);
+                username, LocalDateTime.now());
 
         log.info("Saved overlay for detail id={} of assessment id={} by '{}'",
                 assmtDetailId, lndscpAssmtId, username);
     }
 
-    /** Reads the owning assessment id + status of a detail row, if it exists. */
-    private Optional<DetailRef> loadDetailRef(Long assmtDetailId) {
-        return jdbcTemplate.query(
-                "SELECT lndscp_assmt_id, STATUS FROM orl_lndscp_assmt_details WHERE id = ?",
-                (rs, rowNum) -> new DetailRef(rs.getLong("lndscp_assmt_id"), rs.getString("STATUS")),
-                assmtDetailId).stream().findFirst();
-    }
-
     private String blankToNull(String value) {
         return StringUtils.hasText(value) ? value : null;
-    }
-
-    /** Lightweight projection of a detail row's owning assessment id and status. */
-    private record DetailRef(Long lndscpAssmtId, String status) {
     }
 
     // ── fact_orl lookups ─────────────────────────────────────────────────────
@@ -282,21 +264,27 @@ public class LandscapeAssmtDetailsService {
                 key.orlBuNmL2(), key.orlBuNmL3(), key.orlBuNmL4(), key.location());
     }
 
-    /** The live snapshot for a dimension: its {@code fact_orl} row with the latest {@code biz_dt}. */
-    private LiveNRRDetails liveDetails(DimensionKey key) {
-        FactOrl latest = factRepository.findLatestByDimension(key.riskArea(),
-                key.orlBuNmL2(), key.orlBuNmL3(), key.orlBuNmL4(), key.location()).orElse(null);
+    /**
+     * The live snapshot for a dimension: the {@code fact_orl} row on {@code maxBizDt} (the latest
+     * business date across {@code fact_orl}) matching the dimension. Fetched via the same by-date
+     * path as the current/previous month, so no separate "latest per dimension" query is needed.
+     *
+     * @return {@code null} when there is no fact data (empty table) or the dimension has no row on
+     *         {@code maxBizDt}
+     */
+    private LiveNRRDetails liveDetails(LocalDate maxBizDt, DimensionKey key) {
+        FactOrl latest = factFor(maxBizDt, key).orElse(null);
         if (latest == null) {
-            log.debug("No live fact_orl row for key {}", key);
+            log.debug("No live fact_orl row for key {} on biz_dt={}", key, maxBizDt);
             return null;
         }
         return LiveNRRDetails.builder()
                 .nrr(NetRiskRating.display(latest.getCalNetRiskRtng()))
                 .nrrOverlaid(OVERLAID_NO)
                 .overlayJstfkn(null)
-                .lastRefreshed(latest.getBizDt())
+                .lastRefreshed(maxBizDt)
                 .ctrlEffRtn(latest.getCtrlEffRtn())
-                .grcMetrics(grcMetricsService.live(key))
+                .grcMetrics(grcMetricsService.forBizDate(maxBizDt, key))
                 .commentry(latest.getCommentary())
                 .build();
     }
@@ -381,23 +369,30 @@ public class LandscapeAssmtDetailsService {
 
     /**
      * The previous month's NRR snapshot for the row matching the given dimension key, or
-     * {@code null} when there is no previous assessment or no matching prior detail row.
+     * {@code null} when there is no previous assessment or no matching prior detail row. Uses the
+     * header projection + a single keyed detail read — the previous assessment's whole detail
+     * collection is never loaded.
      */
-    private MonthNRRDetails previousMonthDetails(OrlLndscpAssmt assmt, DimensionKey key) {
-        Optional<OrlLndscpAssmt> prev = loadPreviousAssmt(assmt);
-        if (prev.isEmpty()) {
+    private MonthNRRDetails previousMonthDetails(AssmtHeader assmt, DimensionKey key) {
+        Long prevId = assmt.prevAssmtNum();
+        if (prevId == null) {
             return null;
         }
-        Optional<OrlLndscpAssmtDetails> prevRow = detailsOf(prev.get()).stream()
-                .filter(d -> key.equals(keyOf(d)))
-                .findFirst();
-        if (prevRow.isEmpty()) {
-            log.debug("No row in previous assessment id={} matches key {}", prev.get().getId(), key);
+        AssmtHeader prev = assmtRepository.findHeaderById(prevId).orElse(null);
+        if (prev == null) {
+            log.warn("PREV_ASSMT_NUM={} of assessment id={} points to a missing assessment",
+                    prevId, assmt.id());
             return null;
         }
-        LocalDate prevBizDt = bizDateOf(prev.get());
+        OrlLndscpAssmtDetails d = detailsRepository.findByAssmtAndDimension(prevId,
+                key.riskArea(), key.orlBuNmL2(), key.orlBuNmL3(), key.orlBuNmL4(), key.location())
+                .orElse(null);
+        if (d == null) {
+            log.debug("No row in previous assessment id={} matches key {}", prevId, key);
+            return null;
+        }
+        LocalDate prevBizDt = prev.bizDt();
         FactOrl prevFact = factFor(prevBizDt, key).orElse(null);
-        OrlLndscpAssmtDetails d = prevRow.get();
         return MonthNRRDetails.builder()
                 .id(d.getId())
                 .nrrCalculated(NetRiskRating.display(prevFact != null ? prevFact.getCalNetRiskRtng() : null))
@@ -405,7 +400,7 @@ public class LandscapeAssmtDetailsService {
                 .nrrOverlaid(d.getOvrlyNetRiskRtng() != null ? OVERLAID_YES : OVERLAID_NO)
                 .overlayJstfkn(d.getOvrlyJstfkn())
                 .ctrlEffRtn(prevFact != null ? prevFact.getCtrlEffRtn() : null)
-                .assmtPeriod(prev.get().getAssmtPeriod())
+                .assmtPeriod(prev.assmtPeriod())
                 .grcMetrics(grcMetricsService.forBizDate(prevBizDt, key))
                 .commentry(prevFact != null ? prevFact.getCommentary() : null)
                 .build();

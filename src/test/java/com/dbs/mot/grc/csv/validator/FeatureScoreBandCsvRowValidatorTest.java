@@ -1,6 +1,6 @@
 package com.dbs.mot.grc.csv.validator;
 
-import com.dbs.mot.grc.common.dto.ValidationErrorDetail;
+import com.dbs.mot.grc.dto.ValidationErrorDetail;
 import com.dbs.mot.grc.dto.FeatureScoreBandCsvRow;
 import org.junit.jupiter.api.Test;
 

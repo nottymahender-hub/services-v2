@@ -1,6 +1,6 @@
 package com.dbs.mot.grc.service;
 
-import com.dbs.mot.grc.common.exception.ConflictException;
+import com.dbs.mot.grc.exception.ConflictException;
 import com.dbs.mot.grc.dto.AssmtGenerationResponse;
 import com.dbs.mot.grc.dto.AssmtGenerationResult;
 import com.dbs.mot.grc.dto.AssmtGenerationStatus;

@@ -27,8 +27,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest @AutoConfigureMockMvc @ActiveProfiles("test")
 class NetRiskBandCsvHandlerTest {
 
-    private static final String UPLOAD   = "/api/csv/net-risk-band/upload";
-    private static final String DOWNLOAD = "/api/csv/net-risk-band/download";
+    private static final String UPLOAD   = "/api/orl-configurations/net-risk-band/upload";
+    private static final String DOWNLOAD = "/api/orl-configurations/net-risk-band/download";
 
     @Autowired MockMvc mvc;
     @Autowired JdbcTemplate jdbc;

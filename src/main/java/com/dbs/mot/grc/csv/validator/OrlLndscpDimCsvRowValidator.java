@@ -1,15 +1,16 @@
 package com.dbs.mot.grc.csv.validator;
 
-import com.dbs.mot.grc.common.csv.CsvRowValidator;
-import com.dbs.mot.grc.common.dto.ValidationErrorDetail;
-import com.dbs.mot.grc.common.exception.RiskAreaParseException;
-import com.dbs.mot.grc.common.util.RiskAreaParser;
+import com.dbs.mot.grc.csv.CsvRowValidator;
+import com.dbs.mot.grc.dto.ValidationErrorDetail;
+import com.dbs.mot.grc.exception.RiskAreaParseException;
+import com.dbs.mot.grc.util.RiskAreaParser;
 import com.dbs.mot.grc.dto.OrlLndscpDimCsvRow;
 import com.dbs.mot.grc.dto.RiskAreaEntry;
 import com.dbs.mot.grc.dto.RiskAreaGroup;
+import com.dbs.mot.grc.repository.OrlBizUnitRepository;
+import com.dbs.mot.grc.repository.OrlEntityMstrRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
 import java.util.*;
@@ -38,7 +39,8 @@ import java.util.*;
 @RequiredArgsConstructor
 public class OrlLndscpDimCsvRowValidator implements CsvRowValidator<OrlLndscpDimCsvRow> {
 
-    private final JdbcTemplate jdbcTemplate;
+    private final OrlEntityMstrRepository entityMstrRepository;
+    private final OrlBizUnitRepository bizUnitRepository;
     private final RiskAreaParser riskAreaParser;
 
     @Override
@@ -241,24 +243,19 @@ public class OrlLndscpDimCsvRowValidator implements CsvRowValidator<OrlLndscpDim
 
     private Set<String> loadLocations() {
         log.debug("Loading valid orl_location values from orl_entity_mstr");
-        List<String> locs = jdbcTemplate.queryForList(
-                "SELECT DISTINCT orl_location FROM orl_entity_mstr", String.class);
+        List<String> locs = entityMstrRepository.findDistinctOrlLocations();
         log.debug("Loaded {} distinct location(s)", locs.size());
         return new HashSet<>(locs);
     }
 
     private int loadMaxBizUnitLevel() {
         log.debug("Loading MAX(LVL_OF_HIER) from orl_biz_unit");
-        Integer max = jdbcTemplate.queryForObject(
-                "SELECT COALESCE(MAX(LVL_OF_HIER), 0) FROM orl_biz_unit", Integer.class);
-        return (max != null) ? max : 0;
+        return bizUnitRepository.findMaxLvlOfHier();
     }
 
     private Set<String> loadBizUnitsAtLevel(int level) {
         log.debug("Loading BU_NM values at LVL_OF_HIER={}", level);
-        List<String> names = jdbcTemplate.queryForList(
-                "SELECT BU_NM FROM orl_biz_unit WHERE LVL_OF_HIER = ?", String.class, level);
-        return new HashSet<>(names);
+        return new HashSet<>(bizUnitRepository.findBuNamesByLvlOfHier(level));
     }
 
     private ValidationErrorDetail error(int row, String field, String message) {

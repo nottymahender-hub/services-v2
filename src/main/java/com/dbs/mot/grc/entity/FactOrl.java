@@ -1,9 +1,9 @@
 package com.dbs.mot.grc.entity;
 
-import com.dbs.mot.grc.common.enums.InherentRisk;
-import com.dbs.mot.grc.common.enums.LevelCategory;
-import com.dbs.mot.grc.common.enums.NetRiskRating;
-import com.dbs.mot.grc.common.enums.RiskRatingChange;
+import com.dbs.mot.grc.enums.InherentRisk;
+import com.dbs.mot.grc.enums.LevelCategory;
+import com.dbs.mot.grc.enums.NetRiskRating;
+import com.dbs.mot.grc.enums.RiskRatingChange;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;

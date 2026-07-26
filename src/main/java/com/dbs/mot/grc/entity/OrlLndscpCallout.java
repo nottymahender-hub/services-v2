@@ -30,7 +30,7 @@ import java.time.LocalDateTime;
  */
 @Table("orl_lndscp_callout")
 @Getter
-@Builder
+@Builder(toBuilder = true)
 @NoArgsConstructor
 @AllArgsConstructor
 public class OrlLndscpCallout {

@@ -1,8 +1,8 @@
 package com.dbs.mot.grc.entity;
 
-import com.dbs.mot.grc.common.enums.DetailStatus;
-import com.dbs.mot.grc.common.enums.LevelCategory;
-import com.dbs.mot.grc.common.enums.NetRiskRating;
+import com.dbs.mot.grc.enums.DetailStatus;
+import com.dbs.mot.grc.enums.LevelCategory;
+import com.dbs.mot.grc.enums.NetRiskRating;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;

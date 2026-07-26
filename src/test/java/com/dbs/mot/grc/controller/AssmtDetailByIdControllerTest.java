@@ -34,7 +34,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @ActiveProfiles("test")
 class AssmtDetailByIdControllerTest {
 
-    private static final String URL_TPL = "/landscape/{assmtId}/{detailId}";
+    private static final String URL_TPL = "/landscape/assessment/{assmtId}/assessmentDetail/{detailId}";
 
     @Autowired MockMvc mvc;
     @Autowired JdbcTemplate jdbc;
@@ -175,7 +175,7 @@ class AssmtDetailByIdControllerTest {
 
     @Test
     void nonNumericDetailId_returns400() throws Exception {
-        mvc.perform(get("/landscape/11/abc").header("X-EGRC-UserId", "tester"))
+        mvc.perform(get("/landscape/assessment/11/assessmentDetail/abc").header("X-EGRC-UserId", "tester"))
            .andExpect(status().isBadRequest());
     }
 

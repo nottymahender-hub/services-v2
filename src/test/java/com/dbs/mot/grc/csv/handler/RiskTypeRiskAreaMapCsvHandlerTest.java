@@ -32,8 +32,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest @AutoConfigureMockMvc @ActiveProfiles("test")
 class RiskTypeRiskAreaMapCsvHandlerTest {
 
-    private static final String UPLOAD   = "/api/csv/risk-type-risk-area-maps/upload";
-    private static final String DOWNLOAD = "/api/csv/risk-type-risk-area-maps/download";
+    private static final String UPLOAD   = "/api/orl-configurations/risk-type-risk-area-maps/upload";
+    private static final String DOWNLOAD = "/api/orl-configurations/risk-type-risk-area-maps/download";
 
     @Autowired MockMvc mvc;
     @Autowired JdbcTemplate jdbc;

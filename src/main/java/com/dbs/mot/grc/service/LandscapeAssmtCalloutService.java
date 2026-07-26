@@ -1,20 +1,15 @@
 package com.dbs.mot.grc.service;
 
-import com.dbs.mot.grc.common.exception.BadRequestException;
-import com.dbs.mot.grc.common.exception.NotFoundException;
-import com.dbs.mot.grc.common.util.RiskAreaParser;
-import com.dbs.mot.grc.dto.CalloutDimensions;
+import com.dbs.mot.grc.exception.BadRequestException;
+import com.dbs.mot.grc.exception.NotFoundException;
 import com.dbs.mot.grc.dto.CalloutListResponse;
 import com.dbs.mot.grc.dto.CalloutRequest;
 import com.dbs.mot.grc.dto.CalloutResponse;
-import com.dbs.mot.grc.dto.LandscapeAssmtRef;
 import com.dbs.mot.grc.entity.OrlLndscpCallout;
 import com.dbs.mot.grc.entity.OrlLndscpCalloutCommentHist;
-import com.dbs.mot.grc.entity.OrlLndscpDim;
 import com.dbs.mot.grc.repository.OrlLndscpAssmtRepository;
 import com.dbs.mot.grc.repository.OrlLndscpCalloutCommentHistRepository;
 import com.dbs.mot.grc.repository.OrlLndscpCalloutRepository;
-import com.dbs.mot.grc.repository.OrlLndscpDimRepository;
 import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -22,35 +17,30 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.jdbc.core.mapping.AggregateReference;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
 /**
- * Business logic for all {@code /landscape/{lndscpAssmtId}/callouts} endpoints.
- *
- * <p>Callouts belong to landscape <em>assessments</em> ({@code orl_lndscp_assmt}), not
- * directly to the landscape config ({@code orl_lndscp_dim}).
+ * Business logic for the callout endpoints. Callouts belong to landscape <em>assessments</em>
+ * ({@code orl_lndscp_assmt}), not directly to the landscape config.
  *
  * <h3>Design notes</h3>
  * <ul>
- *   <li>Reads use plain Spring Data JDBC {@code findById}/derived-query calls — no
- *       hand-written joins. {@link #getAssmtOrThrow(Long)} fetches the assessment once
- *       per request and is reused by every method that needs it (including dimension
- *       loading), avoiding a duplicate existence-check query.</li>
- *   <li>Updates and soft-deletes use {@link JdbcTemplate} to avoid a full entity reload
- *       and re-save (Spring Data JDBC's {@code save()} always issues a full REPLACE).</li>
- *   <li>Dimension validation fetches the parent {@code orl_lndscp_dim} row via
- *       {@link OrlLndscpDimRepository#findById} using the id carried by the assessment's
- *       {@code AggregateReference}, then parses {@code RISK_AREA} JSON and the
- *       {@code LOCATIONS}/{@code BIZ_UNITS} CSV strings — all in this service, not SQL.</li>
- *   <li>FK to {@code orl_lndscp_assmt} is modelled as {@link AggregateReference} on the
- *       {@link OrlLndscpCallout} entity — one-way, no cascade, no bidirectional navigation.</li>
+ *   <li>The owning assessment is checked for existence with {@code existsById} (an EXISTS query)
+ *       rather than loaded — the callout flow never needs the assessment's fields or its detail
+ *       {@code MappedCollection}.</li>
+ *   <li>Create/update/soft-delete persist through the {@code CrudRepository}: create and update use
+ *       {@code save()}, soft-delete flips {@code DEL_FLG} and saves. Update and delete already load
+ *       the row (for the SME shift / ownership check), so {@code save()} adds no extra read, and
+ *       {@link OrlLndscpCallout} has no child collection so {@code save()} is a plain single-row
+ *       update.</li>
+ *   <li>Field values are validated only by the request-body Bean Validation (presence + comment
+ *       length); there is no validation of values against the landscape dimensions.</li>
+ *   <li>FK to {@code orl_lndscp_assmt} is modelled as an {@link AggregateReference} on
+ *       {@link OrlLndscpCallout} — one-way, no cascade.</li>
  * </ul>
  */
 @Slf4j
@@ -58,72 +48,51 @@ import java.util.List;
 @RequiredArgsConstructor
 public class LandscapeAssmtCalloutService {
 
-    private static final String OTHERS = "Others";
-    private static final String ALL    = "ALL";
-    private static final int    COMMENT_MAX_LEN = 400;
-
     private static final ObjectMapper MAPPER = new ObjectMapper()
             .enable(JsonParser.Feature.STRICT_DUPLICATE_DETECTION);
 
     private final OrlLndscpCalloutRepository            calloutRepository;
     private final OrlLndscpCalloutCommentHistRepository commentHistRepository;
     private final OrlLndscpAssmtRepository              assmtRepository;
-    private final OrlLndscpDimRepository                dimRepository;
-    private final JdbcTemplate                          jdbcTemplate;
-    private final RiskAreaParser                        riskAreaParser;
 
     // ── Public API ────────────────────────────────────────────────────────────
 
     /**
-     * Returns all active callouts for the given assessment together with the
-     * valid dimension options (risk areas, locations, BU values).
+     * Returns all active (non-deleted) callouts for the given assessment. Invoked only from the
+     * assessment-details flow, which has already verified the assessment exists.
      *
      * @param lndscpAssmtId {@code orl_lndscp_assmt.id}
-     * @throws NotFoundException if the assessment does not exist
      */
     public CalloutListResponse getCallouts(Long lndscpAssmtId) {
         log.debug("Fetching callouts for lndscp_assmt_id={}", lndscpAssmtId);
-        LandscapeAssmtRef assmt = getAssmtOrThrow(lndscpAssmtId);
-
-        CalloutDimensions dimensions = loadDimensions(assmt);
         List<OrlLndscpCallout> callouts =
                 calloutRepository.findByLndscpAssmtIdAndDelFlgFalseOrderById(lndscpAssmtId);
-
         log.info("Found {} active callout(s) for lndscp_assmt_id={}", callouts.size(), lndscpAssmtId);
-
         return CalloutListResponse.builder()
-                .dimensions(dimensions)
                 .callouts(callouts.stream().map(this::toResponse).toList())
                 .build();
     }
 
     /**
-     * Creates a new callout under the given landscape assessment after validating
-     * field values against the landscape dimensions.
+     * Creates a new callout under the given landscape assessment.
      *
      * @param lndscpAssmtId {@code orl_lndscp_assmt.id}
-     * @param req           request body
+     * @param req           request body (already Bean-Validated)
      * @param username      value from the {@code X-EGRC-UserId} header
-     * @throws NotFoundException   if the assessment does not exist
-     * @throws BadRequestException if field values are not in the allowed sets
+     * @throws NotFoundException if the assessment does not exist
      */
     public void createCallout(Long lndscpAssmtId, CalloutRequest req, String username) {
         log.debug("Creating callout for lndscp_assmt_id={} by '{}' (sme='{}')",
                 lndscpAssmtId, username, req.getSme());
-        LandscapeAssmtRef assmt = getAssmtOrThrow(lndscpAssmtId);
+        requireAssmtExists(lndscpAssmtId);
 
-        CalloutDimensions dims = loadDimensions(assmt);
-        validateRequest(req, dims);
-
-        String comment = truncate(req.getComment(), COMMENT_MAX_LEN);
         LocalDateTime now = LocalDateTime.now();
         OrlLndscpCallout callout = OrlLndscpCallout.builder()
                 .riskArea(req.getRiskArea())
                 .locations(toJsonArray(req.getLocations()))
                 .bizUnits(toJsonArray(req.getBizUnits()))
-                // AggregateReference models the FK to orl_lndscp_assmt (one-way)
                 .lndscpAssmtId(AggregateReference.to(lndscpAssmtId))
-                .comment(comment)
+                .comment(req.getComment())
                 .delFlg(false)
                 // On create the SME both owns and is the last modifier.
                 .sme(req.getSme())
@@ -132,83 +101,68 @@ public class LandscapeAssmtCalloutService {
                 .build();
 
         OrlLndscpCallout saved = calloutRepository.save(callout);
-        recordCommentHistory(saved.getId(), comment, req.getSme(), now);
+        recordCommentHistory(saved.getId(), req.getComment(), req.getSme(), now);
         log.info("Created callout id={} for lndscp_assmt_id={} by '{}'",
                 saved.getId(), lndscpAssmtId, username);
     }
 
     /**
-     * Updates the editable fields of an existing callout after re-validating against
-     * the landscape dimensions.
+     * Updates the editable fields of an existing callout via {@code save()}. The current SME is
+     * shifted into {@code LAST_MODIFIED_SME} and the request SME becomes the new owner.
      *
-     * @param lndscpAssmtId {@code orl_lndscp_assmt.id}
-     * @param calloutId     {@code orl_lndscp_callout.id}
-     * @param req           request body
-     * @param username      value from the {@code X-EGRC-UserId} header
-     * @throws NotFoundException   if the assessment or callout does not exist, or if the
-     *                             callout belongs to a different assessment
-     * @throws BadRequestException if field values are not in the allowed sets
+     * @throws NotFoundException if the assessment or callout does not exist, or the callout
+     *                           belongs to a different assessment
      */
     public void updateCallout(Long lndscpAssmtId, Long calloutId,
                               CalloutRequest req, String username) {
         log.debug("Updating callout id={} for lndscp_assmt_id={} by '{}' (sme='{}')",
                 calloutId, lndscpAssmtId, username, req.getSme());
-        LandscapeAssmtRef assmt = getAssmtOrThrow(lndscpAssmtId);
+        requireAssmtExists(lndscpAssmtId);
         OrlLndscpCallout existing = findCalloutForAssmt(calloutId, lndscpAssmtId);
 
-        CalloutDimensions dims = loadDimensions(assmt);
-        validateRequest(req, dims);
-
-        // SME shift: the callout's current SME becomes LAST_MODIFIED_SME and the request's
-        // sme becomes the new SME. Read the old value explicitly (from the loaded row) so the
-        // UPDATE has no ambiguous self-reference and behaves identically on MariaDB and H2.
         String oldSme = existing.getSme();
         String newSme = req.getSme();
-        String comment = truncate(req.getComment(), COMMENT_MAX_LEN);
         LocalDateTime now = LocalDateTime.now();
 
-        jdbcTemplate.update(
-                "UPDATE orl_lndscp_callout SET RISK_AREA=?, LOCATIONS=?, BIZ_UNITS=?, comment=?, "
-                        + "SME=?, LAST_MODIFIED_SME=?, UPDATE_DT_TM=? WHERE id=?",
-                req.getRiskArea(), toJsonArray(req.getLocations()), toJsonArray(req.getBizUnits()),
-                comment, newSme, oldSme, now, calloutId);
+        OrlLndscpCallout updated = existing.toBuilder()
+                .riskArea(req.getRiskArea())
+                .locations(toJsonArray(req.getLocations()))
+                .bizUnits(toJsonArray(req.getBizUnits()))
+                .comment(req.getComment())
+                .sme(newSme)
+                .lastModifiedSme(oldSme)
+                .updateDtTm(now)
+                .build();
+        calloutRepository.save(updated);
 
-        recordCommentHistory(calloutId, comment, newSme, now);
+        recordCommentHistory(calloutId, req.getComment(), newSme, now);
         log.info("Updated callout id={} for lndscp_assmt_id={} by '{}' (sme '{}' -> '{}')",
                 calloutId, lndscpAssmtId, username, oldSme, newSme);
     }
 
     /**
-     * Soft-deletes a callout by setting {@code DEL_FLG = TRUE}.
-     * The row is retained in the database but excluded from all future GET responses.
+     * Soft-deletes a callout by setting {@code DEL_FLG = TRUE} and saving it. The row is retained
+     * but excluded from all future active-callout queries.
      *
-     * @param lndscpAssmtId {@code orl_lndscp_assmt.id}
-     * @param calloutId     {@code orl_lndscp_callout.id}
-     * @throws NotFoundException if the assessment or callout does not exist, or if the
-     *                           callout belongs to a different assessment
+     * @throws NotFoundException if the assessment or callout does not exist, or the callout
+     *                           belongs to a different assessment
      */
     public void deleteCallout(Long lndscpAssmtId, Long calloutId) {
         log.debug("Soft-deleting callout id={} for lndscp_assmt_id={}", calloutId, lndscpAssmtId);
-        getAssmtOrThrow(lndscpAssmtId);
-        findCalloutForAssmt(calloutId, lndscpAssmtId);
+        requireAssmtExists(lndscpAssmtId);
+        OrlLndscpCallout existing = findCalloutForAssmt(calloutId, lndscpAssmtId);
 
-        jdbcTemplate.update("UPDATE orl_lndscp_callout SET DEL_FLG = TRUE WHERE id=?", calloutId);
+        calloutRepository.save(existing.toBuilder().delFlg(true).build());
         log.info("Soft-deleted callout id={} for lndscp_assmt_id={}", calloutId, lndscpAssmtId);
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────
 
-    /**
-     * Fetches the assessment reference ({@code id} + {@code LNDSCP_NUM}) or throws.
-     * Centralised here so every public method pays for exactly one assessment lookup.
-     * Uses the reference projection rather than {@code findById} so it never triggers the
-     * eager load of the assessment's {@code details} {@code MappedCollection} — the callout
-     * flow needs only the two reference columns, not every detail row.
-     */
-    private LandscapeAssmtRef getAssmtOrThrow(Long lndscpAssmtId) {
-        return assmtRepository.findRefById(lndscpAssmtId)
-                .orElseThrow(() -> new NotFoundException(
-                        "Landscape assessment not found for id: " + lndscpAssmtId));
+    /** Verifies the owning assessment exists without loading it (or its detail collection). */
+    private void requireAssmtExists(Long lndscpAssmtId) {
+        if (!assmtRepository.existsById(lndscpAssmtId)) {
+            throw new NotFoundException("Landscape assessment not found for id: " + lndscpAssmtId);
+        }
     }
 
     /**
@@ -219,46 +173,12 @@ public class LandscapeAssmtCalloutService {
         OrlLndscpCallout callout = calloutRepository.findById(calloutId)
                 .orElseThrow(() -> new NotFoundException("Callout not found for id: " + calloutId));
 
-        // AggregateReference wraps the FK — extract the Long id with getId()
         Long storedAssmtId = callout.getLndscpAssmtId().getId();
         if (!lndscpAssmtId.equals(storedAssmtId)) {
             throw new NotFoundException("Callout id " + calloutId
                     + " does not belong to assessment id " + lndscpAssmtId);
         }
         return callout;
-    }
-
-    /**
-     * Fetches the landscape dimension config for the given assessment and derives the
-     * allowed option sets for RISK_AREA, LOCATIONS, and BIZ_UNITS.
-     */
-    private CalloutDimensions loadDimensions(LandscapeAssmtRef assmt) {
-        Long dimId = assmt.lndscpNum();
-        OrlLndscpDim dim = dimRepository.findById(dimId)
-                .orElseThrow(() -> new NotFoundException(
-                        "No landscape config found for id: " + dimId));
-
-        List<String> riskAreaNames = riskAreaParser.riskAreaNames(dim.getRiskArea());
-        List<String> locations     = parseCsv(dim.getLocations());
-        List<String> bizUnits      = parseCsv(dim.getBizUnits());
-
-        // Append always-valid extra options per business rules
-        List<String> validRiskAreas = new ArrayList<>(riskAreaNames);
-        validRiskAreas.add(OTHERS);
-
-        List<String> validLocations = new ArrayList<>(locations);
-        validLocations.add(OTHERS);
-        validLocations.add(ALL);
-
-        List<String> validBizUnits = new ArrayList<>(bizUnits);
-        validBizUnits.add(OTHERS);
-        validBizUnits.add(ALL);
-
-        return CalloutDimensions.builder()
-                .validRiskAreas(validRiskAreas)
-                .validLocations(validLocations)
-                .validBizUnits(validBizUnits)
-                .build();
     }
 
     /** Inserts one append-only comment-history row for the given callout. */
@@ -270,48 +190,6 @@ public class LandscapeAssmtCalloutService {
                 .createDtTm(when)
                 .build());
         log.debug("Recorded comment history for callout id={} (sme='{}')", calloutId, sme);
-    }
-
-    /**
-     * Validates RISK_AREA (single value) and the list fields LOCATIONS and BIZ_UNITS
-     * against the allowed sets derived from the landscape dimension config.
-     *
-     * @throws BadRequestException listing all invalid values found (collected, not fail-fast)
-     */
-    private void validateRequest(CalloutRequest req, CalloutDimensions dims) {
-        List<String> errors = new ArrayList<>();
-
-        if (!dims.getValidRiskAreas().contains(req.getRiskArea())) {
-            errors.add("RISK_AREA '" + req.getRiskArea() + "' is not valid. Allowed: "
-                    + dims.getValidRiskAreas());
-        }
-
-        validateListField("LOCATIONS", req.getLocations(), dims.getValidLocations(), errors);
-        validateListField("BIZ_UNITS",  req.getBizUnits(),  dims.getValidBizUnits(),  errors);
-
-        if (!errors.isEmpty()) {
-            throw new BadRequestException(String.join("; ", errors));
-        }
-    }
-
-    private void validateListField(String fieldName, List<String> values,
-                                   List<String> validValues, List<String> errors) {
-        if (values == null || values.isEmpty()) {
-            errors.add(fieldName + " must contain at least one value.");
-            return;
-        }
-        boolean hasAtLeastOne = false;
-        for (String value : values) {
-            String v = value == null ? "" : value.trim();
-            if (v.isEmpty()) continue;
-            hasAtLeastOne = true;
-            if (!validValues.contains(v)) {
-                errors.add(fieldName + " value '" + v + "' is not valid. Allowed: " + validValues);
-            }
-        }
-        if (!hasAtLeastOne) {
-            errors.add(fieldName + " must contain at least one non-blank value.");
-        }
     }
 
     /** Serialises a string list to a JSON array string for storage, e.g. {@code ["SG","HK"]}. */
@@ -326,26 +204,15 @@ public class LandscapeAssmtCalloutService {
 
     /** Parses a stored JSON array string back to a string list; empty list on null/blank/parse error. */
     private List<String> parseJsonArray(String json) {
-        if (json == null || json.isBlank()) return Collections.emptyList();
+        if (json == null || json.isBlank()) {
+            return Collections.emptyList();
+        }
         try {
             return MAPPER.readValue(json, new TypeReference<List<String>>() {});
         } catch (JsonProcessingException e) {
             log.warn("Failed to parse JSON array '{}': {}", json, e.getMessage());
             return Collections.emptyList();
         }
-    }
-
-    private List<String> parseCsv(String raw) {
-        if (raw == null || raw.isBlank()) return Collections.emptyList();
-        return Arrays.stream(raw.split(","))
-                .map(String::trim)
-                .filter(s -> !s.isEmpty())
-                .toList();
-    }
-
-    private String truncate(String value, int maxLen) {
-        if (value == null) return null;
-        return value.length() > maxLen ? value.substring(0, maxLen) : value;
     }
 
     private CalloutResponse toResponse(OrlLndscpCallout c) {

@@ -37,7 +37,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @ActiveProfiles("test")
 class LandscapeAssmtDetailsControllerTest {
 
-    private static final String URL_TPL = "/landscape/{id}/assessments";
+    private static final String URL_TPL = "/landscape/assessments/{id}";
 
     @Autowired MockMvc mvc;
     @Autowired JdbcTemplate jdbc;
@@ -160,7 +160,7 @@ class LandscapeAssmtDetailsControllerTest {
 
     @Test
     void nonNumericPathParam_returns400() throws Exception {
-        mvc.perform(get("/landscape/abc/assessments").header("X-EGRC-UserId", "tester"))
+        mvc.perform(get("/landscape/assessments/abc").header("X-EGRC-UserId", "tester"))
            .andExpect(status().isBadRequest())
            .andExpect(jsonPath("$.message", containsString("abc")));
     }
@@ -230,14 +230,17 @@ class LandscapeAssmtDetailsControllerTest {
            .andExpect(jsonPath("$.data.lndscpLastModifiedBy", is("editor")));
     }
 
-    // ── dimensions moved to the dedicated /dimensions endpoint ────────────────
+    // ── embedded dimensions + callouts ─────────────────────────────────────────
 
     @Test
-    void assessmentsResponse_noLongerContainsDimensions() throws Exception {
-        // Landscape-config dimensions are now served by GET /{lndscpAssmtId}/dimensions.
+    void assessmentsResponse_embedsDimensionsAndCallouts() throws Exception {
+        // Dimensions and callouts are now returned inline with the assessment details.
         mvc.perform(get(URL_TPL, 5).header("X-EGRC-UserId", "tester"))
            .andExpect(status().isOk())
-           .andExpect(jsonPath("$.data.dimensions").doesNotExist());
+           .andExpect(jsonPath("$.data.dimensions").exists())
+           .andExpect(jsonPath("$.data.dimensions.riskAreas").exists())
+           .andExpect(jsonPath("$.data.callouts").exists())
+           .andExpect(jsonPath("$.data.callouts.callouts").isArray());
     }
 
     // ── assessments array ─────────────────────────────────────────────────────

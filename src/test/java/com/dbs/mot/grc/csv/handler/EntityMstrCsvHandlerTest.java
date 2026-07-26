@@ -21,8 +21,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest @AutoConfigureMockMvc @ActiveProfiles("test")
 class EntityMstrCsvHandlerTest {
 
-    private static final String UPLOAD   = "/api/csv/entity-mstr/upload";
-    private static final String DOWNLOAD = "/api/csv/entity-mstr/download";
+    private static final String UPLOAD   = "/api/orl-configurations/entity-mstr/upload";
+    private static final String DOWNLOAD = "/api/orl-configurations/entity-mstr/download";
 
     @Autowired MockMvc mvc;
     @Autowired JdbcTemplate jdbc;

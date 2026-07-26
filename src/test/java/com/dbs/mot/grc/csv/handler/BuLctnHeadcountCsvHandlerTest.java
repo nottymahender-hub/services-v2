@@ -33,8 +33,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest @AutoConfigureMockMvc @ActiveProfiles("test")
 class BuLctnHeadcountCsvHandlerTest {
 
-    private static final String UPLOAD   = "/api/csv/bu-loctn-headcount/upload";
-    private static final String DOWNLOAD = "/api/csv/bu-loctn-headcount/download";
+    private static final String UPLOAD   = "/api/orl-configurations/bu-loctn-headcount/upload";
+    private static final String DOWNLOAD = "/api/orl-configurations/bu-loctn-headcount/download";
 
     @Autowired MockMvc mvc;
     @Autowired JdbcTemplate jdbc;

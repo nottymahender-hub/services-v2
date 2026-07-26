@@ -30,7 +30,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @ActiveProfiles("test")
 class LandscapeAssmtControllerTest {
 
-    private static final String URL = "/landscapes";
+    private static final String URL = "/landscape/assessments";
 
     @Autowired MockMvc mvc;
     @Autowired JdbcTemplate jdbc;

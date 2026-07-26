@@ -31,23 +31,6 @@ public interface FactOrlRepository extends CrudRepository<FactOrl, Long> {
                                               @Param("l2") String l2, @Param("l3") String l3,
                                               @Param("l4") String l4, @Param("location") String location);
 
-    /**
-     * The live snapshot row for a dimension key: the row whose {@code biz_dt} equals the MAX
-     * {@code biz_dt} for that dimension. Uses an equality-on-max subquery (indexed lookup) rather
-     * than {@code ORDER BY biz_dt DESC LIMIT 1} to avoid sorting the dimension's rows.
-     */
-    @Query("""
-            SELECT * FROM fact_orl
-            WHERE biz_dt = (SELECT MAX(biz_dt) FROM fact_orl
-                            WHERE RISK_AREA = :riskArea AND ORL_BU_NM_L2 = :l2 AND ORL_BU_NM_L3 = :l3
-                              AND ORL_BU_NM_L4 = :l4 AND LOCATION = :location)
-              AND RISK_AREA = :riskArea AND ORL_BU_NM_L2 = :l2 AND ORL_BU_NM_L3 = :l3
-              AND ORL_BU_NM_L4 = :l4 AND LOCATION = :location
-            """)
-    Optional<FactOrl> findLatestByDimension(@Param("riskArea") String riskArea,
-                                            @Param("l2") String l2, @Param("l3") String l3,
-                                            @Param("l4") String l4, @Param("location") String location);
-
     /** The latest business date present in {@code fact_orl}, or {@code null} when the table is empty. */
     @Query("SELECT MAX(biz_dt) FROM fact_orl")
     LocalDate findMaxBizDt();

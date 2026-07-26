@@ -31,7 +31,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @ActiveProfiles("test")
 class AssmtDetailSaveControllerTest {
 
-    private static final String URL = "/landscape/{assmtId}/{detailId}/save";
+    private static final String URL = "/landscape/assessment/{assmtId}/assessmentDetail/{detailId}/overlay";
     private static final String USER = "tester";
 
     @Autowired MockMvc mvc;

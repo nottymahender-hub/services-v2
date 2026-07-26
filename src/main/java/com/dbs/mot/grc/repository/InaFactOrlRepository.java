@@ -24,16 +24,4 @@ public interface InaFactOrlRepository extends CrudRepository<InaFactOrl, Long> {
                                                  @Param("riskArea") String riskArea,
                                                  @Param("l2") String l2, @Param("l3") String l3,
                                                  @Param("l4") String l4, @Param("location") String location);
-
-    @Query("""
-            SELECT * FROM ina_fact_orl
-            WHERE biz_dt = (SELECT MAX(biz_dt) FROM ina_fact_orl
-                            WHERE RISK_AREA = :riskArea AND ORL_BU_NM_L2 = :l2 AND ORL_BU_NM_L3 = :l3
-                              AND ORL_BU_NM_L4 = :l4 AND LOCATION = :location)
-              AND RISK_AREA = :riskArea AND ORL_BU_NM_L2 = :l2 AND ORL_BU_NM_L3 = :l3
-              AND ORL_BU_NM_L4 = :l4 AND LOCATION = :location
-            """)
-    Optional<InaFactOrl> findLatestByDimension(@Param("riskArea") String riskArea,
-                                               @Param("l2") String l2, @Param("l3") String l3,
-                                               @Param("l4") String l4, @Param("location") String location);
 }

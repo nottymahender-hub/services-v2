@@ -2,9 +2,7 @@ package com.dbs.mot.grc.service;
 
 import com.dbs.mot.grc.dto.LandscapeAssmtProjection;
 import com.dbs.mot.grc.dto.LandscapeAssmtSummary;
-import com.dbs.mot.grc.entity.OrlLndscpDim;
 import com.dbs.mot.grc.repository.OrlLndscpAssmtRepository;
-import com.dbs.mot.grc.repository.OrlLndscpDimRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -12,19 +10,15 @@ import org.springframework.stereotype.Service;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
-import java.util.Map;
-import java.util.function.Function;
-import java.util.stream.Collectors;
-import java.util.stream.StreamSupport;
 
 /**
  * Read logic for the landscape assessment listing API.
  *
- * <p>Issues two plain queries — a summary projection ({@link OrlLndscpAssmtRepository#findAllSummaries()})
- * and a full {@code findAll()} of configs — and merges them in memory (fixed 2-query cost, no join,
- * no N+1). The projection is used instead of the {@code OrlLndscpAssmt} entity so Spring Data JDBC
- * does not eagerly load each assessment's detail {@code MappedCollection}. Ordering (most recently
- * modified first) is done in SQL.
+ * <p>Issues a <em>single</em> query: {@link OrlLndscpAssmtRepository#findAllSummaries()} joins each
+ * assessment to its parent {@code orl_lndscp_dim} to carry the landscape name, ordered
+ * most-recently-modified first. Using the projection (rather than the {@code OrlLndscpAssmt} entity)
+ * avoids eagerly loading each assessment's detail {@code MappedCollection}, and the join avoids a
+ * second full load of every landscape config.
  */
 @Slf4j
 @Service
@@ -35,7 +29,6 @@ public class LandscapeAssmtService {
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     private final OrlLndscpAssmtRepository assmtRepository;
-    private final OrlLndscpDimRepository   dimRepository;
 
     /**
      * Returns all landscape assessments enriched with the landscape name, ordered by last
@@ -44,30 +37,23 @@ public class LandscapeAssmtService {
      * @return list of summaries; empty list when no assessments exist
      */
     public List<LandscapeAssmtSummary> fetchAll() {
-        log.debug("Fetching landscape assessment summaries and landscape configs");
+        log.debug("Fetching landscape assessment summaries (joined with landscape configs)");
 
-        List<LandscapeAssmtProjection> assmts = assmtRepository.findAllSummaries();
-        Map<Long, OrlLndscpDim> dimsById = StreamSupport
-                .stream(dimRepository.findAll().spliterator(), false)
-                .collect(Collectors.toMap(OrlLndscpDim::getId, Function.identity()));
-
-        log.debug("Fetched {} assessment(s) and {} landscape config(s)", assmts.size(), dimsById.size());
-
-        List<LandscapeAssmtSummary> summaries = assmts.stream()
-                .map(assmt -> toSummary(assmt, dimsById.get(assmt.lndscpNum())))
+        List<LandscapeAssmtSummary> summaries = assmtRepository.findAllSummaries().stream()
+                .map(this::toSummary)
                 .toList();
 
         log.info("Returning {} landscape assessment summary(ies)", summaries.size());
         return summaries;
     }
 
-    private LandscapeAssmtSummary toSummary(LandscapeAssmtProjection assmt, OrlLndscpDim dim) {
+    private LandscapeAssmtSummary toSummary(LandscapeAssmtProjection assmt) {
         LocalDateTime lastModifiedOn = assmt.updateDtTm() != null ? assmt.updateDtTm() : assmt.createDtTm();
         String lastModifiedBy = assmt.updatedBy() != null ? assmt.updatedBy() : assmt.createdBy();
 
         return LandscapeAssmtSummary.builder()
                 .landscapeAssmtId(assmt.id())
-                .landscapeName(dim != null ? dim.getLndscpNm() : null)
+                .landscapeName(assmt.landscapeName())
                 .assessmentPeriod(assmt.assmtPeriod())
                 .lastModifiedOn(format(lastModifiedOn))
                 .lastModifiedBy(lastModifiedBy)

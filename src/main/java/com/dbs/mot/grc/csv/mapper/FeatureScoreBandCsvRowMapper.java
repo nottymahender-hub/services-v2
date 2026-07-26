@@ -1,9 +1,9 @@
 package com.dbs.mot.grc.csv.mapper;
 
-import com.dbs.mot.grc.common.csv.AbstractCsvRowMapper;
-import com.dbs.mot.grc.common.dto.ValidationErrorDetail;
-import com.dbs.mot.grc.common.util.ModuleConstants;
-import com.dbs.mot.grc.common.util.RangeSentinels;
+import com.dbs.mot.grc.csv.AbstractCsvRowMapper;
+import com.dbs.mot.grc.dto.ValidationErrorDetail;
+import com.dbs.mot.grc.util.ModuleConstants;
+import com.dbs.mot.grc.util.RangeSentinels;
 import com.dbs.mot.grc.dto.FeatureScoreBandCsvRow;
 import org.springframework.stereotype.Component;
 

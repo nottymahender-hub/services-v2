@@ -1,6 +1,6 @@
 package com.dbs.mot.grc.csv.validator;
 
-import com.dbs.mot.grc.common.dto.ValidationErrorDetail;
+import com.dbs.mot.grc.dto.ValidationErrorDetail;
 import com.dbs.mot.grc.dto.OrlLndscpDimCsvRow;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -18,7 +18,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Integration tests for {@link OrlLndscpDimCsvRowValidator}.
  *
  * <p>RISK_AREA is a grouped JSON array validated for structure (see
- * {@link com.dbs.mot.grc.common.util.RiskAreaParser}); risk area names must be unique
+ * {@link com.dbs.mot.grc.util.RiskAreaParser}); risk area names must be unique
  * across the document and each must map to a non-empty list of risk clusters.
  */
 @SpringBootTest

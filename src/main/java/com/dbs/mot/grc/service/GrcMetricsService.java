@@ -1,6 +1,6 @@
 package com.dbs.mot.grc.service;
 
-import com.dbs.mot.grc.common.enums.PersistableEnum;
+import com.dbs.mot.grc.enums.PersistableEnum;
 import com.dbs.mot.grc.dto.DimensionKey;
 import com.dbs.mot.grc.entity.ModuleFact;
 import com.dbs.mot.grc.repository.IncFactOrlRepository;
@@ -16,7 +16,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.BiFunction;
-import java.util.function.Function;
 
 /**
  * Assembles the per-module GRC metrics block for a dimension, sourced from the module snapshot
@@ -50,28 +49,22 @@ public class GrcMetricsService {
         this.moduleSources = List.of(
                 new ModuleSource("RCSA",
                         (bizDt, key) -> rcsaRepository.findByBizDtAndDimension(bizDt, key.riskArea(),
-                                key.orlBuNmL2(), key.orlBuNmL3(), key.orlBuNmL4(), key.location()),
-                        key -> rcsaRepository.findLatestByDimension(key.riskArea(),
                                 key.orlBuNmL2(), key.orlBuNmL3(), key.orlBuNmL4(), key.location())),
                 new ModuleSource("INC",
                         (bizDt, key) -> incRepository.findByBizDtAndDimension(bizDt, key.riskArea(),
-                                key.orlBuNmL2(), key.orlBuNmL3(), key.orlBuNmL4(), key.location()),
-                        key -> incRepository.findLatestByDimension(key.riskArea(),
                                 key.orlBuNmL2(), key.orlBuNmL3(), key.orlBuNmL4(), key.location())),
                 new ModuleSource("INA",
                         (bizDt, key) -> inaRepository.findByBizDtAndDimension(bizDt, key.riskArea(),
-                                key.orlBuNmL2(), key.orlBuNmL3(), key.orlBuNmL4(), key.location()),
-                        key -> inaRepository.findLatestByDimension(key.riskArea(),
                                 key.orlBuNmL2(), key.orlBuNmL3(), key.orlBuNmL4(), key.location())),
                 new ModuleSource("KRI",
                         (bizDt, key) -> kriRepository.findByBizDtAndDimension(bizDt, key.riskArea(),
-                                key.orlBuNmL2(), key.orlBuNmL3(), key.orlBuNmL4(), key.location()),
-                        key -> kriRepository.findLatestByDimension(key.riskArea(),
                                 key.orlBuNmL2(), key.orlBuNmL3(), key.orlBuNmL4(), key.location())));
     }
 
     /**
-     * GRC metrics for a specific business date and dimension (used for the current/previous month).
+     * GRC metrics for a specific business date and dimension. Used for the current, previous and
+     * live snapshots alike — the caller passes the relevant business date (the assessment's own
+     * {@code biz_dt} for current/previous, or the latest {@code fact_orl.biz_dt} for live).
      *
      * @param bizDt the business date to match; when {@code null} no lookup is attempted and every
      *              module maps to {@code null}
@@ -80,44 +73,15 @@ public class GrcMetricsService {
      */
     public Map<String, Object> forBizDate(LocalDate bizDt, DimensionKey key) {
         log.debug("Assembling GRC metrics for biz_dt={} key={}", bizDt, key);
-        if (bizDt == null) {
-            log.debug("No business date supplied; returning all-null GRC metrics for key={}", key);
-            return emptyMetrics();
-        }
-        Map<String, Object> metrics = assemble(source -> source.byBizDt().apply(bizDt, key));
-        logAssembled(metrics, "biz_dt=" + bizDt);
-        return metrics;
-    }
-
-    /**
-     * Live GRC metrics: each module's most recent row for the dimension (independent latest per
-     * module).
-     *
-     * @param key the assessment dimension to match
-     * @return ordered module→block map containing all four modules, each block possibly {@code null}
-     */
-    public Map<String, Object> live(DimensionKey key) {
-        log.debug("Assembling live GRC metrics for key={}", key);
-        Map<String, Object> metrics = assemble(source -> source.latest().apply(key));
-        logAssembled(metrics, "live key=" + key);
-        return metrics;
-    }
-
-    /**
-     * Runs {@code lookup} for every module in declaration order and maps each to its block, or to
-     * {@code null} when the module has no matching row.
-     */
-    private Map<String, Object> assemble(Function<ModuleSource, Optional<? extends ModuleFact>> lookup) {
         Map<String, Object> metrics = new LinkedHashMap<>();
         for (ModuleSource source : moduleSources) {
-            metrics.put(source.moduleKey(), lookup.apply(source).map(this::toBlock).orElse(null));
+            Optional<? extends ModuleFact> fact = bizDt == null
+                    ? Optional.empty()
+                    : source.byBizDt().apply(bizDt, key);
+            metrics.put(source.moduleKey(), fact.map(this::toBlock).orElse(null));
         }
+        logAssembled(metrics, "biz_dt=" + bizDt);
         return metrics;
-    }
-
-    /** All four module keys mapped to {@code null} — used when no lookup can be performed. */
-    private Map<String, Object> emptyMetrics() {
-        return assemble(source -> Optional.empty());
     }
 
     /** Builds one module's block: its ratings followed by the module-specific metric fields. */
@@ -143,15 +107,13 @@ public class GrcMetricsService {
     }
 
     /**
-     * One module's identity and its two lookup strategies.
+     * One module's identity and its lookup by exact business date + dimension.
      *
      * @param moduleKey the JSON key for the module, e.g. {@code "RCSA"}
      * @param byBizDt   finds the module's row for an exact business date + dimension
-     * @param latest    finds the module's most recent row for a dimension
      */
     private record ModuleSource(
             String moduleKey,
-            BiFunction<LocalDate, DimensionKey, Optional<? extends ModuleFact>> byBizDt,
-            Function<DimensionKey, Optional<? extends ModuleFact>> latest) {
+            BiFunction<LocalDate, DimensionKey, Optional<? extends ModuleFact>> byBizDt) {
     }
 }

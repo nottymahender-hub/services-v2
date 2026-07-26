@@ -31,7 +31,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @ActiveProfiles("test")
 class AssmtDimensionsControllerTest {
 
-    private static final String URL_TPL = "/landscape/{id}/dimensions";
+    private static final String URL_TPL = "/landscape/assessments/{id}";
 
     @Autowired MockMvc mvc;
     @Autowired JdbcTemplate jdbc;
@@ -58,8 +58,8 @@ class AssmtDimensionsControllerTest {
                     NULL,3,'IN','seed')
                 """);
 
-        jdbc.execute("INSERT INTO orl_lndscp_assmt(id,LNDSCP_NUM,ASSEMT_PERIOD,status,CREATED_BY) VALUES(5,1,'Q1-2024','Open','seed')");
-        jdbc.execute("INSERT INTO orl_lndscp_assmt(id,LNDSCP_NUM,ASSEMT_PERIOD,status,CREATED_BY) VALUES(7,2,'Q1-2024','Open','seed')");
+        jdbc.execute("INSERT INTO orl_lndscp_assmt(id,LNDSCP_NUM,ASSEMT_PERIOD,biz_dt,status,CREATED_BY) VALUES(5,1,'Q1-2024',DATE '2024-01-31','Open','seed')");
+        jdbc.execute("INSERT INTO orl_lndscp_assmt(id,LNDSCP_NUM,ASSEMT_PERIOD,biz_dt,status,CREATED_BY) VALUES(7,2,'Q1-2024',DATE '2024-01-31','Open','seed')");
     }
 
     // ── Authentication / validation ────────────────────────────────────────────
@@ -73,7 +73,7 @@ class AssmtDimensionsControllerTest {
 
     @Test
     void nonNumericPathParam_returns400() throws Exception {
-        mvc.perform(get("/landscape/abc/dimensions").header("X-EGRC-UserId", "tester"))
+        mvc.perform(get("/landscape/assessments/abc").header("X-EGRC-UserId", "tester"))
            .andExpect(status().isBadRequest())
            .andExpect(jsonPath("$.message", containsString("abc")));
     }
@@ -92,18 +92,18 @@ class AssmtDimensionsControllerTest {
     void dimensions_riskAreas_returnFlatMapAndUniqueClusters() throws Exception {
         mvc.perform(get(URL_TPL, 5).header("X-EGRC-UserId", "tester"))
            .andExpect(status().isOk())
-           .andExpect(jsonPath("$.data.riskAreas").isMap())
-           .andExpect(jsonPath("$.data.riskAreas['Cyber Risk']", contains("OR")))
-           .andExpect(jsonPath("$.data.riskAreas['Conduct Risk']", contains("CR")))
-           .andExpect(jsonPath("$.data.riskClusters", containsInAnyOrder("OR", "CR")));
+           .andExpect(jsonPath("$.data.dimensions.riskAreas").isMap())
+           .andExpect(jsonPath("$.data.dimensions.riskAreas['Cyber Risk']", contains("OR")))
+           .andExpect(jsonPath("$.data.dimensions.riskAreas['Conduct Risk']", contains("CR")))
+           .andExpect(jsonPath("$.data.dimensions.riskClusters", containsInAnyOrder("OR", "CR")));
     }
 
     @Test
     void dimensions_riskAreas_forDim2() throws Exception {
         mvc.perform(get(URL_TPL, 7).header("X-EGRC-UserId", "tester"))
            .andExpect(status().isOk())
-           .andExpect(jsonPath("$.data.riskAreas['Operational Risk']", contains("OR")))
-           .andExpect(jsonPath("$.data.riskClusters", contains("OR")));
+           .andExpect(jsonPath("$.data.dimensions.riskAreas['Operational Risk']", contains("OR")))
+           .andExpect(jsonPath("$.data.dimensions.riskClusters", contains("OR")));
     }
 
     // ── buDetails ──────────────────────────────────────────────────────────────
@@ -112,17 +112,17 @@ class AssmtDimensionsControllerTest {
     void dimensions_buDetails_containsLvlAndBizUnits() throws Exception {
         mvc.perform(get(URL_TPL, 5).header("X-EGRC-UserId", "tester"))
            .andExpect(status().isOk())
-           .andExpect(jsonPath("$.data.buDetails.lvl", is(2)))
-           .andExpect(jsonPath("$.data.buDetails.bizUnits", hasSize(2)))
-           .andExpect(jsonPath("$.data.buDetails.bizUnits", hasItems("Tech", "Ops")));
+           .andExpect(jsonPath("$.data.dimensions.buDetails.lvl", is(2)))
+           .andExpect(jsonPath("$.data.dimensions.buDetails.bizUnits", hasSize(2)))
+           .andExpect(jsonPath("$.data.dimensions.buDetails.bizUnits", hasItems("Tech", "Ops")));
     }
 
     @Test
     void dimensions_buDetails_bizUnits_nullWhenDimHasNullBizUnits() throws Exception {
         mvc.perform(get(URL_TPL, 7).header("X-EGRC-UserId", "tester"))
            .andExpect(status().isOk())
-           .andExpect(jsonPath("$.data.buDetails.lvl", is(3)))
-           .andExpect(jsonPath("$.data.buDetails.bizUnits").value(nullValue()));
+           .andExpect(jsonPath("$.data.dimensions.buDetails.lvl", is(3)))
+           .andExpect(jsonPath("$.data.dimensions.buDetails.bizUnits").value(nullValue()));
     }
 
     // ── locations ──────────────────────────────────────────────────────────────
@@ -131,16 +131,16 @@ class AssmtDimensionsControllerTest {
     void dimensions_locations_isArray_withAllValues() throws Exception {
         mvc.perform(get(URL_TPL, 5).header("X-EGRC-UserId", "tester"))
            .andExpect(status().isOk())
-           .andExpect(jsonPath("$.data.locations", hasSize(2)))
-           .andExpect(jsonPath("$.data.locations", hasItems("SG", "HK")));
+           .andExpect(jsonPath("$.data.dimensions.locations", hasSize(2)))
+           .andExpect(jsonPath("$.data.dimensions.locations", hasItems("SG", "HK")));
     }
 
     @Test
     void dimensions_locations_singleValue_returnedAsArray() throws Exception {
         mvc.perform(get(URL_TPL, 7).header("X-EGRC-UserId", "tester"))
            .andExpect(status().isOk())
-           .andExpect(jsonPath("$.data.locations", hasSize(1)))
-           .andExpect(jsonPath("$.data.locations[0]", is("IN")));
+           .andExpect(jsonPath("$.data.dimensions.locations", hasSize(1)))
+           .andExpect(jsonPath("$.data.dimensions.locations[0]", is("IN")));
     }
 
     // ── message ──────────────────────────────────────────────────────────────

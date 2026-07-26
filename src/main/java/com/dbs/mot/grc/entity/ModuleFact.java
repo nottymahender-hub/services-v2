@@ -1,7 +1,7 @@
 package com.dbs.mot.grc.entity;
 
-import com.dbs.mot.grc.common.enums.NetRiskRating;
-import com.dbs.mot.grc.common.enums.RiskRatingChange;
+import com.dbs.mot.grc.enums.NetRiskRating;
+import com.dbs.mot.grc.enums.RiskRatingChange;
 
 import java.util.Map;
 

@@ -9,17 +9,15 @@ import java.util.List;
 /**
  * Spring Data JDBC repository for {@code orl_lndscp_callout}.
  *
- * <p>Soft-deleted rows ({@code DEL_FLG = TRUE}) are excluded from active queries.
- * Hard updates and soft-deletes are performed via {@code JdbcTemplate} in the service layer
- * (Spring Data JDBC's {@code save()} always issues a full-row REPLACE, which is wasteful
- * for single-field updates).
+ * <p>Soft-deleted rows ({@code DEL_FLG = TRUE}) are excluded from active queries. Updates and
+ * soft-deletes go through {@code save()} in the service — the entity has no child collection, so
+ * {@code save()} is a plain single-row update.
  */
 @Repository
 public interface OrlLndscpCalloutRepository extends CrudRepository<OrlLndscpCallout, Long> {
 
     /**
      * Returns all non-deleted callouts for the given assessment, ordered by id.
-     * Plain derived query — no hand-written SQL.
      *
      * @param lndscpAssmtId {@code orl_lndscp_assmt.id}
      */

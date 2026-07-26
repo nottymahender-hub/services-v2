@@ -1,6 +1,6 @@
 package com.dbs.mot.grc.entity;
 
-import com.dbs.mot.grc.common.enums.AssmtStatus;
+import com.dbs.mot.grc.enums.AssmtStatus;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -31,9 +31,9 @@ import java.util.Set;
  * {@code save()} on an <em>existing</em> assessment rewrites its children
  * (delete + reinsert). Only use {@code save()} for fresh inserts (as assessment
  * generation does); update individual detail/assessment fields via targeted
- * {@code JdbcTemplate} statements. Callers that only need existence + the landscape FK
- * should use the reference projection ({@code findRefById}) to avoid loading the
- * collection at all.
+ * {@code @Modifying @Query} repository methods. Callers that only need existence should use
+ * {@code existsById}, and the drill-down uses the {@code findHeaderById} projection, so the
+ * detail collection is loaded only by the listing endpoint that actually returns every row.
  */
 @Table("orl_lndscp_assmt")
 @Getter

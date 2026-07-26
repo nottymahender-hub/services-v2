@@ -14,8 +14,6 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.List;
 
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.is;
@@ -26,7 +24,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 /**
  * Integration tests for the orl_lndscp_dim CSV upload/download endpoints.
  *
- * <p>RISK_AREA is a grouped JSON array (see {@link com.dbs.mot.grc.common.util.RiskAreaParser}),
+ * <p>RISK_AREA is a grouped JSON array (see {@link com.dbs.mot.grc.util.RiskAreaParser}),
  * normalised to compact JSON on store. BU hierarchy max level = 4, so valid BIZ_UNIT_LVL
  * values are 2 and 3. EFFECT_END_DT is a required CSV column.
  */
@@ -35,12 +33,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @ActiveProfiles("test")
 class OrlLndscpDimCsvHandlerTest {
 
-    private static final String UPLOAD   = "/api/csv/lndscp-dim/upload";
-    private static final String DOWNLOAD = "/api/csv/lndscp-dim/download";
+    private static final String UPLOAD   = "/api/orl-configurations/lndscp-dim/upload";
+    private static final String DOWNLOAD = "/api/orl-configurations/lndscp-dim/download";
 
     @Autowired MockMvc mvc;
     @Autowired JdbcTemplate jdbc;
-    @Autowired OrlLndscpDimCsvHandler handler;
 
     @BeforeEach
     void setUp() {
@@ -93,35 +90,20 @@ class OrlLndscpDimCsvHandlerTest {
         assert count != null && count == 3;
     }
 
-    // ── resolveVersion: the IN-list is bound as one named collection parameter ──────
+    // ── Version resolution via the repository IN(:configIds) query ─────────────
 
-    @Test void resolveVersion_isOne_whenNoConfigIdsSupplied() {
-        assert handler.resolveVersion(List.of()) == 1;
-        assert handler.resolveVersion(null) == 1;
-    }
-
-    @Test void resolveVersion_isOne_whenConfigIdIsUnknown() {
-        assert handler.resolveVersion(List.of("NOT-STORED")) == 1;
-    }
-
-    @Test void resolveVersion_usesHighestVersionAcrossAllSuppliedConfigIds() throws Exception {
-        // Two uploads leave CONFIG_IDs of the sample file at VERSION 2.
+    @Test void upload_reupload_bumpsVersionUsingMaxAcrossConfigIds() throws Exception {
+        // Two uploads of the same CONFIG_IDs: the second resolves VERSION = MAX + 1 = 2.
         mvc.perform(multipart(UPLOAD).file(valid()).header("X-EGRC-UserId", "user1"))
            .andExpect(status().isCreated());
         mvc.perform(multipart(UPLOAD).file(valid()).header("X-EGRC-UserId", "user1"))
            .andExpect(status().isCreated());
 
-        List<String> storedIds = jdbc.queryForList(
-                "SELECT DISTINCT CONFIG_ID FROM orl_lndscp_dim", String.class);
-        assert storedIds.size() > 1 : "expected a multi-value IN list, got " + storedIds;
-
-        // A single id, and the whole set, must both resolve to one above the stored max.
-        assert handler.resolveVersion(storedIds) == 3;
-        assert handler.resolveVersion(List.of(storedIds.get(0))) == 3;
-        // An unknown id mixed in must not lower the result.
-        List<String> withUnknown = new ArrayList<>(storedIds);
-        withUnknown.add("NOT-STORED");
-        assert handler.resolveVersion(withUnknown) == 3;
+        Integer maxVersion = jdbc.queryForObject("SELECT MAX(VERSION) FROM orl_lndscp_dim", Integer.class);
+        assert maxVersion != null && maxVersion == 2 : "expected VERSION bumped to 2, got " + maxVersion;
+        Integer v2Rows = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM orl_lndscp_dim WHERE VERSION = 2", Integer.class);
+        assert v2Rows != null && v2Rows == 3 : "expected 3 rows at VERSION 2, got " + v2Rows;
     }
 
     @Test void upload_setsVersionToOne_firstUpload() throws Exception {

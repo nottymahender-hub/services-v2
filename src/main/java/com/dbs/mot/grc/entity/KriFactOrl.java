@@ -2,6 +2,7 @@ package com.dbs.mot.grc.entity;
 
 import com.dbs.mot.grc.enums.NetRiskRating;
 import com.dbs.mot.grc.enums.RiskRatingChange;
+import com.dbs.mot.grc.util.Percentages;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -10,8 +11,6 @@ import org.springframework.data.annotation.Id;
 import org.springframework.data.relational.core.mapping.Column;
 import org.springframework.data.relational.core.mapping.Table;
 
-import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -21,7 +20,8 @@ import java.util.Map;
  * {@code biz_dt} + the shared dimension columns (same key as {@code fact_orl}).
  *
  * <p>{@code KRI_RED_PROP} and {@code KRI_GREEN_PROP} are not stored columns — they are derived
- * from the red/green counts over the active count (see {@link #metrics()}).
+ * from the red/green counts over the active count and returned as <strong>percentages</strong>
+ * (0..100, 2 decimal places), e.g. 2 red of 4 active → {@code 50.00} (see {@link #metrics()}).
  */
 @Table("kri_fact_orl")
 @Getter
@@ -29,9 +29,6 @@ import java.util.Map;
 @NoArgsConstructor
 @AllArgsConstructor
 public class KriFactOrl implements ModuleFact {
-
-    /** Scale used for the derived KRI proportions. */
-    private static final int PROPORTION_SCALE = 6;
 
     @Id
     @Column("ID")
@@ -83,17 +80,10 @@ public class KriFactOrl implements ModuleFact {
         m.put("KRI_RED_CNT", kriRedCnt);
         m.put("KRI_AMBER_CNT", kriAmberCnt);
         m.put("KRI_GREEN_CNT", kriGreenCnt);
-        m.put("KRI_RED_PROP", proportion(kriRedCnt, kriActiveCnt));
-        m.put("KRI_GREEN_PROP", proportion(kriGreenCnt, kriActiveCnt));
+        // Proportions are surfaced as percentages (count / active × 100, 2 dp); null when the
+        // active count is null/zero so "no data" stays distinct from "0%".
+        m.put("KRI_RED_PROP", Percentages.ratioToPercentage(kriRedCnt, kriActiveCnt));
+        m.put("KRI_GREEN_PROP", Percentages.ratioToPercentage(kriGreenCnt, kriActiveCnt));
         return m;
-    }
-
-    /** {@code count / activeCount}, or {@code null} when either is null or the active count is 0. */
-    private static BigDecimal proportion(Integer count, Integer activeCount) {
-        if (count == null || activeCount == null || activeCount == 0) {
-            return null;
-        }
-        return BigDecimal.valueOf(count)
-                .divide(BigDecimal.valueOf(activeCount), PROPORTION_SCALE, RoundingMode.HALF_UP);
     }
 }

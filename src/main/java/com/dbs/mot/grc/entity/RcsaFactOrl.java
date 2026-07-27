@@ -2,6 +2,7 @@ package com.dbs.mot.grc.entity;
 
 import com.dbs.mot.grc.enums.NetRiskRating;
 import com.dbs.mot.grc.enums.RiskRatingChange;
+import com.dbs.mot.grc.util.Percentages;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -18,6 +19,9 @@ import java.util.Map;
 /**
  * RCSA module snapshot ({@code rcsa_fact_orl}), matched to an assessment dimension by
  * {@code biz_dt} + the shared dimension columns (same key as {@code fact_orl}).
+ *
+ * <p>The stored {@code rcsa_*_proportion} columns hold fractions (0..1); they are surfaced in the
+ * API as <strong>percentages</strong> (0..100, 2 decimal places) — see {@link #metrics()}.
  */
 @Table("rcsa_fact_orl")
 @Getter
@@ -72,10 +76,11 @@ public class RcsaFactOrl implements ModuleFact {
         m.put("combined_count_med_high_risk", combinedCountMedHighRisk);
         m.put("combined_count_med_low_risk", combinedCountMedLowRisk);
         m.put("combined_count_low_risk", combinedCountLowRisk);
-        m.put("rcsa_high_risk_proportion", rcsaHighRiskProportion);
-        m.put("rcsa_med_high_proportion", rcsaMedHighProportion);
-        m.put("rcsa_med_low_proportion", rcsaMedLowProportion);
-        m.put("rcsa_low_risk_proportion", rcsaLowRiskProportion);
+        // Stored proportions (0..1) are surfaced as percentages (×100, 2 dp); null stays null.
+        m.put("rcsa_high_risk_proportion", Percentages.toPercentage(rcsaHighRiskProportion));
+        m.put("rcsa_med_high_proportion", Percentages.toPercentage(rcsaMedHighProportion));
+        m.put("rcsa_med_low_proportion", Percentages.toPercentage(rcsaMedLowProportion));
+        m.put("rcsa_low_risk_proportion", Percentages.toPercentage(rcsaLowRiskProportion));
         return m;
     }
 }

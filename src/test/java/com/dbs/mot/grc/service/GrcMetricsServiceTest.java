@@ -49,6 +49,12 @@ class GrcMetricsServiceTest {
                 + "','AML Sanctions','CBG','SG','High'," + active + "," + red + "," + green + ")");
     }
 
+    private void insertRcsa(String bizDt, String highProp, String lowProp) {
+        jdbc.execute("INSERT INTO rcsa_fact_orl (biz_dt,RISK_AREA,ORL_BU_NM_L2,LOCATION,NET_RISK_RTNG,"
+                + "rcsa_high_risk_proportion,rcsa_low_risk_proportion) VALUES(DATE '" + bizDt
+                + "','AML Sanctions','CBG','SG','High'," + highProp + "," + lowProp + ")");
+    }
+
     @Test
     @SuppressWarnings("unchecked")
     void forBizDate_namesAllModules_populatingOnlyThoseWithRows() {
@@ -67,12 +73,27 @@ class GrcMetricsServiceTest {
     }
 
     @Test
-    void kriProportions_areDerived() {
+    void kriProportions_areDerivedAsPercentages() {
         insertKri("2026-07-15", 4, 2, 1);
         Map<?, ?> kri = (Map<?, ?>) service.forBizDate(LocalDate.parse("2026-07-15"), KEY).get("KRI");
 
-        assertThat(new BigDecimal(kri.get("KRI_RED_PROP").toString())).isEqualByComparingTo("0.5");
-        assertThat(new BigDecimal(kri.get("KRI_GREEN_PROP").toString())).isEqualByComparingTo("0.25");
+        // 2 of 4 active → 50.00%; 1 of 4 → 25.00% (percentage, 2 decimal places).
+        assertThat(new BigDecimal(kri.get("KRI_RED_PROP").toString())).isEqualByComparingTo("50.00");
+        assertThat(new BigDecimal(kri.get("KRI_GREEN_PROP").toString())).isEqualByComparingTo("25.00");
+    }
+
+    @Test
+    void rcsaProportions_areReturnedAsPercentages() {
+        // Stored fractions 0.543333 / 0.10 → 54.33% / 10.00% (×100, rounded to 2 dp).
+        insertRcsa("2026-07-15", "0.543333", "0.10");
+        Map<?, ?> rcsa = (Map<?, ?>) service.forBizDate(LocalDate.parse("2026-07-15"), KEY).get("RCSA");
+
+        assertThat(new BigDecimal(rcsa.get("rcsa_high_risk_proportion").toString()))
+                .isEqualByComparingTo("54.33");
+        assertThat(new BigDecimal(rcsa.get("rcsa_low_risk_proportion").toString()))
+                .isEqualByComparingTo("10.00");
+        // A proportion column with no stored value stays null (not 0%).
+        assertThat(rcsa.get("rcsa_med_high_proportion")).isNull();
     }
 
     @Test

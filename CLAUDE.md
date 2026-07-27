@@ -49,6 +49,12 @@ All importers delegate parsing to the shared `CsvImportProcessor.process(...)`: 
 
 The three **scoring tables** (`feature_score_band`, `train_stats`, `net_risk_band`) compute `config_version` server-side via `ConfigVersionResolver` as `MAX(existing version for the natural-key group) + 1`. The current per-group maxima are read through a grouped `@Query` projection on each scoring repository (returning a `*VersionGroup` record); `ConfigVersionResolver` is pure in-memory logic. Open-ended range bounds use the sentinels in `RangeSentinels`.
 
+**Table-specific validation notes:**
+- `risk-type-risk-area-maps` upload carries `IS_OR_FA` (mandatory, `Y`/`N` only) and `RISK_CLUSTER` (optional). Its `CsvRowValidator` enforces two batch rules: `(RISK_AREA, RISK_TYPE_L4_NUM)` unique (mirrors the table key) and `RISK_CLUSTER` unique within each such pair (blank clusters ignored).
+- `lndscp-dim` upload validates `BIZ_UNITS` against the distinct **`orl_biz_unit.ORL_BU_NM_L{level}`** matching the batch `BIZ_UNIT_LVL` (2→L2, 3→L3, 4→L4; other levels skip the ref-check) and `LOCATIONS` against the union of **`orl_entity_mstr.orl_location` and `orl_location_ic`**. Both sets are derived in `OrlLndscpDimCsvRowValidator` from `CrudRepository#findAll()` + in-memory distinct — Spring Data JDBC has no derived query for a single-/multi-column distinct scalar list, and both are small config tables.
+
+The Flyway baseline `V1__create_all_tables.sql` is **fully idempotent** (`CREATE TABLE IF NOT EXISTS` on every table), so it can be re-applied safely after its history row is cleared (e.g. when a column is added to V1 rather than via a new versioned migration).
+
 ### Assessment domain model (Spring Data **JDBC**, not JPA)
 
 This uses **Spring Data JDBC**. Key consequences that differ from JPA:
@@ -67,6 +73,8 @@ Assessment detail rows (`orl_lndscp_assmt_details`) are **thin**: only dimension
 - live → the latest business date across `fact_orl` (`findMaxBizDt()`), matched to the dimension via the same by-date lookup. That `MAX(biz_dt)` is read **once** and reused for both the live snapshot and the response's top-level `lastRefreshed` (so `live.lastRefreshed == lastRefreshed`, and there is no second `findMaxBizDt` call). If the dimension has no row on that global latest date, `liveNRRDetails` is `null`.
 
 The displayed `nrr` is the analyst overlay (`OVRLY_NET_RISK_RTNG`) when present, otherwise it falls back to the calculated rating (`nrrCalculated`) — in both the list items and the current/previous drill-down blocks (`nrrOverlaid` records which applied).
+
+**Proportions in the GRC metrics are percentages.** The KRI `KRI_RED_PROP`/`KRI_GREEN_PROP` (derived from the red/green counts over the active count) and the RCSA `rcsa_high_risk_proportion`/`rcsa_med_high_proportion`/`rcsa_med_low_proportion`/`rcsa_low_risk_proportion` (stored as 0..1 fractions) are all surfaced in the response as **percentages** — ×100, rounded to 2 dp, `HALF_UP` — via `util/Percentages` (e.g. `0.5433 → 54.33`, `2 of 4 → 50.00`). A `null` fraction or a zero KRI active-count stays `null` (distinct from `0.00`); the conversion happens in each module entity's `metrics()`.
 
 Because MariaDB treats each NULL as distinct in a unique index, all dimension columns in `orl_lndscp_assmt_details` and `fact_orl` are `NOT NULL DEFAULT ''` — whatever populates these tables must write `''` (never null) for empty dimensions so the unique index actually enforces one row per dimension, and the read-time dimension-key match lines up between details and facts. Preserve this invariant.
 

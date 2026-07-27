@@ -61,6 +61,10 @@ CREATE TABLE orl_risk_type_risk_area_map (
     RISK_TYPE_L4_NM  VARCHAR(120)  NOT NULL,
     CREATED_BY       VARCHAR(1200) NOT NULL,
     CREATED_DT_TM    TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    -- Operational-risk / financial-advisory flag ('Y' or 'N'); defaults to 'Y'.
+    IS_OR_FA         VARCHAR(1)    NOT NULL DEFAULT 'Y',
+    -- Optional risk-cluster code; unique per (RISK_AREA, RISK_TYPE_L4_NUM) at upload time.
+    RISK_CLUSTER     VARCHAR(50)   NULL,
     PRIMARY KEY (ID),
     UNIQUE (RISK_AREA, RISK_TYPE_L4_NUM)
 );

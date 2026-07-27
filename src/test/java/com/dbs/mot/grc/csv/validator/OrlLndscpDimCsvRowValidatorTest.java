@@ -33,13 +33,16 @@ class OrlLndscpDimCsvRowValidatorTest {
         jdbc.execute("DELETE FROM orl_biz_unit");
         jdbc.execute("DELETE FROM orl_entity_mstr");
 
-        jdbc.execute("INSERT INTO orl_biz_unit(BU_NUM,BU_NM,LVL_OF_HIER,CREATED_BY) VALUES(1,'ALL',1,'seed')");
-        jdbc.execute("INSERT INTO orl_biz_unit(BU_NUM,BU_NM,LVL_OF_HIER,CREATED_BY) VALUES(2,'Tech',2,'seed')");
-        jdbc.execute("INSERT INTO orl_biz_unit(BU_NUM,BU_NM,LVL_OF_HIER,CREATED_BY) VALUES(3,'Ops',2,'seed')");
-        jdbc.execute("INSERT INTO orl_biz_unit(BU_NUM,BU_NM,LVL_OF_HIER,CREATED_BY) VALUES(4,'DTI',3,'seed')");
-        jdbc.execute("INSERT INTO orl_biz_unit(BU_NUM,BU_NM,LVL_OF_HIER,CREATED_BY) VALUES(5,'BCM',4,'seed')");
+        // BIZ_UNITS are validated against distinct ORL_BU_NM_L{level}, so those columns are seeded:
+        //   ORL_BU_NM_L2 → {Tech, Ops}, ORL_BU_NM_L3 → {DTI}, ORL_BU_NM_L4 → {BCM}.
+        jdbc.execute("INSERT INTO orl_biz_unit(BU_NUM,BU_NM,LVL_OF_HIER,ORL_BU_NM_L2,ORL_BU_NM_L3,ORL_BU_NM_L4,CREATED_BY) VALUES(1,'ALL',1,NULL,NULL,NULL,'seed')");
+        jdbc.execute("INSERT INTO orl_biz_unit(BU_NUM,BU_NM,LVL_OF_HIER,ORL_BU_NM_L2,ORL_BU_NM_L3,ORL_BU_NM_L4,CREATED_BY) VALUES(2,'Tech',2,'Tech',NULL,NULL,'seed')");
+        jdbc.execute("INSERT INTO orl_biz_unit(BU_NUM,BU_NM,LVL_OF_HIER,ORL_BU_NM_L2,ORL_BU_NM_L3,ORL_BU_NM_L4,CREATED_BY) VALUES(3,'Ops',2,'Ops',NULL,NULL,'seed')");
+        jdbc.execute("INSERT INTO orl_biz_unit(BU_NUM,BU_NM,LVL_OF_HIER,ORL_BU_NM_L2,ORL_BU_NM_L3,ORL_BU_NM_L4,CREATED_BY) VALUES(4,'DTI',3,'Tech','DTI',NULL,'seed')");
+        jdbc.execute("INSERT INTO orl_biz_unit(BU_NUM,BU_NM,LVL_OF_HIER,ORL_BU_NM_L2,ORL_BU_NM_L3,ORL_BU_NM_L4,CREATED_BY) VALUES(5,'BCM',4,'Tech','DTI','BCM','seed')");
 
-        jdbc.execute("INSERT INTO orl_entity_mstr(ENTITY_NUM,ENTITY_NM,orl_location,CREATED_BY) VALUES(1,'DBS SG','SG','seed')");
+        // orl_location_ic is a second accepted location column; entity 1 carries 'Singapore' there.
+        jdbc.execute("INSERT INTO orl_entity_mstr(ENTITY_NUM,ENTITY_NM,orl_location,orl_location_ic,CREATED_BY) VALUES(1,'DBS SG','SG','Singapore','seed')");
         jdbc.execute("INSERT INTO orl_entity_mstr(ENTITY_NUM,ENTITY_NM,orl_location,CREATED_BY) VALUES(2,'DBS HK','HK','seed')");
         jdbc.execute("INSERT INTO orl_entity_mstr(ENTITY_NUM,ENTITY_NM,orl_location,CREATED_BY) VALUES(3,'DBS IN','IN','seed')");
     }
@@ -281,6 +284,14 @@ class OrlLndscpDimCsvRowValidatorTest {
     void locations_allValid_noError() {
         assertThat(validator.validate(List.of(
                 row("CFG001", "A", ra("Cyber Risk"), null, 2, "SG,HK,IN")
+        ))).isEmpty();
+    }
+
+    @Test
+    void locations_matchingOrlLocationIc_noError() {
+        // 'Singapore' exists only in orl_location_ic (entity 1); it must be accepted.
+        assertThat(validator.validate(List.of(
+                row("CFG001", "A", ra("Cyber Risk"), null, 2, "Singapore,HK")
         ))).isEmpty();
     }
 

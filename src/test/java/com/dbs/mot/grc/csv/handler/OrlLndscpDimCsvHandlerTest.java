@@ -48,20 +48,23 @@ class OrlLndscpDimCsvHandlerTest {
         jdbc.execute("DELETE FROM orl_biz_unit");
         jdbc.execute("DELETE FROM orl_entity_mstr");
 
-        jdbc.execute("INSERT INTO orl_biz_unit(BU_NUM,BU_NM,LVL_OF_HIER,CREATED_BY) VALUES(1,'ALL',1,'seed')");
-        jdbc.execute("INSERT INTO orl_biz_unit(BU_NUM,BU_NM,LVL_OF_HIER,CREATED_BY) VALUES(2,'Tech',2,'seed')");
-        jdbc.execute("INSERT INTO orl_biz_unit(BU_NUM,BU_NM,LVL_OF_HIER,CREATED_BY) VALUES(3,'Ops',2,'seed')");
-        jdbc.execute("INSERT INTO orl_biz_unit(BU_NUM,BU_NM,LVL_OF_HIER,CREATED_BY) VALUES(4,'DTI',3,'seed')");
-        jdbc.execute("INSERT INTO orl_biz_unit(BU_NUM,BU_NM,LVL_OF_HIER,CREATED_BY) VALUES(5,'BCM',4,'seed')");
+        // BIZ_UNITS validate against distinct ORL_BU_NM_L{level}, so seed those columns:
+        //   L2 → {Tech, Ops, CBG}, L3 → {DTI, CBG Products, Channels}, L4 → {BCM}.
+        jdbc.execute("INSERT INTO orl_biz_unit(BU_NUM,BU_NM,LVL_OF_HIER,ORL_BU_NM_L2,ORL_BU_NM_L3,ORL_BU_NM_L4,CREATED_BY) VALUES(1,'ALL',1,NULL,NULL,NULL,'seed')");
+        jdbc.execute("INSERT INTO orl_biz_unit(BU_NUM,BU_NM,LVL_OF_HIER,ORL_BU_NM_L2,ORL_BU_NM_L3,ORL_BU_NM_L4,CREATED_BY) VALUES(2,'Tech',2,'Tech',NULL,NULL,'seed')");
+        jdbc.execute("INSERT INTO orl_biz_unit(BU_NUM,BU_NM,LVL_OF_HIER,ORL_BU_NM_L2,ORL_BU_NM_L3,ORL_BU_NM_L4,CREATED_BY) VALUES(3,'Ops',2,'Ops',NULL,NULL,'seed')");
+        jdbc.execute("INSERT INTO orl_biz_unit(BU_NUM,BU_NM,LVL_OF_HIER,ORL_BU_NM_L2,ORL_BU_NM_L3,ORL_BU_NM_L4,CREATED_BY) VALUES(4,'DTI',3,'Tech','DTI',NULL,'seed')");
+        jdbc.execute("INSERT INTO orl_biz_unit(BU_NUM,BU_NM,LVL_OF_HIER,ORL_BU_NM_L2,ORL_BU_NM_L3,ORL_BU_NM_L4,CREATED_BY) VALUES(5,'BCM',4,'Tech','DTI','BCM','seed')");
 
-        jdbc.execute("INSERT INTO orl_entity_mstr(ENTITY_NUM,ENTITY_NM,orl_location,CREATED_BY) VALUES(1,'DBS Singapore','SG','seed')");
+        // Entity 1 also carries an orl_location_ic value ('Singapore'), a second accepted column.
+        jdbc.execute("INSERT INTO orl_entity_mstr(ENTITY_NUM,ENTITY_NM,orl_location,orl_location_ic,CREATED_BY) VALUES(1,'DBS Singapore','SG','Singapore','seed')");
         jdbc.execute("INSERT INTO orl_entity_mstr(ENTITY_NUM,ENTITY_NM,orl_location,CREATED_BY) VALUES(2,'DBS Hong Kong','HK','seed')");
         jdbc.execute("INSERT INTO orl_entity_mstr(ENTITY_NUM,ENTITY_NM,orl_location,CREATED_BY) VALUES(3,'DBS India','IN','seed')");
 
         // Fixtures matching the real sample lndscp-dim.csv (BIZ_UNITS='CBG Products,Channels'
         // at LVL_OF_HIER=3; LOCATIONS='SG,CN').
-        jdbc.execute("INSERT INTO orl_biz_unit(BU_NUM,BU_NM,LVL_OF_HIER,CREATED_BY) VALUES(103,'CBG Products',3,'seed')");
-        jdbc.execute("INSERT INTO orl_biz_unit(BU_NUM,BU_NM,LVL_OF_HIER,CREATED_BY) VALUES(104,'Channels',3,'seed')");
+        jdbc.execute("INSERT INTO orl_biz_unit(BU_NUM,BU_NM,LVL_OF_HIER,ORL_BU_NM_L2,ORL_BU_NM_L3,CREATED_BY) VALUES(103,'CBG Products',3,'CBG','CBG Products','seed')");
+        jdbc.execute("INSERT INTO orl_biz_unit(BU_NUM,BU_NM,LVL_OF_HIER,ORL_BU_NM_L2,ORL_BU_NM_L3,CREATED_BY) VALUES(104,'Channels',3,'CBG','Channels','seed')");
         jdbc.execute("INSERT INTO orl_entity_mstr(ENTITY_NUM,ENTITY_NM,orl_location,CREATED_BY) VALUES(102,'DBS Sample CN','CN','seed')");
     }
 
@@ -184,6 +187,14 @@ class OrlLndscpDimCsvHandlerTest {
         String c = csvHeader()
                 + "CFG001,Landscape A,2024-01-01,2099-12-31," + cell(ra("Cyber Risk"))   + ",DTI,3,SG\n"
                 + "CFG002,Landscape B,2024-01-01,2099-12-31," + cell(ra("Conduct Risk")) + ",DTI,3,HK\n";
+        mvc.perform(multipart(UPLOAD).file(csv(c)).header("X-EGRC-UserId", "user1"))
+           .andExpect(status().isCreated());
+    }
+
+    @Test void upload_locationFromOrlLocationIc_returns201() throws Exception {
+        // 'Singapore' exists only in orl_entity_mstr.orl_location_ic — it must be accepted too.
+        String c = csvHeader()
+                + "CFG001,Landscape A,2024-01-01,2099-12-31," + cell(ra("Cyber Risk")) + ",Tech,2,\"Singapore,HK\"\n";
         mvc.perform(multipart(UPLOAD).file(csv(c)).header("X-EGRC-UserId", "user1"))
            .andExpect(status().isCreated());
     }

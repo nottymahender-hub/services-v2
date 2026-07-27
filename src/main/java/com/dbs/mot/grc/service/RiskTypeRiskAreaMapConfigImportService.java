@@ -29,9 +29,12 @@ import java.util.stream.StreamSupport;
 public class RiskTypeRiskAreaMapConfigImportService implements OrlConfigImporter {
 
     static final String CONFIG_NAME = "risk-type-risk-area-maps";
-    static final String[] EXPECTED_HEADERS = {"RISK_AREA", "RISK_TYPE_L4_NUM", "RISK_TYPE_L4_NM"};
+    static final String[] EXPECTED_HEADERS = {
+            "RISK_AREA", "RISK_TYPE_L4_NUM", "RISK_TYPE_L4_NM", "IS_OR_FA", "RISK_CLUSTER"
+    };
     private static final String[] DOWNLOAD_HEADERS = {
-            "ID", "RISK_AREA", "RISK_TYPE_L4_NUM", "RISK_TYPE_L4_NM", "CREATED_BY", "CREATED_DT_TM"
+            "ID", "RISK_AREA", "RISK_TYPE_L4_NUM", "RISK_TYPE_L4_NM",
+            "IS_OR_FA", "RISK_CLUSTER", "CREATED_BY", "CREATED_DT_TM"
     };
     private static final DateTimeFormatter DT_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
@@ -69,6 +72,8 @@ public class RiskTypeRiskAreaMapConfigImportService implements OrlConfigImporter
                         .riskArea(r.getRiskArea())
                         .riskTypeL4Num(r.getRiskTypeL4Num())
                         .riskTypeL4Nm(r.getRiskTypeL4Nm())
+                        .isOrFa(r.getIsOrFa())
+                        .riskCluster(r.getRiskCluster())
                         .createdBy(username)
                         .build())
                 .toList();
@@ -84,7 +89,8 @@ public class RiskTypeRiskAreaMapConfigImportService implements OrlConfigImporter
         StreamSupport.stream(repository.findAll().spliterator(), false).forEach(r ->
                 writer.writeNext(new String[]{
                         s(r.getId()), r.getRiskArea(), s(r.getRiskTypeL4Num()),
-                        r.getRiskTypeL4Nm(), r.getCreatedBy(), fmt(r.getCreateDtTm())
+                        r.getRiskTypeL4Nm(), r.getIsOrFa(), r.getRiskCluster(),
+                        r.getCreatedBy(), fmt(r.getCreateDtTm())
                 }));
     }
 

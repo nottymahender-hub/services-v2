@@ -7,6 +7,8 @@ import com.dbs.mot.grc.util.RiskAreaParser;
 import com.dbs.mot.grc.dto.OrlLndscpDimCsvRow;
 import com.dbs.mot.grc.dto.RiskAreaEntry;
 import com.dbs.mot.grc.dto.RiskAreaGroup;
+import com.dbs.mot.grc.entity.OrlBizUnit;
+import com.dbs.mot.grc.entity.OrlEntityMstr;
 import com.dbs.mot.grc.repository.OrlBizUnitRepository;
 import com.dbs.mot.grc.repository.OrlEntityMstrRepository;
 import lombok.RequiredArgsConstructor;
@@ -14,6 +16,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.util.*;
+import java.util.function.Function;
 
 /**
  * Cross-row and DB-reference validation for the orl_lndscp_dim CSV batch.
@@ -29,9 +32,12 @@ import java.util.*;
  *       {@code isGroup=false} entry may leave it blank); each group must have a non-empty
  *       risk-area list; each risk area must have a name and a non-empty cluster list; and
  *       risk-area names must be unique across the whole document.</li>
- *   <li>BIZ_UNITS (optional): each token must exist in orl_biz_unit at BIZ_UNIT_LVL;
+ *   <li>BIZ_UNITS (optional): each token must exist among the distinct
+ *       {@code orl_biz_unit.ORL_BU_NM_L{level}} values matching the batch's BIZ_UNIT_LVL
+ *       (level 2 → {@code ORL_BU_NM_L2}, 3 → {@code ORL_BU_NM_L3}, 4 → {@code ORL_BU_NM_L4});
  *       no duplicates within a cell.</li>
- *   <li>LOCATIONS: each token must exist in orl_entity_mstr.orl_location; no duplicates.</li>
+ *   <li>LOCATIONS: each token must exist in {@code orl_entity_mstr.orl_location} OR
+ *       {@code orl_entity_mstr.orl_location_ic}; no duplicates.</li>
  * </ul>
  */
 @Slf4j
@@ -74,12 +80,12 @@ public class OrlLndscpDimCsvRowValidator implements CsvRowValidator<OrlLndscpDim
             if (row.getBizUnits() != null) {
                 validateMultiValues(rowNum, "BIZ_UNITS", row.getBizUnits(),
                         validBizUnits,
-                        "orl_biz_unit.BU_NM at LVL_OF_HIER=" + batchBizUnitLvl,
+                        "orl_biz_unit.ORL_BU_NM_L" + batchBizUnitLvl,
                         errors);
             }
 
             validateMultiValues(rowNum, "LOCATIONS", row.getLocations(),
-                    validLocations, "orl_entity_mstr.orl_location", errors);
+                    validLocations, "orl_entity_mstr.orl_location / orl_location_ic", errors);
         }
 
         if (errors.isEmpty()) {
@@ -241,11 +247,20 @@ public class OrlLndscpDimCsvRowValidator implements CsvRowValidator<OrlLndscpDim
         }
     }
 
+    /**
+     * The set of valid location tokens: the distinct union of {@code orl_location} and
+     * {@code orl_location_ic} across {@code orl_entity_mstr} (blank values ignored). An uploaded
+     * LOCATIONS token is valid when it matches a value in <em>either</em> column.
+     */
     private Set<String> loadLocations() {
-        log.debug("Loading valid orl_location values from orl_entity_mstr");
-        List<String> locs = entityMstrRepository.findDistinctOrlLocations();
-        log.debug("Loaded {} distinct location(s)", locs.size());
-        return new HashSet<>(locs);
+        log.debug("Loading valid location values (orl_location + orl_location_ic) from orl_entity_mstr");
+        Set<String> locations = new HashSet<>();
+        for (OrlEntityMstr entity : entityMstrRepository.findAll()) {
+            addIfPresent(locations, entity.getOrlLocation());
+            addIfPresent(locations, entity.getOrlLocationIc());
+        }
+        log.debug("Loaded {} distinct location value(s) across both columns", locations.size());
+        return locations;
     }
 
     private int loadMaxBizUnitLevel() {
@@ -253,9 +268,37 @@ public class OrlLndscpDimCsvRowValidator implements CsvRowValidator<OrlLndscpDim
         return bizUnitRepository.findMaxLvlOfHier();
     }
 
+    /**
+     * The distinct {@code ORL_BU_NM_L{level}} values for the batch's BIZ_UNIT_LVL: level 2 →
+     * {@code ORL_BU_NM_L2}, 3 → {@code ORL_BU_NM_L3}, 4 → {@code ORL_BU_NM_L4}. Any other level
+     * has no defined BU column, so an empty set is returned (BIZ_UNITS reference-check is skipped,
+     * only the duplicate-within-cell check still applies).
+     */
     private Set<String> loadBizUnitsAtLevel(int level) {
-        log.debug("Loading BU_NM values at LVL_OF_HIER={}", level);
-        return new HashSet<>(bizUnitRepository.findBuNamesByLvlOfHier(level));
+        log.debug("Loading distinct ORL_BU_NM_L{} values from orl_biz_unit", level);
+        Function<OrlBizUnit, String> columnForLevel = switch (level) {
+            case 2 -> OrlBizUnit::getOrlBuNmL2;
+            case 3 -> OrlBizUnit::getOrlBuNmL3;
+            case 4 -> OrlBizUnit::getOrlBuNmL4;
+            default -> null;
+        };
+        if (columnForLevel == null) {
+            log.debug("BIZ_UNIT_LVL={} has no ORL_BU_NM_L column — BIZ_UNITS reference-check skipped", level);
+            return Collections.emptySet();
+        }
+        Set<String> names = new HashSet<>();
+        for (OrlBizUnit bu : bizUnitRepository.findAll()) {
+            addIfPresent(names, columnForLevel.apply(bu));
+        }
+        log.debug("Loaded {} distinct ORL_BU_NM_L{} value(s)", names.size(), level);
+        return names;
+    }
+
+    /** Adds a trimmed value to the set when it is non-null and non-blank. */
+    private void addIfPresent(Set<String> target, String value) {
+        if (value != null && !value.isBlank()) {
+            target.add(value.trim());
+        }
     }
 
     private ValidationErrorDetail error(int row, String field, String message) {

@@ -99,6 +99,25 @@ class RiskTypeRiskAreaMapCsvHandlerTest {
         assert cnt != null && cnt == 1;
     }
 
+    @Test void upload_validCsv_persistsNewIsOrFaAndRiskClusterColumns() throws Exception {
+        // The fixture now carries IS_OR_FA + RISK_CLUSTER; verify both are persisted, including a
+        // non-'Y' flag, a populated cluster, and the one row whose RISK_CLUSTER is left blank (NULL).
+        mvc.perform(multipart(UPLOAD).file(validFile()).header("X-EGRC-UserId", "u"))
+           .andExpect(status().isCreated());
+
+        Integer conduct = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM orl_risk_type_risk_area_map "
+                + "WHERE RISK_TYPE_L4_NUM=89 AND IS_OR_FA='N' AND RISK_CLUSTER='CONDUCT'",
+                Integer.class);
+        assert conduct != null && conduct == 1;
+
+        Integer blankCluster = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM orl_risk_type_risk_area_map "
+                + "WHERE RISK_TYPE_L4_NUM=72 AND IS_OR_FA='Y' AND RISK_CLUSTER IS NULL",
+                Integer.class);
+        assert blankCluster != null && blankCluster == 1;
+    }
+
     // ── Authentication ───────────────────────────────────────────────────────
 
     @Test void upload_missingUsername_returns401() throws Exception {
@@ -122,38 +141,64 @@ class RiskTypeRiskAreaMapCsvHandlerTest {
     // ── Row-level validation errors ──────────────────────────────────────────
 
     @Test void upload_missingRiskArea_returns400() throws Exception {
-        mvc.perform(multipart(UPLOAD).file(csv(csvHeader() + ",101,Operational Risk - Credit\n"))
+        mvc.perform(multipart(UPLOAD).file(csv(csvHeader() + ",101,Operational Risk - Credit,Y,OR\n"))
                 .header("X-EGRC-UserId", "u"))
            .andExpect(status().isBadRequest())
            .andExpect(jsonPath("$.errors[0].field", is("RISK_AREA")));
     }
 
     @Test void upload_nonIntRiskTypeL4Num_returns400() throws Exception {
-        mvc.perform(multipart(UPLOAD).file(csv(csvHeader() + "OR,ABC,Some Risk Type\n"))
+        mvc.perform(multipart(UPLOAD).file(csv(csvHeader() + "OR,ABC,Some Risk Type,Y,OR\n"))
                 .header("X-EGRC-UserId", "u"))
            .andExpect(status().isBadRequest())
            .andExpect(jsonPath("$.errors[0].field", is("RISK_TYPE_L4_NUM")));
     }
 
     @Test void upload_missingRiskTypeNm_returns400() throws Exception {
-        mvc.perform(multipart(UPLOAD).file(csv(csvHeader() + "OR,101,\n")).header("X-EGRC-UserId", "u"))
+        mvc.perform(multipart(UPLOAD).file(csv(csvHeader() + "OR,101,,Y,OR\n")).header("X-EGRC-UserId", "u"))
            .andExpect(status().isBadRequest());
     }
 
     @Test void upload_riskAreaOver120Chars_returns400() throws Exception {
         String tooLong = "X".repeat(121);
-        mvc.perform(multipart(UPLOAD).file(csv(csvHeader() + tooLong + ",101,Some Risk Type\n"))
+        mvc.perform(multipart(UPLOAD).file(csv(csvHeader() + tooLong + ",101,Some Risk Type,Y,OR\n"))
                 .header("X-EGRC-UserId", "u"))
            .andExpect(status().isBadRequest())
            .andExpect(jsonPath("$.errors[0].field", is("riskArea")));
     }
 
+    // ── IS_OR_FA validation ──────────────────────────────────────────────────
+
+    @Test void upload_invalidIsOrFa_returns400() throws Exception {
+        mvc.perform(multipart(UPLOAD).file(csv(csvHeader() + "OR,101,Some Risk Type,X,OR\n"))
+                .header("X-EGRC-UserId", "u"))
+           .andExpect(status().isBadRequest())
+           .andExpect(jsonPath("$.errors[0].field", is("IS_OR_FA")));
+    }
+
+    @Test void upload_blankIsOrFa_returns400() throws Exception {
+        mvc.perform(multipart(UPLOAD).file(csv(csvHeader() + "OR,101,Some Risk Type,,OR\n"))
+                .header("X-EGRC-UserId", "u"))
+           .andExpect(status().isBadRequest())
+           .andExpect(jsonPath("$.errors[0].field", is("IS_OR_FA")));
+    }
+
     // ── Cross-row validation ─────────────────────────────────────────────────
 
     @Test void upload_duplicateRiskAreaAndNum_returns400() throws Exception {
-        String c = csvHeader() + "OR,101,Type A\n" + "OR,101,Type B\n";
+        // Distinct RISK_CLUSTER values so only the (RISK_AREA, RISK_TYPE_L4_NUM) rule fires.
+        String c = csvHeader() + "OR,101,Type A,Y,CL1\n" + "OR,101,Type B,Y,CL2\n";
         mvc.perform(multipart(UPLOAD).file(csv(c)).header("X-EGRC-UserId", "u"))
            .andExpect(status().isBadRequest());
+    }
+
+    @Test void upload_duplicateRiskClusterForSamePair_returns400() throws Exception {
+        // Same RISK_CLUSTER within the same (RISK_AREA, RISK_TYPE_L4_NUM) → a RISK_CLUSTER error
+        // is reported (alongside the pair-duplicate error).
+        String c = csvHeader() + "OR,101,Type A,Y,CL1\n" + "OR,101,Type B,Y,CL1\n";
+        mvc.perform(multipart(UPLOAD).file(csv(c)).header("X-EGRC-UserId", "u"))
+           .andExpect(status().isBadRequest())
+           .andExpect(jsonPath("$.errors[*].field", hasItem("RISK_CLUSTER")));
     }
 
     // ── Download ─────────────────────────────────────────────────────────────
@@ -187,7 +232,9 @@ class RiskTypeRiskAreaMapCsvHandlerTest {
         }
     }
 
-    private String csvHeader() { return "RISK_AREA,RISK_TYPE_L4_NUM,RISK_TYPE_L4_NM\n"; }
+    private String csvHeader() {
+        return "RISK_AREA,RISK_TYPE_L4_NUM,RISK_TYPE_L4_NM,IS_OR_FA,RISK_CLUSTER\n";
+    }
 
     private MockMultipartFile csv(String c) {
         return new MockMultipartFile("file", "data.csv", "text/csv", c.getBytes(StandardCharsets.UTF_8));

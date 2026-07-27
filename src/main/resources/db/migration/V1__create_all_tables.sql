@@ -40,6 +40,10 @@ CREATE TABLE IF NOT EXISTS `orl_risk_type_risk_area_map` (
     `RISK_TYPE_L4_NM`  VARCHAR(120)  NOT NULL,
     `CREATED_BY`       VARCHAR(1200) NOT NULL,
     `CREATED_DT_TM`    DATETIME      NOT NULL DEFAULT current_timestamp(),
+    -- Operational-risk / financial-advisory flag ('Y' or 'N'); defaults to 'Y'.
+    `IS_OR_FA`         VARCHAR(1)    NOT NULL DEFAULT 'Y',
+    -- Optional risk-cluster code; unique per (RISK_AREA, RISK_TYPE_L4_NUM) at upload time.
+    `RISK_CLUSTER`     VARCHAR(50)   NULL DEFAULT NULL,
     PRIMARY KEY (`ID`),
     UNIQUE KEY `uq_risk_area_risk_type` (`RISK_AREA`, `RISK_TYPE_L4_NUM`)
 );
@@ -180,7 +184,7 @@ CREATE TABLE IF NOT EXISTS `orl_lndscp_assmt_details` (
 );
 
 -- ── orl_lndscp_callout ───────────────────────────────────────────────────────
-CREATE TABLE `orl_lndscp_callout` (
+CREATE TABLE IF NOT EXISTS `orl_lndscp_callout` (
   `id` INT(11) NOT NULL AUTO_INCREMENT,
   `lndscp_assmt_id` INT(11) NOT NULL,
   `RISK_AREA` VARCHAR(120) NOT NULL,
@@ -202,7 +206,7 @@ CREATE TABLE `orl_lndscp_callout` (
 -- ── orl_lndscp_callout_comment_hist ──────────────────────────────────────────
 -- Append-only audit of every callout comment version. One row is written on each
 -- callout create and update, capturing the comment text, the SME who set it, and when.
-CREATE TABLE `orl_lndscp_callout_comment_hist` (
+CREATE TABLE IF NOT EXISTS `orl_lndscp_callout_comment_hist` (
   `id` INT(11) NOT NULL AUTO_INCREMENT,
   `callout_id` INT(11) NOT NULL,
   `comment` VARCHAR(400) NOT NULL,

@@ -129,6 +129,44 @@ class LandscapeAssmtDetailsServiceTest {
                 .hasMessageContaining("9999");
     }
 
+    @Test
+    void fetchByAssmtId_ignoresFactsNotMatchingTheAssessmentsDetailKeys() {
+        // An unrelated fact on the same current biz_dt (2024-07-01) whose dimension matches no
+        // detail row of assmt 41. The targeted (semi-join) fetch must not pick it up: the single
+        // item still reflects only the Tech/SG fact, and no phantom item appears.
+        jdbc.execute("""
+                INSERT INTO fact_orl
+                    (biz_dt,RISK_AREA,ORL_BU_NM_L2,LOCATION,category,CAL_NET_RISK_RTNG,RISK_RTNG_CHGE,CTRL_EFF_RTN,COMMENTARY)
+                VALUES(DATE '2024-07-01','OR','Zzz','XX','L2','High','Deteriorated','Poor/Fail','unrelated')
+                """);
+
+        LandscapeAssmtDetailSummary summary = service.fetchByAssmtId(41L);
+
+        assertThat(summary.getAssessments()).hasSize(1);
+        LandscapeAssmtDetailItem item = summary.getAssessments().get(0);
+        assertThat(item.getId()).isEqualTo(401L);
+        // Still the Tech/SG fact's values — the unrelated 'Zzz/XX' fact was not fetched.
+        assertThat(item.getNrrCalculated()).isEqualTo("Low Risk");
+        assertThat(item.getCtrlEffRtn()).isEqualTo("Satisfactory to Good");
+    }
+
+    @Test
+    void fetchByAssmtId_noPreviousAssessment_leavesPrevRatingNull() {
+        // Assmt 40 has no PREV_ASSMT_NUM, so no previous facts are fetched and every item's
+        // prevAssmtFinalNRR is null. Its current facts come from its own biz_dt (2024-06-01).
+        LandscapeAssmtDetailSummary summary = service.fetchByAssmtId(40L);
+
+        assertThat(summary.getAssessments()).hasSize(2);
+        assertThat(summary.getAssessments())
+                .allSatisfy(i -> assertThat(i.getPrevAssmtFinalNRR()).isNull());
+        // The SG row (400) matches the 2024-06-01 fact (CAL 'Med Low'); it also has OVRLY 'High'.
+        LandscapeAssmtDetailItem sgRow = summary.getAssessments().stream()
+                .filter(i -> i.getId() == 400L).findFirst().orElseThrow();
+        assertThat(sgRow.getNrrCalculated()).isEqualTo("Medium-Low Risk");
+        assertThat(sgRow.getNrr()).isEqualTo("High Risk");
+        assertThat(sgRow.getNrrOverlaid()).isEqualTo("Y");
+    }
+
     // ── fetchDetailById (single-row drill-down) ─────────────────────────────────
 
     @Test

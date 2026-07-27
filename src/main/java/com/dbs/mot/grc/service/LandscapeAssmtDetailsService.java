@@ -48,10 +48,11 @@ import java.util.Set;
  *
  * <p>Assessment detail rows are thin; computed values live in {@code fact_orl} and are matched
  * at read time by dimension key ({@code RISK_AREA, ORL_BU_NM_L2..L4, LOCATION}). The list
- * endpoint batch-loads a whole business date's facts once; the single-row drill-down fetches
- * each fact directly by (biz date, dimension key). Net risk ratings are returned in their
- * display form (e.g. {@code "Medium-Low Risk"}); other enum columns are returned as their
- * stored value.
+ * endpoint fetches only the facts whose dimension key matches the assessment's own detail rows
+ * (a DB-side semi-join — {@code FactOrlRepository.findMatchingByAssmtDetails}), so it never loads
+ * a whole business date's facts; the single-row drill-down fetches each fact directly by
+ * (biz date, dimension key). Net risk ratings are returned in their display form
+ * (e.g. {@code "Medium-Low Risk"}); other enum columns are returned as their stored value.
  */
 @Slf4j
 @Service
@@ -88,7 +89,7 @@ public class LandscapeAssmtDetailsService {
 
         List<OrlLndscpAssmtDetails> rows = detailRows(assmt);
 
-        Map<DimensionKey, FactOrl> currentFacts = factsByKey(bizDateOf(assmt));
+        Map<DimensionKey, FactOrl> currentFacts = factsForAssmt(assmt.getId(), bizDateOf(assmt));
         Map<DimensionKey, NetRiskRating> prevFinalRatings = previousFinalRatings(assmt);
         Map<String, RiskAreaParser.AreaLookup> riskAreaLookup =
                 riskAreaParser.lookupByRiskArea(dim.getRiskArea());
@@ -248,16 +249,23 @@ public class LandscapeAssmtDetailsService {
         return assmt.getBizDt();
     }
 
-    /** All {@code fact_orl} rows for a business date, indexed by dimension key (batch, list endpoint). */
-    private Map<DimensionKey, FactOrl> factsByKey(LocalDate bizDt) {
-        if (bizDt == null) {
+    /**
+     * The {@code fact_orl} rows for one assessment on a business date, indexed by dimension key.
+     * Fetches <em>only</em> the facts whose dimension key matches one of the assessment's detail
+     * rows (a DB-side semi-join) rather than every fact for the date — so an assessment with N
+     * detail rows pulls at most N facts, regardless of how large {@code fact_orl} is for that date.
+     */
+    private Map<DimensionKey, FactOrl> factsForAssmt(Long lndscpAssmtId, LocalDate bizDt) {
+        if (lndscpAssmtId == null || bizDt == null) {
             return Collections.emptyMap();
         }
+        List<FactOrl> facts = factRepository.findMatchingByAssmtDetails(lndscpAssmtId, bizDt);
         Map<DimensionKey, FactOrl> byKey = new LinkedHashMap<>();
-        for (FactOrl fact : factRepository.findByBizDt(bizDt)) {
+        for (FactOrl fact : facts) {
             byKey.putIfAbsent(factKeyOf(fact), fact);
         }
-        log.debug("Loaded {} fact_orl row(s) for biz_dt={}", byKey.size(), bizDt);
+        log.debug("Loaded {} matching fact_orl row(s) for assmt id={} on biz_dt={}",
+                byKey.size(), lndscpAssmtId, bizDt);
         return byKey;
     }
 
@@ -359,7 +367,7 @@ public class LandscapeAssmtDetailsService {
         if (prev.isEmpty()) {
             return Collections.emptyMap();
         }
-        Map<DimensionKey, FactOrl> prevFacts = factsByKey(bizDateOf(prev.get()));
+        Map<DimensionKey, FactOrl> prevFacts = factsForAssmt(prev.get().getId(), bizDateOf(prev.get()));
         Map<DimensionKey, NetRiskRating> ratings = new LinkedHashMap<>();
         for (OrlLndscpAssmtDetails d : detailsOf(prev.get())) {
             DimensionKey key = keyOf(d);

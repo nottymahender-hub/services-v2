@@ -31,7 +31,7 @@ import java.time.LocalDateTime;
  */
 @Table("orl_lndscp_assmt_details")
 @Getter
-@Builder
+@Builder(toBuilder = true)
 @NoArgsConstructor
 @AllArgsConstructor
 public class OrlLndscpAssmtDetails {

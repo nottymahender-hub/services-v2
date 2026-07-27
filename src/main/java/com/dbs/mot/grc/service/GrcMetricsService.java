@@ -48,17 +48,17 @@ public class GrcMetricsService {
                             KriFactOrlRepository kriRepository) {
         this.moduleSources = List.of(
                 new ModuleSource("RCSA",
-                        (bizDt, key) -> rcsaRepository.findByBizDtAndDimension(bizDt, key.riskArea(),
-                                key.orlBuNmL2(), key.orlBuNmL3(), key.orlBuNmL4(), key.location())),
+                        (bizDt, key) -> rcsaRepository.findByBizDtAndRiskAreaAndOrlBuNmL2AndOrlBuNmL3AndOrlBuNmL4AndLocation(
+                                bizDt, key.riskArea(), key.orlBuNmL2(), key.orlBuNmL3(), key.orlBuNmL4(), key.location())),
                 new ModuleSource("INC",
-                        (bizDt, key) -> incRepository.findByBizDtAndDimension(bizDt, key.riskArea(),
-                                key.orlBuNmL2(), key.orlBuNmL3(), key.orlBuNmL4(), key.location())),
+                        (bizDt, key) -> incRepository.findByBizDtAndRiskAreaAndOrlBuNmL2AndOrlBuNmL3AndOrlBuNmL4AndLocation(
+                                bizDt, key.riskArea(), key.orlBuNmL2(), key.orlBuNmL3(), key.orlBuNmL4(), key.location())),
                 new ModuleSource("INA",
-                        (bizDt, key) -> inaRepository.findByBizDtAndDimension(bizDt, key.riskArea(),
-                                key.orlBuNmL2(), key.orlBuNmL3(), key.orlBuNmL4(), key.location())),
+                        (bizDt, key) -> inaRepository.findByBizDtAndRiskAreaAndOrlBuNmL2AndOrlBuNmL3AndOrlBuNmL4AndLocation(
+                                bizDt, key.riskArea(), key.orlBuNmL2(), key.orlBuNmL3(), key.orlBuNmL4(), key.location())),
                 new ModuleSource("KRI",
-                        (bizDt, key) -> kriRepository.findByBizDtAndDimension(bizDt, key.riskArea(),
-                                key.orlBuNmL2(), key.orlBuNmL3(), key.orlBuNmL4(), key.location())));
+                        (bizDt, key) -> kriRepository.findByBizDtAndRiskAreaAndOrlBuNmL2AndOrlBuNmL3AndOrlBuNmL4AndLocation(
+                                bizDt, key.riskArea(), key.orlBuNmL2(), key.orlBuNmL3(), key.orlBuNmL4(), key.location())));
     }
 
     /**

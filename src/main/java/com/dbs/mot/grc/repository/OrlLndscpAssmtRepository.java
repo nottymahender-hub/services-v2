@@ -66,29 +66,4 @@ public interface OrlLndscpAssmtRepository extends CrudRepository<OrlLndscpAssmt,
             WHERE id = :id
             """)
     Optional<AssmtHeader> findHeaderById(@Param("id") Long id);
-
-    /**
-     * True when an assessment already exists for the given landscape and period.
-     * Backs the duplicate-generation guard (HTTP 409).
-     */
-    @Query("""
-            SELECT COUNT(*) > 0
-            FROM orl_lndscp_assmt
-            WHERE LNDSCP_NUM = :lndscpNum AND ASSEMT_PERIOD = :period
-            """)
-    boolean existsByLndscpNumAndPeriod(@Param("lndscpNum") Long lndscpNum,
-                                       @Param("period") String period);
-
-    /**
-     * Returns the assessment id for a given landscape + period, if one exists.
-     * Used at generation time to locate the previous month's assessment for the
-     * {@code PREV_ASSMT_NUM} self-reference.
-     */
-    @Query("""
-            SELECT id
-            FROM orl_lndscp_assmt
-            WHERE LNDSCP_NUM = :lndscpNum AND ASSEMT_PERIOD = :period
-            """)
-    Optional<Long> findIdByLndscpNumAndPeriod(@Param("lndscpNum") Long lndscpNum,
-                                              @Param("period") String period);
 }

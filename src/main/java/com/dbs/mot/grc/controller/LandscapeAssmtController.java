@@ -2,13 +2,11 @@ package com.dbs.mot.grc.controller;
 
 import com.dbs.mot.grc.dto.ApiResponse;
 import com.dbs.mot.grc.dto.AssmtDetailResponse;
-import com.dbs.mot.grc.dto.BulkAssmtGenerationResponse;
 import com.dbs.mot.grc.dto.CalloutRequest;
 import com.dbs.mot.grc.dto.LandscapeAssmtDetailSummary;
 import com.dbs.mot.grc.dto.LandscapeAssmtSummary;
 import com.dbs.mot.grc.dto.SaveAssmtDetailRequest;
 import com.dbs.mot.grc.exception.UnauthorizedException;
-import com.dbs.mot.grc.service.BulkAssmtGenerationService;
 import com.dbs.mot.grc.service.LandscapeAssmtCalloutService;
 import com.dbs.mot.grc.service.LandscapeAssmtDetailsService;
 import com.dbs.mot.grc.service.LandscapeAssmtService;
@@ -34,13 +32,12 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.List;
 
 /**
- * Single REST controller for all landscape-assessment operations: listing, generation, the
- * per-assessment detail view (with embedded dimensions and callouts), the single-row drill-down,
- * the detail overlay, and callout CRUD.
+ * Single REST controller for all landscape-assessment operations: listing, the per-assessment
+ * detail view (with embedded dimensions and callouts), the single-row drill-down, the detail
+ * overlay, and callout CRUD.
  *
  * <pre>
  *   GET    /landscape/assessments
- *   POST   /landscape/assessments/generate
  *   GET    /landscape/assessments/{lndscpAssmtId}
  *   GET    /landscape/assessment/{lndscpAssmtId}/assessmentDetail/{assmtDetailId}
  *   POST   /landscape/assessment/{lndscpAssmtId}/assessmentDetail/{assmtDetailId}/overlay
@@ -58,14 +55,13 @@ import java.util.List;
 @RequestMapping("/landscape")
 @RequiredArgsConstructor
 @Tag(name = "Landscape Assessments",
-        description = "Listing, generation, details, overlay and callouts for landscape assessments.")
+        description = "Listing, details, overlay and callouts for landscape assessments.")
 public class LandscapeAssmtController {
 
     private static final String USER_HEADER = "X-EGRC-UserId";
 
     private final LandscapeAssmtService assmtService;
     private final LandscapeAssmtDetailsService detailsService;
-    private final BulkAssmtGenerationService bulkGenerationService;
     private final LandscapeAssmtCalloutService calloutService;
 
     // ── Listing ────────────────────────────────────────────────────────────────
@@ -90,32 +86,6 @@ public class LandscapeAssmtController {
                 ? "No landscape assessments found."
                 : summaries.size() + " landscape assessment(s) found.";
         return ResponseEntity.ok(ApiResponse.successWithData(message, summaries));
-    }
-
-    // ── Generation ───────────────────────────────────────────────────────────────
-
-    @Operation(summary = "Generate assessments for all active landscapes",
-            description = "Generates this month's assessment for every ACTIVE landscape effective today; "
-                    + "ambiguous configs and already-generated landscapes are skipped per-landscape.")
-    @ApiResponses(value = {
-            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "Bulk run completed"),
-            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "Missing or blank X-EGRC-UserId header"),
-            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "500", description = "Unexpected server error")
-    })
-    @PostMapping("/assessments/generate")
-    public ResponseEntity<ApiResponse<BulkAssmtGenerationResponse>> generateForAllLandscapes(
-            @Parameter(description = "Operator identity", required = true)
-            @RequestHeader(value = USER_HEADER, required = false) String username) {
-
-        String user = requireUser(username);
-        log.debug("POST /landscape/assessments/generate requested by '{}'", user);
-
-        BulkAssmtGenerationResponse result = bulkGenerationService.generateForAllActiveLandscapes(user);
-        String message = result.getTotalLandscapes() == 0
-                ? "No active landscapes are effective today — nothing to generate."
-                : "Generated " + result.getGenerated() + " of " + result.getTotalLandscapes()
-                        + " active landscape(s); " + result.getSkipped() + " skipped.";
-        return ResponseEntity.ok(ApiResponse.successWithData(message, result));
     }
 
     // ── Assessment detail summary (with embedded dimensions + callouts) ────────────

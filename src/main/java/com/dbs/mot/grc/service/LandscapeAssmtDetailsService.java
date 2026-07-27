@@ -7,7 +7,6 @@ import com.dbs.mot.grc.enums.PersistableEnum;
 import com.dbs.mot.grc.exception.ConflictException;
 import com.dbs.mot.grc.exception.NotFoundException;
 import com.dbs.mot.grc.util.RiskAreaParser;
-import com.dbs.mot.grc.dto.AssmtDetailRef;
 import com.dbs.mot.grc.dto.AssmtDetailResponse;
 import com.dbs.mot.grc.dto.AssmtHeader;
 import com.dbs.mot.grc.dto.CalloutResponse;
@@ -191,10 +190,11 @@ public class LandscapeAssmtDetailsService {
 
     /**
      * Saves the analyst overlay (revised commentary, overlaid net risk rating, overlay
-     * justification) onto an assessment detail row and stamps the auditor.
+     * justification) onto an assessment detail row and stamps the auditor. The detail id is the
+     * primary key, so the row is located by id alone; the assessment is validated only for
+     * existence. {@code UPDATE_DT_TM} is filled by the DB ({@code ON UPDATE CURRENT_TIMESTAMP}).
      *
-     * @throws NotFoundException if the assessment or the detail does not exist, or the detail
-     *                           does not belong to the assessment
+     * @throws NotFoundException if the assessment or the detail does not exist
      * @throws ConflictException if the detail is not in {@code Open} status
      */
     @Transactional
@@ -207,26 +207,23 @@ public class LandscapeAssmtDetailsService {
             throw new NotFoundException("Landscape assessment not found for id: " + lndscpAssmtId);
         }
 
-        AssmtDetailRef detail = detailsRepository.findRefById(assmtDetailId)
+        OrlLndscpAssmtDetails detail = detailsRepository.findById(assmtDetailId)
                 .orElseThrow(() -> new NotFoundException(
                         "Assessment detail not found for id: " + assmtDetailId));
 
-        if (!lndscpAssmtId.equals(detail.lndscpAssmtId())) {
-            throw new NotFoundException("Assessment detail " + assmtDetailId
-                    + " does not belong to landscape assessment " + lndscpAssmtId + ".");
-        }
-
-        if (!DetailStatus.OPEN.getDbValue().equals(detail.status())) {
+        if (detail.getStatus() != DetailStatus.OPEN) {
             throw new ConflictException("Save is not allowed: assessment detail " + assmtDetailId
                     + " is not in '" + DetailStatus.OPEN.getDbValue() + "' status (current: "
-                    + detail.status() + ").");
+                    + PersistableEnum.dbValue(detail.getStatus()) + ").");
         }
 
-        detailsRepository.saveOverlay(assmtDetailId,
-                blankToNull(request.getRevisedCommentry()),
-                blankToNull(request.getOverlaidNRR()),
-                blankToNull(request.getOverlayJstfkn()),
-                username);
+        String overlaidNrr = blankToNull(request.getOverlaidNRR());
+        detailsRepository.save(detail.toBuilder()
+                .revisedCommentary(blankToNull(request.getRevisedCommentry()))
+                .ovrlyNetRiskRtng(overlaidNrr != null ? NetRiskRating.fromDbValue(overlaidNrr) : null)
+                .ovrlyJstfkn(blankToNull(request.getOverlayJstfkn()))
+                .updatedBy(username)
+                .build());
 
         log.info("Saved overlay for detail id={} of assessment id={} by '{}'",
                 assmtDetailId, lndscpAssmtId, username);
@@ -269,8 +266,8 @@ public class LandscapeAssmtDetailsService {
         if (bizDt == null) {
             return Optional.empty();
         }
-        return factRepository.findByBizDtAndDimension(bizDt, key.riskArea(),
-                key.orlBuNmL2(), key.orlBuNmL3(), key.orlBuNmL4(), key.location());
+        return factRepository.findByBizDtAndRiskAreaAndOrlBuNmL2AndOrlBuNmL3AndOrlBuNmL4AndLocation(
+                bizDt, key.riskArea(), key.orlBuNmL2(), key.orlBuNmL3(), key.orlBuNmL4(), key.location());
     }
 
     /**

@@ -71,30 +71,6 @@ class RiskAreaParserTest {
         assertThat(parser.parseQuietly(null)).isEmpty();
     }
 
-    // ── riskAreaNames ────────────────────────────────────────────────────────────
-
-    @Test
-    void riskAreaNames_flattensAndPreservesOrder() {
-        assertThat(parser.riskAreaNames(VALID)).containsExactly(
-                "IT Resiliency and Continuity",
-                "IT Change and Release Management",
-                "Transaction Capture and Execution");
-    }
-
-    @Test
-    void riskAreaNames_deduplicatesAcrossGroups() {
-        String json = "[{\"groupName\":\"A\",\"isGroup\":true,\"riskAreas\":["
-                + "{\"riskArea\":\"Shared\",\"riskClusters\":[\"OR\"]}]},"
-                + "{\"groupName\":\"B\",\"isGroup\":true,\"riskAreas\":["
-                + "{\"riskArea\":\"Shared\",\"riskClusters\":[\"LCS\"]}]}]";
-        assertThat(parser.riskAreaNames(json)).containsExactly("Shared");
-    }
-
-    @Test
-    void riskAreaNames_blank_returnsEmpty() {
-        assertThat(parser.riskAreaNames("")).isEmpty();
-    }
-
     // ── lookupByRiskArea ─────────────────────────────────────────────────────────
 
     @Test
@@ -153,7 +129,7 @@ class RiskAreaParserTest {
 
         assertThat(compact).doesNotContain("\n").doesNotContain(": ");
         // The compact form still parses to the same risk areas.
-        assertThat(parser.riskAreaNames(compact)).isEqualTo(parser.riskAreaNames(VALID));
+        assertThat(parser.riskAreaClusterMap(compact)).isEqualTo(parser.riskAreaClusterMap(VALID));
     }
 
     @Test

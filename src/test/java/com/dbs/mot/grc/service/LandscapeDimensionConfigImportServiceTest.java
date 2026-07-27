@@ -25,6 +25,13 @@ class LandscapeDimensionConfigImportServiceTest {
 
     @BeforeEach
     void clear() {
+        // Delete FK children (assessments and their descendants) before the parent config rows,
+        // so this test is robust to assessment rows left behind by other @SpringBootTest classes
+        // that share the same H2 instance (Spring context tests are not rolled back).
+        jdbc.execute("DELETE FROM orl_lndscp_callout_comment_hist");
+        jdbc.execute("DELETE FROM orl_lndscp_callout");
+        jdbc.execute("DELETE FROM orl_lndscp_assmt_details");
+        jdbc.execute("DELETE FROM orl_lndscp_assmt");
         jdbc.execute("DELETE FROM orl_lndscp_dim");
     }
 

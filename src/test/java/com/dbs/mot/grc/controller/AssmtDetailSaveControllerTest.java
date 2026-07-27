@@ -21,9 +21,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  *
  * <h3>Seed data</h3>
  * <ul>
- *   <li>Assmt 11 → dim 1; Assmt 12 → dim 1 (for the cross-assessment ownership check).</li>
+ *   <li>Assmt 11 → dim 1; Assmt 12 → dim 1 (to prove the save locates the detail by its
+ *       primary key, independent of the path assessment).</li>
  *   <li>Detail 300 (assmt 11, Open) — save target; 301 (assmt 11, Locked) — not editable;
- *       310 (assmt 12, Open) — belongs to another assessment.</li>
+ *       310 (assmt 12, Open) — under a different assessment.</li>
  * </ul>
  */
 @SpringBootTest
@@ -156,13 +157,19 @@ class AssmtDetailSaveControllerTest {
     }
 
     @Test
-    void save_detailBelongsToDifferentAssessment_returns404() throws Exception {
-        // Detail 310 exists but under assessment 12.
+    void save_detailIdIsPrimaryKey_savesRegardlessOfPathAssessment() throws Exception {
+        // Detail 310 exists under assessment 12. The overlay save now locates the row by its
+        // primary key alone and only checks the path assessment for existence (no ownership
+        // check), so saving it via assessment 11 succeeds and updates the row.
         mvc.perform(post(URL, 11, 310).header("X-EGRC-UserId", USER)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(body("x", null, null)))
-           .andExpect(status().isNotFound())
-           .andExpect(jsonPath("$.message", containsString("does not belong")));
+                        .content(body("Revised via other assmt", null, null)))
+           .andExpect(status().isOk())
+           .andExpect(jsonPath("$.success", is(true)))
+           .andExpect(jsonPath("$.message", containsString("310")));
+
+        assertColumn(310, "REVISED_COMMENTARY", "Revised via other assmt");
+        assertColumn(310, "UPDATED_BY", USER);
     }
 
     // ── State / validation ────────────────────────────────────────────────────────

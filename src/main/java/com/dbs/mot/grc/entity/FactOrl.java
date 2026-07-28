@@ -3,7 +3,6 @@ package com.dbs.mot.grc.entity;
 import com.dbs.mot.grc.enums.InherentRisk;
 import com.dbs.mot.grc.enums.LevelCategory;
 import com.dbs.mot.grc.enums.NetRiskRating;
-import com.dbs.mot.grc.enums.RiskRatingChange;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -58,9 +57,6 @@ public class FactOrl {
 
     @Column("INHERENT_RISK")
     private InherentRisk inherentRisk;
-
-    @Column("RISK_RTNG_CHGE")
-    private RiskRatingChange riskRtngChge;
 
     /** Calculated net risk rating. */
     @Column("CAL_NET_RISK_RTNG")

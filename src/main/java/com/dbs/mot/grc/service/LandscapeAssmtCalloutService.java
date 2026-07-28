@@ -77,9 +77,10 @@ public class LandscapeAssmtCalloutService {
      * @param lndscpAssmtId {@code orl_lndscp_assmt.id}
      * @param req           request body (already Bean-Validated)
      * @param username      value from the {@code X-EGRC-UserId} header
+     * @return the created callout (re-read so DB-managed timestamps are populated)
      * @throws NotFoundException if the assessment does not exist
      */
-    public void createCallout(Long lndscpAssmtId, CalloutRequest req, String username) {
+    public CalloutResponse createCallout(Long lndscpAssmtId, CalloutRequest req, String username) {
         log.debug("Creating callout for lndscp_assmt_id={} by '{}' (sme='{}')",
                 lndscpAssmtId, username, req.getSme());
         requireAssmtExists(lndscpAssmtId);
@@ -101,17 +102,19 @@ public class LandscapeAssmtCalloutService {
         recordCommentHistory(saved.getId(), req.getComment(), req.getSme());
         log.info("Created callout id={} for lndscp_assmt_id={} by '{}'",
                 saved.getId(), lndscpAssmtId, username);
+        return toResponse(reload(saved.getId()));
     }
 
     /**
      * Updates the editable fields of an existing callout via {@code save()}. The current SME is
      * shifted into {@code LAST_MODIFIED_SME} and the request SME becomes the new owner.
      *
+     * @return the updated callout (re-read so the DB-managed {@code UPDATE_DT_TM} is populated)
      * @throws NotFoundException if the assessment or callout does not exist, or the callout
      *                           belongs to a different assessment
      */
-    public void updateCallout(Long lndscpAssmtId, Long calloutId,
-                              CalloutRequest req, String username) {
+    public CalloutResponse updateCallout(Long lndscpAssmtId, Long calloutId,
+                                         CalloutRequest req, String username) {
         log.debug("Updating callout id={} for lndscp_assmt_id={} by '{}' (sme='{}')",
                 calloutId, lndscpAssmtId, username, req.getSme());
         requireAssmtExists(lndscpAssmtId);
@@ -134,6 +137,13 @@ public class LandscapeAssmtCalloutService {
         recordCommentHistory(calloutId, req.getComment(), newSme);
         log.info("Updated callout id={} for lndscp_assmt_id={} by '{}' (sme '{}' -> '{}')",
                 calloutId, lndscpAssmtId, username, oldSme, newSme);
+        return toResponse(reload(calloutId));
+    }
+
+    /** Re-reads a just-persisted callout so DB-managed timestamps are reflected in the response. */
+    private OrlLndscpCallout reload(Long calloutId) {
+        return calloutRepository.findById(calloutId)
+                .orElseThrow(() -> new NotFoundException("Callout not found for id: " + calloutId));
     }
 
     /**

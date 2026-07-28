@@ -4,9 +4,12 @@ import com.dbs.mot.grc.enums.DetailStatus;
 import com.dbs.mot.grc.enums.LevelCategory;
 import com.dbs.mot.grc.enums.NetRiskRating;
 import com.dbs.mot.grc.enums.PersistableEnum;
+import com.dbs.mot.grc.enums.RiskRatingChange;
 import com.dbs.mot.grc.exception.ConflictException;
 import com.dbs.mot.grc.exception.NotFoundException;
 import com.dbs.mot.grc.util.RiskAreaParser;
+import com.dbs.mot.grc.util.RiskRatingChanges;
+import com.dbs.mot.grc.dto.AssmtDetailCommentaryResponse;
 import com.dbs.mot.grc.dto.AssmtDetailResponse;
 import com.dbs.mot.grc.dto.AssmtHeader;
 import com.dbs.mot.grc.dto.CalloutResponse;
@@ -17,8 +20,10 @@ import com.dbs.mot.grc.dto.LandscapeBuDetails;
 import com.dbs.mot.grc.dto.LandscapeDimensions;
 import com.dbs.mot.grc.dto.LiveNRRDetails;
 import com.dbs.mot.grc.dto.MonthNRRDetails;
+import com.dbs.mot.grc.dto.OverlayResponse;
 import com.dbs.mot.grc.dto.RiskAreaGroup;
 import com.dbs.mot.grc.dto.SaveAssmtDetailRequest;
+import com.dbs.mot.grc.dto.SaveCommentaryRequest;
 import com.dbs.mot.grc.entity.FactOrl;
 import com.dbs.mot.grc.entity.OrlLndscpAssmt;
 import com.dbs.mot.grc.entity.OrlLndscpAssmtDetails;
@@ -40,6 +45,7 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
@@ -149,8 +155,9 @@ public class LandscapeAssmtDetailsService {
         DimensionKey key = keyOf(row);
         LocalDate currentBizDt = assmt.bizDt();
         FactOrl currentFact = factFor(currentBizDt, key).orElse(null);
-        // Assembled once; reused for the live block when the latest business date == currentBizDt.
-        Map<String, Object> currentMetrics = grcMetricsService.forBizDate(currentBizDt, key);
+        // Assembled once. Its per-module net risk ratings are the baseline the live block's
+        // risk_rating_chge is derived against.
+        GrcMetricsService.ModuleGrcMetrics currentGrc = grcMetricsService.forBizDate(currentBizDt, key);
 
         String currentNrrCalculated =
                 NetRiskRating.display(currentFact != null ? currentFact.getCalNetRiskRtng() : null);
@@ -161,7 +168,7 @@ public class LandscapeAssmtDetailsService {
                 .overlayJstfkn(row.getOvrlyJstfkn())
                 .ctrlEffRtn(currentFact != null ? currentFact.getCtrlEffRtn() : null)
                 .assmtPeriod(assmt.assmtPeriod())
-                .grcMetrics(currentMetrics)
+                .grcMetrics(currentGrc.blocks())
                 .commentry(currentFact != null ? currentFact.getCommentary() : null)
                 .revisedCommentry(row.getRevisedCommentary())
                 .build();
@@ -170,10 +177,10 @@ public class LandscapeAssmtDetailsService {
 
         // The "live" snapshot is the fact row on the latest business date across fact_orl, matched
         // to this dimension. That MAX(biz_dt) is read once and reused for the response's top-level
-        // lastRefreshed. When it equals the assessment's own biz_dt, live == current, so the
-        // already-fetched fact and metrics are reused instead of issuing the same queries again.
+        // lastRefreshed; when it equals the assessment's own biz_dt the current fact_orl row is
+        // reused. The live GRC block's risk_rating_chge is derived against the current NRRs.
         LocalDate maxBizDt = factRepository.findMaxBizDt();
-        LiveNRRDetails live = resolveLive(maxBizDt, currentBizDt, key, currentFact, currentMetrics);
+        LiveNRRDetails live = resolveLive(maxBizDt, currentBizDt, key, currentFact, currentGrc.netRiskRatings());
 
         log.info("Returning detail id={} of assessment id={} (prev {}, live {})",
                 assmtDetailId, lndscpAssmtId,
@@ -199,43 +206,135 @@ public class LandscapeAssmtDetailsService {
 
     /**
      * Saves the analyst overlay (revised commentary, overlaid net risk rating, overlay
-     * justification) onto an assessment detail row and stamps the auditor. The detail id is the
-     * primary key, so the row is located by id alone; the assessment is validated only for
-     * existence. {@code UPDATE_DT_TM} is filled by the DB ({@code ON UPDATE CURRENT_TIMESTAMP}).
+     * justification) onto an assessment detail row and stamps the auditor, returning the persisted
+     * overlay fields. When the <em>overlaid net risk rating changes</em>, the detail's
+     * {@code RISK_RTNG_CHGE} is re-evaluated (previous assessment's final NRR vs. this detail's
+     * effective NRR) via {@link RiskRatingChanges}. {@code UPDATE_DT_TM} is DB-managed.
      *
      * @throws NotFoundException if the assessment or the detail does not exist
      * @throws ConflictException if the detail is not in {@code Open} status
      */
     @Transactional
-    public void saveOverlay(Long lndscpAssmtId, Long assmtDetailId,
-                            SaveAssmtDetailRequest request, String username) {
+    public OverlayResponse saveOverlay(Long lndscpAssmtId, Long assmtDetailId,
+                                       SaveAssmtDetailRequest request, String username) {
         log.debug("Saving overlay for detail id={} of assessment id={} by '{}'",
+                assmtDetailId, lndscpAssmtId, username);
+
+        // Header projection: existence (404) + biz_dt / PREV_ASSMT_NUM used by the change re-eval.
+        AssmtHeader assmt = assmtRepository.findHeaderById(lndscpAssmtId)
+                .orElseThrow(() -> new NotFoundException(
+                        "Landscape assessment not found for id: " + lndscpAssmtId));
+
+        OrlLndscpAssmtDetails detail = requireOpenDetail(assmtDetailId);
+
+        String overlaidNrr = blankToNull(request.getOverlaidNRR());
+        NetRiskRating newOverlay = overlaidNrr != null ? NetRiskRating.fromDbValue(overlaidNrr) : null;
+
+        // 7a: only re-evaluate the risk-rating change when the overlaid rating actually changes.
+        RiskRatingChange riskRtngChge = detail.getRiskRtngChge();
+        boolean overlayChanged = !Objects.equals(newOverlay, detail.getOvrlyNetRiskRtng());
+        if (overlayChanged) {
+            DimensionKey key = keyOf(detail);
+            NetRiskRating previousFinal = previousFinalRatingForKey(assmt, key);
+            // Effective current rating = the new overlay when set, else this month's calculated rating.
+            NetRiskRating currentEffective = newOverlay != null
+                    ? newOverlay
+                    : factFor(assmt.bizDt(), key).map(FactOrl::getCalNetRiskRtng).orElse(null);
+            riskRtngChge = RiskRatingChanges.derive(previousFinal, currentEffective);
+            log.debug("Re-evaluated RISK_RTNG_CHGE for detail id={}: previous={}, current={} -> {}",
+                    assmtDetailId, previousFinal, currentEffective, riskRtngChge);
+        }
+
+        OrlLndscpAssmtDetails saved = detailsRepository.save(detail.toBuilder()
+                .revisedCommentary(blankToNull(request.getRevisedCommentry()))
+                .ovrlyNetRiskRtng(newOverlay)
+                .ovrlyJstfkn(blankToNull(request.getOverlayJstfkn()))
+                .riskRtngChge(riskRtngChge)
+                .updatedBy(username)
+                .build());
+
+        log.info("Saved overlay for detail id={} of assessment id={} by '{}' (overlayChanged={})",
+                assmtDetailId, lndscpAssmtId, username, overlayChanged);
+
+        return OverlayResponse.builder()
+                .lndscpAssmtId(lndscpAssmtId)
+                .assmtDetailId(assmtDetailId)
+                .overlaidNRR(PersistableEnum.dbValue(saved.getOvrlyNetRiskRtng()))
+                .overlayJstfkn(saved.getOvrlyJstfkn())
+                .status(PersistableEnum.dbValue(saved.getStatus()))
+                .riskRatingChange(PersistableEnum.dbValue(saved.getRiskRtngChge()))
+                .build();
+    }
+
+    /**
+     * Saves only the analyst-revised commentary ({@code REVISED_COMMENTARY}) of a detail row and
+     * stamps the auditor, returning the saved value. Same guards as the overlay save.
+     *
+     * @throws NotFoundException if the assessment or the detail does not exist
+     * @throws ConflictException if the detail is not in {@code Open} status
+     */
+    @Transactional
+    public AssmtDetailCommentaryResponse saveCommentary(Long lndscpAssmtId, Long assmtDetailId,
+                                                        SaveCommentaryRequest request, String username) {
+        log.debug("Saving commentary for detail id={} of assessment id={} by '{}'",
                 assmtDetailId, lndscpAssmtId, username);
 
         if (!assmtRepository.existsById(lndscpAssmtId)) {
             throw new NotFoundException("Landscape assessment not found for id: " + lndscpAssmtId);
         }
+        OrlLndscpAssmtDetails detail = requireOpenDetail(assmtDetailId);
 
+        OrlLndscpAssmtDetails saved = detailsRepository.save(detail.toBuilder()
+                .revisedCommentary(blankToNull(request.getRevisedCommentry()))
+                .updatedBy(username)
+                .build());
+
+        log.info("Saved commentary for detail id={} of assessment id={} by '{}'",
+                assmtDetailId, lndscpAssmtId, username);
+
+        return AssmtDetailCommentaryResponse.builder()
+                .lndscpAssmtId(lndscpAssmtId)
+                .assmtDetailId(assmtDetailId)
+                .revisedCommentary(saved.getRevisedCommentary())
+                .build();
+    }
+
+    /** Loads a detail row by id (404 if absent) and requires it to be in {@code Open} status (409). */
+    private OrlLndscpAssmtDetails requireOpenDetail(Long assmtDetailId) {
         OrlLndscpAssmtDetails detail = detailsRepository.findById(assmtDetailId)
                 .orElseThrow(() -> new NotFoundException(
                         "Assessment detail not found for id: " + assmtDetailId));
-
         if (detail.getStatus() != DetailStatus.OPEN) {
             throw new ConflictException("Save is not allowed: assessment detail " + assmtDetailId
                     + " is not in '" + DetailStatus.OPEN.getDbValue() + "' status (current: "
                     + PersistableEnum.dbValue(detail.getStatus()) + ").");
         }
+        return detail;
+    }
 
-        String overlaidNrr = blankToNull(request.getOverlaidNRR());
-        detailsRepository.save(detail.toBuilder()
-                .revisedCommentary(blankToNull(request.getRevisedCommentry()))
-                .ovrlyNetRiskRtng(overlaidNrr != null ? NetRiskRating.fromDbValue(overlaidNrr) : null)
-                .ovrlyJstfkn(blankToNull(request.getOverlayJstfkn()))
-                .updatedBy(username)
-                .build());
-
-        log.info("Saved overlay for detail id={} of assessment id={} by '{}'",
-                assmtDetailId, lndscpAssmtId, username);
+    /**
+     * The previous assessment's final net risk rating for one dimension key: the prior detail row's
+     * overlay when set, else the prior month's calculated rating. {@code null} when there is no
+     * previous assessment or no matching prior data. Targeted single-row reads (no aggregate load).
+     */
+    private NetRiskRating previousFinalRatingForKey(AssmtHeader assmt, DimensionKey key) {
+        Long prevId = assmt.prevAssmtNum();
+        if (prevId == null) {
+            return null;
+        }
+        AssmtHeader prev = assmtRepository.findHeaderById(prevId).orElse(null);
+        if (prev == null) {
+            log.warn("PREV_ASSMT_NUM={} of assessment id={} points to a missing assessment",
+                    prevId, assmt.id());
+            return null;
+        }
+        NetRiskRating overlay = detailsRepository.findByAssmtAndDimension(prevId,
+                        key.riskArea(), key.orlBuNmL2(), key.orlBuNmL3(), key.orlBuNmL4(), key.location())
+                .map(OrlLndscpAssmtDetails::getOvrlyNetRiskRtng).orElse(null);
+        if (overlay != null) {
+            return overlay;
+        }
+        return factFor(prev.bizDt(), key).map(FactOrl::getCalNetRiskRtng).orElse(null);
     }
 
     private String blankToNull(String value) {
@@ -287,44 +386,29 @@ public class LandscapeAssmtDetailsService {
     }
 
     /**
-     * The live snapshot for a dimension: the {@code fact_orl} row on {@code maxBizDt} (the latest
-     * business date across {@code fact_orl}) matching the dimension. Fetched via the same by-date
-     * path as the current/previous month, so no separate "latest per dimension" query is needed.
-     *
-     * @return {@code null} when there is no fact data (empty table) or the dimension has no row on
-     *         {@code maxBizDt}
-     */
-    private LiveNRRDetails liveDetails(LocalDate maxBizDt, DimensionKey key) {
-        FactOrl latest = factFor(maxBizDt, key).orElse(null);
-        if (latest == null) {
-            log.debug("No live fact_orl row for key {} on biz_dt={}", key, maxBizDt);
-            return null;
-        }
-        return liveFrom(latest, maxBizDt, grcMetricsService.forBizDate(maxBizDt, key));
-    }
-
-    /**
-     * Resolves the live snapshot, avoiding a duplicate fact + module-metric lookup when the latest
-     * business date is the assessment's own {@code biz_dt} (live and current are then identical):
-     * the already-fetched current fact and metrics are reused. Otherwise the live row is fetched
-     * for {@code maxBizDt}.
+     * Resolves the live snapshot: the {@code fact_orl} row on {@code maxBizDt} (the latest business
+     * date) matching the dimension, plus the live GRC block whose {@code risk_rating_chge} is
+     * derived against the current assessment's per-module ratings ({@code currentNrrs}). When
+     * {@code maxBizDt} equals the assessment's own {@code biz_dt} the already-fetched current
+     * {@code fact_orl} row is reused (no duplicate fact read).
      *
      * @return {@code null} when there is no fact data, or the dimension has no row on {@code maxBizDt}
      */
     private LiveNRRDetails resolveLive(LocalDate maxBizDt, LocalDate currentBizDt, DimensionKey key,
-                                       FactOrl currentFact, Map<String, Object> currentMetrics) {
+                                       FactOrl currentFact, Map<String, NetRiskRating> currentNrrs) {
         if (maxBizDt == null) {
             return null;
         }
-        if (maxBizDt.equals(currentBizDt)) {
-            if (currentFact == null) {
-                log.debug("No live fact_orl row for key {} on biz_dt={} (same as current)", key, maxBizDt);
-                return null;
-            }
-            log.debug("Live snapshot reuses the current-month fact for key {} on biz_dt={}", key, maxBizDt);
-            return liveFrom(currentFact, maxBizDt, currentMetrics);
+        FactOrl liveFact = maxBizDt.equals(currentBizDt)
+                ? currentFact                              // live == current: reuse the fact row
+                : factFor(maxBizDt, key).orElse(null);
+        if (liveFact == null) {
+            log.debug("No live fact_orl row for key {} on biz_dt={}", key, maxBizDt);
+            return null;
         }
-        return liveDetails(maxBizDt, key);
+        // Live risk_rating_chge is derived (live module rating vs. current assessment's module rating).
+        Map<String, Object> liveBlocks = grcMetricsService.forLive(maxBizDt, key, currentNrrs).blocks();
+        return liveFrom(liveFact, maxBizDt, liveBlocks);
     }
 
     /** Builds a {@link LiveNRRDetails} from an already-loaded fact row and its GRC metrics. */
@@ -446,7 +530,8 @@ public class LandscapeAssmtDetailsService {
                 .overlayJstfkn(d.getOvrlyJstfkn())
                 .ctrlEffRtn(prevFact != null ? prevFact.getCtrlEffRtn() : null)
                 .assmtPeriod(prev.assmtPeriod())
-                .grcMetrics(grcMetricsService.forBizDate(prevBizDt, key))
+                // Previous block's risk_rating_chge comes from the module fact (see forBizDate).
+                .grcMetrics(grcMetricsService.forBizDate(prevBizDt, key).blocks())
                 .commentry(prevFact != null ? prevFact.getCommentary() : null)
                 .build();
     }
@@ -518,7 +603,8 @@ public class LandscapeAssmtDetailsService {
                 .status(PersistableEnum.dbValue(row.getStatus()))
                 .nrrCalculated(nrrCalculated)
                 .nrr(resolveNrr(row.getOvrlyNetRiskRtng(), nrrCalculated))
-                .riskRatingChange(PersistableEnum.dbValue(currentFact != null ? currentFact.getRiskRtngChge() : null))
+                // Risk-rating change is now stored on (and read from) the detail row, not fact_orl.
+                .riskRatingChange(PersistableEnum.dbValue(row.getRiskRtngChge()))
                 .ctrlEffRtn(currentFact != null ? currentFact.getCtrlEffRtn() : null)
                 .commentry(currentFact != null ? currentFact.getCommentary() : null)
                 .category(PersistableEnum.dbValue(row.getCategory()))

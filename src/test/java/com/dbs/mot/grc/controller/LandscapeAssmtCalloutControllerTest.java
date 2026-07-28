@@ -118,11 +118,11 @@ class LandscapeAssmtCalloutControllerTest {
     // ── POST ─────────────────────────────────────────────────────────────────
 
     @Test
-    void createCallout_validPayload_returns201_statusOnly() throws Exception {
+    void createCallout_validPayload_returns201_withCreatedCallout() throws Exception {
         String body = """
                 {"riskArea":"Conduct Risk","locations":["SG"],"bizUnits":["Ops"],"comment":"New callout","sme":"alice"}
                 """;
-        // Create/update return a status message only (no data), like delete.
+        // Create returns the inserted callout in $.data (task 6).
         mvc.perform(post(BASE_URL, 200)
                         .header("X-EGRC-UserId", USERNAME)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -130,7 +130,13 @@ class LandscapeAssmtCalloutControllerTest {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.message").value("Callout created successfully."))
-                .andExpect(jsonPath("$.data").doesNotExist());
+                .andExpect(jsonPath("$.data.id").exists())
+                .andExpect(jsonPath("$.data.riskArea").value("Conduct Risk"))
+                .andExpect(jsonPath("$.data.locations", contains("SG")))
+                .andExpect(jsonPath("$.data.bizUnits", contains("Ops")))
+                .andExpect(jsonPath("$.data.comment").value("New callout"))
+                .andExpect(jsonPath("$.data.sme").value("alice"))
+                .andExpect(jsonPath("$.data.createdOn").exists());
 
         // Behaviour is verified against the DB.
         Long id = jdbc.queryForObject(
@@ -186,7 +192,8 @@ class LandscapeAssmtCalloutControllerTest {
                         .content(body))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.success").value(true))
-                .andExpect(jsonPath("$.data").doesNotExist());
+                .andExpect(jsonPath("$.data.riskArea").value("Others"))
+                .andExpect(jsonPath("$.data.locations", contains("ALL")));
 
         // The Others/ALL sentinel values are accepted and persisted.
         Integer count = jdbc.queryForObject(
@@ -304,7 +311,11 @@ class LandscapeAssmtCalloutControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.message").value("Callout updated successfully."))
-                .andExpect(jsonPath("$.data").doesNotExist());
+                // Response carries the updated callout (task 6): new SME 'carol', prior SME shifted.
+                .andExpect(jsonPath("$.data.id").value(300))
+                .andExpect(jsonPath("$.data.sme").value("carol"))
+                .andExpect(jsonPath("$.data.lastModifiedBy").value("bob"))
+                .andExpect(jsonPath("$.data.comment").value("Updated"));
 
         // SME shift and history are verified against the DB: new SME = request sme,
         // LAST_MODIFIED_SME = previous SME ('bob'); locations stored as JSON.

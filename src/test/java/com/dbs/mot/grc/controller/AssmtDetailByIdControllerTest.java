@@ -120,7 +120,7 @@ class AssmtDetailByIdControllerTest {
     private void insertIncFact(String bizDt, String nrr, String chge, int sinp) {
         jdbc.execute("""
                 INSERT INTO inc_fact_orl
-                    (biz_dt,RISK_AREA,ORL_BU_NM_L2,LOCATION,NET_RISK_RTNG,RISK_RTNG_CHGE,inc_is_sinp_count_l3m_mtd)
+                    (biz_dt,RISK_AREA,ORL_BU_NM_L2,LOCATION,NET_RISK_RATING,RISK_RTNG_CHGE,inc_is_sinp_count_l3m_mtd)
                 VALUES(DATE %s,'AML Sanctions','CBG','SG',%s,%s,%d)
                 """.formatted(q(bizDt), q(nrr), q(chge), sinp));
     }
@@ -128,7 +128,7 @@ class AssmtDetailByIdControllerTest {
     private void insertKriFact(String bizDt, String nrr, String chge, int active, int red, int green) {
         jdbc.execute("""
                 INSERT INTO kri_fact_orl
-                    (biz_dt,RISK_AREA,ORL_BU_NM_L2,LOCATION,NET_RISK_RTNG,RISK_RTNG_CHGE,
+                    (biz_dt,RISK_AREA,ORL_BU_NM_L2,LOCATION,NET_RISK_RATING,RISK_RTNG_CHGE,
                      KRI_ACTIVE_CNT,KRI_RED_CNT,KRI_GREEN_CNT)
                 VALUES(DATE %s,'AML Sanctions','CBG','SG',%s,%s,%d,%d,%d)
                 """.formatted(q(bizDt), q(nrr), q(chge), active, red, green));
@@ -137,7 +137,7 @@ class AssmtDetailByIdControllerTest {
     private void insertRcsaFact(String bizDt, String nrr, String chge, int highRisk) {
         jdbc.execute("""
                 INSERT INTO rcsa_fact_orl
-                    (biz_dt,RISK_AREA,ORL_BU_NM_L2,LOCATION,NET_RISK_RTNG,RISK_RTNG_CHGE,combined_count_high_risk)
+                    (biz_dt,RISK_AREA,ORL_BU_NM_L2,LOCATION,NET_RISK_RATING,RISK_RTNG_CHGE,combined_count_high_risk)
                 VALUES(DATE %s,'AML Sanctions','CBG','SG',%s,%s,%d)
                 """.formatted(q(bizDt), q(nrr), q(chge), highRisk));
     }
@@ -231,8 +231,8 @@ class AssmtDetailByIdControllerTest {
         mvc.perform(get(URL_TPL, 11, 300).header("X-EGRC-UserId", "tester"))
            .andExpect(status().isOk())
            .andExpect(jsonPath("$.data.currentMonthNRRDetails.grcMetrics").isMap())
-           // INC block: nrr + risk_rating_chge + metric
-           .andExpect(jsonPath("$.data.currentMonthNRRDetails.grcMetrics.INC.nrr", is("High")))
+           // INC block: nrr (display form) + risk_rating_chge (stored, for current) + metric
+           .andExpect(jsonPath("$.data.currentMonthNRRDetails.grcMetrics.INC.nrr", is("High Risk")))
            .andExpect(jsonPath("$.data.currentMonthNRRDetails.grcMetrics.INC.risk_rating_chge", is("Improved")))
            .andExpect(jsonPath("$.data.currentMonthNRRDetails.grcMetrics.INC.inc_is_sinp_count_l3m_mtd", is(7)))
            // RCSA block
@@ -287,7 +287,12 @@ class AssmtDetailByIdControllerTest {
            .andExpect(jsonPath("$.data.liveNRRDetails.ctrlEffRtn", is("Satisfactory to Good")))
            .andExpect(jsonPath("$.data.liveNRRDetails.commentry", is("Live commentary")))
            // Live GRC metrics use each module's own latest row (INC @ 2026-07-31 → sinp 9).
-           .andExpect(jsonPath("$.data.liveNRRDetails.grcMetrics.INC.inc_is_sinp_count_l3m_mtd", is(9)));
+           .andExpect(jsonPath("$.data.liveNRRDetails.grcMetrics.INC.inc_is_sinp_count_l3m_mtd", is(9)))
+           // Live INC nrr is the live row's rating in display form (Med Low → "Medium-Low Risk").
+           .andExpect(jsonPath("$.data.liveNRRDetails.grcMetrics.INC.nrr", is("Medium-Low Risk")))
+           // risk_rating_chge is DERIVED here: current INC rating (High) vs live INC rating (Med Low)
+           // → less severe → "Improved" (not the module fact's own stored 'Stable').
+           .andExpect(jsonPath("$.data.liveNRRDetails.grcMetrics.INC.risk_rating_chge", is("Improved")));
     }
 
     @Test

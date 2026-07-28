@@ -172,6 +172,8 @@ CREATE TABLE IF NOT EXISTS `orl_lndscp_assmt_details` (
     `REVISED_COMMENTARY` LONGTEXT NULL DEFAULT NULL,
     `OVRLY_NET_RISK_RTNG` ENUM('Low','Med Low','Med High','High') NULL DEFAULT NULL,
     `OVRLY_JSTFKN` VARCHAR(4000) NULL DEFAULT NULL,
+    -- Risk-rating change vs. the previous assessment for this dimension; re-evaluated on overlay change.
+    `RISK_RTNG_CHGE` ENUM('Improved','Deteriorated','Stable','N.A') NULL DEFAULT NULL,
     `STATUS` ENUM('Open','Locked','Pending unlock','Completed') NOT NULL DEFAULT 'Open',
     `CREATED_BY` VARCHAR(50) NOT NULL,
     `CREATE_DT_TM` DATETIME NOT NULL DEFAULT current_timestamp(),

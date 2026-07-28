@@ -1,11 +1,15 @@
 package com.dbs.mot.grc.controller;
 
 import com.dbs.mot.grc.dto.ApiResponse;
+import com.dbs.mot.grc.dto.AssmtDetailCommentaryResponse;
 import com.dbs.mot.grc.dto.AssmtDetailResponse;
 import com.dbs.mot.grc.dto.CalloutRequest;
+import com.dbs.mot.grc.dto.CalloutResponse;
 import com.dbs.mot.grc.dto.LandscapeAssmtDetailSummary;
 import com.dbs.mot.grc.dto.LandscapeAssmtSummary;
+import com.dbs.mot.grc.dto.OverlayResponse;
 import com.dbs.mot.grc.dto.SaveAssmtDetailRequest;
+import com.dbs.mot.grc.dto.SaveCommentaryRequest;
 import com.dbs.mot.grc.exception.UnauthorizedException;
 import com.dbs.mot.grc.service.LandscapeAssmtCalloutService;
 import com.dbs.mot.grc.service.LandscapeAssmtDetailsService;
@@ -152,7 +156,9 @@ public class LandscapeAssmtController {
 
     @Operation(summary = "Save an assessment detail overlay",
             description = "Persists REVISED_COMMENTARY, OVRLY_NET_RISK_RTNG and OVRLY_JSTFKN for a detail "
-                    + "row and stamps UPDATED_BY. Allowed only when the detail is in 'Open' status.")
+                    + "row and stamps UPDATED_BY. Allowed only when the detail is in 'Open' status. When "
+                    + "the overlaid rating changes, RISK_RTNG_CHGE is re-evaluated. Returns the persisted "
+                    + "overlay fields, status and risk-rating change.")
     @ApiResponses(value = {
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "Overlay saved"),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "Validation failed"),
@@ -162,7 +168,7 @@ public class LandscapeAssmtController {
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "500", description = "Unexpected server error")
     })
     @PostMapping("/assessment/{lndscpAssmtId}/assessmentDetail/{assmtDetailId}/overlay")
-    public ResponseEntity<ApiResponse<Void>> saveAssessmentDetailOverlay(
+    public ResponseEntity<ApiResponse<OverlayResponse>> saveAssessmentDetailOverlay(
             @Parameter(description = "orl_lndscp_assmt.id", required = true)
             @PathVariable Long lndscpAssmtId,
             @Parameter(description = "orl_lndscp_assmt_details.id", required = true)
@@ -175,14 +181,48 @@ public class LandscapeAssmtController {
         log.debug("POST /landscape/assessment/{}/assessmentDetail/{}/overlay requested by '{}'",
                 lndscpAssmtId, assmtDetailId, user);
 
-        detailsService.saveOverlay(lndscpAssmtId, assmtDetailId, request, user);
-        return ResponseEntity.ok(ApiResponse.success(
-                "Assessment detail " + assmtDetailId + " saved successfully."));
+        OverlayResponse saved = detailsService.saveOverlay(lndscpAssmtId, assmtDetailId, request, user);
+        return ResponseEntity.ok(ApiResponse.successWithData(
+                "Assessment detail " + assmtDetailId + " saved successfully.", saved));
+    }
+
+    // ── Detail commentary ──────────────────────────────────────────────────────────
+
+    @Operation(summary = "Save an assessment detail's revised commentary",
+            description = "Updates only REVISED_COMMENTARY on a detail row and stamps UPDATED_BY. Allowed "
+                    + "only when the detail is in 'Open' status. Returns the saved commentary with the "
+                    + "assessment and detail ids.")
+    @ApiResponses(value = {
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "Commentary saved"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "Missing or blank X-EGRC-UserId header"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "Assessment or detail not found"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "409", description = "Detail is not in 'Open' status"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "500", description = "Unexpected server error")
+    })
+    @PostMapping("/assessment/{lndscpAssmtId}/assessmentDetail/{assmtDetailId}/commentry")
+    public ResponseEntity<ApiResponse<AssmtDetailCommentaryResponse>> saveAssessmentDetailCommentary(
+            @Parameter(description = "orl_lndscp_assmt.id", required = true)
+            @PathVariable Long lndscpAssmtId,
+            @Parameter(description = "orl_lndscp_assmt_details.id", required = true)
+            @PathVariable Long assmtDetailId,
+            @Valid @RequestBody SaveCommentaryRequest request,
+            @Parameter(description = "Operator identity", required = true)
+            @RequestHeader(value = USER_HEADER, required = false) String username) {
+
+        String user = requireUser(username);
+        log.debug("POST /landscape/assessment/{}/assessmentDetail/{}/commentry requested by '{}'",
+                lndscpAssmtId, assmtDetailId, user);
+
+        AssmtDetailCommentaryResponse saved =
+                detailsService.saveCommentary(lndscpAssmtId, assmtDetailId, request, user);
+        return ResponseEntity.ok(ApiResponse.successWithData(
+                "Assessment detail " + assmtDetailId + " commentary saved successfully.", saved));
     }
 
     // ── Callouts ─────────────────────────────────────────────────────────────────
 
-    @Operation(summary = "Create a callout", description = "Creates a callout under the assessment.")
+    @Operation(summary = "Create a callout",
+            description = "Creates a callout under the assessment and returns the created callout.")
     @ApiResponses(value = {
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "201", description = "Callout created"),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "Validation failed"),
@@ -191,7 +231,7 @@ public class LandscapeAssmtController {
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "500", description = "Unexpected server error")
     })
     @PostMapping("/assessment/{lndscpAssmtId}/callouts")
-    public ResponseEntity<ApiResponse<Void>> createCallout(
+    public ResponseEntity<ApiResponse<CalloutResponse>> createCallout(
             @Parameter(description = "orl_lndscp_assmt.id", required = true)
             @PathVariable Long lndscpAssmtId,
             @Valid @RequestBody CalloutRequest request,
@@ -201,12 +241,13 @@ public class LandscapeAssmtController {
         String user = requireUser(username);
         log.debug("POST /landscape/assessment/{}/callouts requested by '{}'", lndscpAssmtId, user);
 
-        calloutService.createCallout(lndscpAssmtId, request, user);
+        CalloutResponse created = calloutService.createCallout(lndscpAssmtId, request, user);
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ApiResponse.success("Callout created successfully."));
+                .body(ApiResponse.successWithData("Callout created successfully.", created));
     }
 
-    @Operation(summary = "Update a callout", description = "Updates a callout's fields and shifts the SME.")
+    @Operation(summary = "Update a callout",
+            description = "Updates a callout's fields, shifts the SME, and returns the updated callout.")
     @ApiResponses(value = {
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "Callout updated"),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "Validation failed"),
@@ -215,7 +256,7 @@ public class LandscapeAssmtController {
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "500", description = "Unexpected server error")
     })
     @PutMapping("/assessment/{lndscpAssmtId}/callouts/{calloutId}")
-    public ResponseEntity<ApiResponse<Void>> updateCallout(
+    public ResponseEntity<ApiResponse<CalloutResponse>> updateCallout(
             @Parameter(description = "orl_lndscp_assmt.id", required = true)
             @PathVariable Long lndscpAssmtId,
             @Parameter(description = "orl_lndscp_callout.id", required = true)
@@ -228,8 +269,8 @@ public class LandscapeAssmtController {
         log.debug("PUT /landscape/assessment/{}/callouts/{} requested by '{}'",
                 lndscpAssmtId, calloutId, user);
 
-        calloutService.updateCallout(lndscpAssmtId, calloutId, request, user);
-        return ResponseEntity.ok(ApiResponse.success("Callout updated successfully."));
+        CalloutResponse updated = calloutService.updateCallout(lndscpAssmtId, calloutId, request, user);
+        return ResponseEntity.ok(ApiResponse.successWithData("Callout updated successfully.", updated));
     }
 
     @Operation(summary = "Soft-delete a callout",

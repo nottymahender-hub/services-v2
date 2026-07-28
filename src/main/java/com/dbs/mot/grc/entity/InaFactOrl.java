@@ -42,7 +42,7 @@ public class InaFactOrl implements ModuleFact {
     @Column("LOCATION")
     private String location;
 
-    @Column("NET_RISK_RTNG")
+    @Column("NET_RISK_RATING")
     private NetRiskRating netRiskRtng;
     @Column("RISK_RTNG_CHGE")
     private RiskRatingChange riskRtngChge;

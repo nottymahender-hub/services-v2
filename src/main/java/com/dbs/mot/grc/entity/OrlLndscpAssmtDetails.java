@@ -3,6 +3,7 @@ package com.dbs.mot.grc.entity;
 import com.dbs.mot.grc.enums.DetailStatus;
 import com.dbs.mot.grc.enums.LevelCategory;
 import com.dbs.mot.grc.enums.NetRiskRating;
+import com.dbs.mot.grc.enums.RiskRatingChange;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -73,6 +74,14 @@ public class OrlLndscpAssmtDetails {
 
     @Column("STATUS")
     private DetailStatus status;
+
+    /**
+     * Risk-rating change vs. the previous assessment for this dimension. Stored here (not derived
+     * at read time): populated upstream and re-evaluated by the overlay save when the overlaid net
+     * risk rating changes (see {@link com.dbs.mot.grc.util.RiskRatingChanges}).
+     */
+    @Column("RISK_RTNG_CHGE")
+    private RiskRatingChange riskRtngChge;
 
     @Column("CREATED_BY")
     private String createdBy;

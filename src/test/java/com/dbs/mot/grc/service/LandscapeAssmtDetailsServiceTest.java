@@ -1,9 +1,12 @@
 package com.dbs.mot.grc.service;
 
+import com.dbs.mot.grc.dto.AssmtDetailCommentaryResponse;
 import com.dbs.mot.grc.dto.AssmtDetailResponse;
 import com.dbs.mot.grc.dto.LandscapeAssmtDetailItem;
 import com.dbs.mot.grc.dto.LandscapeAssmtDetailSummary;
+import com.dbs.mot.grc.dto.OverlayResponse;
 import com.dbs.mot.grc.dto.SaveAssmtDetailRequest;
+import com.dbs.mot.grc.dto.SaveCommentaryRequest;
 import com.dbs.mot.grc.exception.ConflictException;
 import com.dbs.mot.grc.exception.NotFoundException;
 import org.junit.jupiter.api.BeforeEach;
@@ -285,6 +288,67 @@ class LandscapeAssmtDetailsServiceTest {
         assertThatThrownBy(() -> service.saveOverlay(41L, 8888L, new SaveAssmtDetailRequest(), "auditor"))
                 .isInstanceOf(NotFoundException.class)
                 .hasMessageContaining("8888");
+    }
+
+    @Test
+    void saveOverlay_returnsResponse_andRecomputesRiskRatingChange_whenOverlayChanges() {
+        // Detail 401 starts with no overlay. Previous assessment 40's matched row 400 has OVRLY 'High'
+        // → previous final 'High'; new overlay 'Low' → less severe → Improved.
+        SaveAssmtDetailRequest req = new SaveAssmtDetailRequest();
+        req.setOverlaidNRR("Low");
+        req.setOverlayJstfkn("justified");
+
+        OverlayResponse resp = service.saveOverlay(41L, 401L, req, "auditor");
+
+        assertThat(resp.getLndscpAssmtId()).isEqualTo(41L);
+        assertThat(resp.getAssmtDetailId()).isEqualTo(401L);
+        assertThat(resp.getOverlaidNRR()).isEqualTo("Low");
+        assertThat(resp.getStatus()).isEqualTo("Open");
+        assertThat(resp.getRiskRatingChange()).isEqualTo("Improved");
+        assertThat(column(401, "RISK_RTNG_CHGE")).isEqualTo("Improved");
+    }
+
+    @Test
+    void saveOverlay_overlayUnchanged_leavesRiskRatingChangeUntouched() {
+        // Seed an existing change; saving with the same (absent) overlay must not recompute it.
+        jdbc.execute("UPDATE orl_lndscp_assmt_details SET RISK_RTNG_CHGE='Deteriorated' WHERE id=401");
+        SaveAssmtDetailRequest req = new SaveAssmtDetailRequest();
+        req.setRevisedCommentry("note only");   // overlaidNRR stays null (unchanged)
+
+        OverlayResponse resp = service.saveOverlay(41L, 401L, req, "auditor");
+
+        assertThat(resp.getRiskRatingChange()).isEqualTo("Deteriorated");
+        assertThat(column(401, "RISK_RTNG_CHGE")).isEqualTo("Deteriorated");
+    }
+
+    // ── saveCommentary ──────────────────────────────────────────────────────────
+
+    @Test
+    void saveCommentary_updatesRevisedCommentary_andReturnsIt() {
+        SaveCommentaryRequest req = new SaveCommentaryRequest();
+        req.setRevisedCommentry("Analyst note");
+
+        AssmtDetailCommentaryResponse resp = service.saveCommentary(41L, 401L, req, "auditor");
+
+        assertThat(resp.getLndscpAssmtId()).isEqualTo(41L);
+        assertThat(resp.getAssmtDetailId()).isEqualTo(401L);
+        assertThat(resp.getRevisedCommentary()).isEqualTo("Analyst note");
+        assertThat(column(401, "REVISED_COMMENTARY")).isEqualTo("Analyst note");
+        assertThat(column(401, "UPDATED_BY")).isEqualTo("auditor");
+    }
+
+    @Test
+    void saveCommentary_detailNotOpen_throwsConflict() {
+        assertThatThrownBy(() -> service.saveCommentary(40L, 402L, new SaveCommentaryRequest(), "auditor"))
+                .isInstanceOf(ConflictException.class)
+                .hasMessageContaining("Open");
+    }
+
+    @Test
+    void saveCommentary_unknownAssessment_throwsNotFound() {
+        assertThatThrownBy(() -> service.saveCommentary(9999L, 401L, new SaveCommentaryRequest(), "auditor"))
+                .isInstanceOf(NotFoundException.class)
+                .hasMessageContaining("9999");
     }
 
     private String column(long id, String col) {

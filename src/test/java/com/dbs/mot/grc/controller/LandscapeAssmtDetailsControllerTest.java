@@ -405,6 +405,9 @@ class LandscapeAssmtDetailsControllerTest {
 
     @Test
     void riskRatingChangeAndCommentry_arePassedThrough() throws Exception {
+        // riskRatingChange is now stored on (and read from) the detail row, not fact_orl.
+        jdbc.execute("UPDATE orl_lndscp_assmt_details SET RISK_RTNG_CHGE='Improved' WHERE id=101");
+
         mvc.perform(get(URL_TPL, 5).header("X-EGRC-UserId", "tester"))
            .andExpect(status().isOk())
            .andExpect(jsonPath("$.data.assessments[?(@.id==101)].riskRatingChange", hasItem("Improved")))

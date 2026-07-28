@@ -92,7 +92,15 @@ class AssmtDetailSaveControllerTest {
                         .content(body("Revised text", "Low", "Overlay reason")))
            .andExpect(status().isOk())
            .andExpect(jsonPath("$.success", is(true)))
-           .andExpect(jsonPath("$.message", containsString("300")));
+           .andExpect(jsonPath("$.message", containsString("300")))
+           // Response echoes the persisted overlay fields + ids (task 7).
+           .andExpect(jsonPath("$.data.lndscpAssmtId", is(11)))
+           .andExpect(jsonPath("$.data.assmtDetailId", is(300)))
+           .andExpect(jsonPath("$.data.overlaidNRR", is("Low")))
+           .andExpect(jsonPath("$.data.overlayJstfkn", is("Overlay reason")))
+           .andExpect(jsonPath("$.data.status", is("Open")))
+           // No previous assessment/fact seeded here → derived change is N.A.
+           .andExpect(jsonPath("$.data.riskRatingChange", is("N.A")));
 
         assertColumn(300, "REVISED_COMMENTARY", "Revised text");
         assertColumn(300, "OVRLY_NET_RISK_RTNG", "Low");

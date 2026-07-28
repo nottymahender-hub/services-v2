@@ -17,7 +17,7 @@ import java.util.Map;
  */
 public interface ModuleFact {
 
-    /** Module net risk rating ({@code NET_RISK_RTNG}). */
+    /** Module net risk rating ({@code NET_RISK_RATING}). */
     NetRiskRating getNetRiskRtng();
 
     /** Module risk-rating change ({@code RISK_RTNG_CHGE}). */

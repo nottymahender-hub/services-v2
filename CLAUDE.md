@@ -35,13 +35,13 @@ There is **no `common` package** — all shared packages sit directly under `com
 
 ### ORL configuration pipeline
 
-`OrlConfigurationController` (`/api/orl-configurations`) exposes an **explicit upload + download endpoint per table** (e.g. `POST /api/orl-configurations/biz-units/upload`, `GET /api/orl-configurations/biz-units/download`). Each table has its own `service/XxxConfigImportService implements OrlConfigImporter` (the payload is CSV, but each represents a *configuration*, so the classes are not named "Csv"). The controller injects the importers directly and delegates the import+audit transaction to `OrlConfigurationService` (there is **no registry** and **no generic `{tableName}` dispatch**).
+`OrlConfigurationController` (`/api/orl-configurations`) exposes an **explicit upload endpoint per table** (e.g. `POST /api/orl-configurations/biz-units/upload`) and a **single, shared download endpoint** `GET /api/orl-configurations/{configName}/download` (e.g. `.../biz-units/download`). Each table has its own `service/XxxConfigImportService implements OrlConfigImporter` (the payload is CSV, but each represents a *configuration*, so the classes are not named "Csv"). Uploads inject the importers directly and delegate the import+audit transaction to `OrlConfigurationService`. Downloads resolve the target importer by `configName` through `csv/OrlConfigImporterRegistry` (built from all `OrlConfigImporter` beans; unknown name → `NotFoundException`/404) — the only place with `{configName}` dispatch; uploads still have **no generic dispatch**.
 
 **To support a new table:**
 - `service/XxxConfigImportService implements OrlConfigImporter` — config name, headers, persistence.
 - `csv/mapper/XxxCsvRowMapper implements CsvRowMapper<T>` — one CSV row → DTO, collecting per-cell/type errors.
 - `csv/validator/XxxCsvRowValidator implements CsvRowValidator<T>` — cross-row/dataset checks.
-- add an explicit upload+download endpoint pair to `OrlConfigurationController`.
+- add an explicit **upload** endpoint to `OrlConfigurationController`. **Download needs no controller change** — the new importer auto-registers in `OrlConfigImporterRegistry` and is served by the shared `{configName}/download` endpoint under its `configName()`.
 
 All importers delegate parsing to the shared `CsvImportProcessor.process(...)`: file validation → header validation (exact set, no duplicates, BOM-stripped) → per-row mapping → per-row Hibernate Bean Validation → dataset-level validation. Both mapping and cross-row phases collect **all** errors and throw `CsvValidationException` (→ HTTP 400 with per-row detail). `OrlConfigurationService.importConfig` is `@Transactional`, so the row import and the audit insert commit as one unit.
 

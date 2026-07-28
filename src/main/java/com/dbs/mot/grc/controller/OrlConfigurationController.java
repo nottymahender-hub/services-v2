@@ -1,6 +1,7 @@
 package com.dbs.mot.grc.controller;
 
 import com.dbs.mot.grc.csv.OrlConfigImporter;
+import com.dbs.mot.grc.csv.OrlConfigImporterRegistry;
 import com.dbs.mot.grc.dto.ApiResponse;
 import com.dbs.mot.grc.exception.UnauthorizedException;
 import com.dbs.mot.grc.service.BuLocationHeadcountConfigImportService;
@@ -14,6 +15,7 @@ import com.dbs.mot.grc.service.RiskTypeRiskAreaMapConfigImportService;
 import com.dbs.mot.grc.service.TrainStatsConfigImportService;
 import com.opencsv.CSVWriter;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletResponse;
@@ -23,6 +25,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -37,9 +40,11 @@ import java.nio.charset.StandardCharsets;
 /**
  * REST endpoints for uploading and downloading the ORL configuration tables.
  *
- * <p>Each configuration has its own explicit, individually-documented upload and download
- * endpoint under {@code /api/orl-configurations}. The upload payload is CSV, but each table is an
- * ORL <em>configuration</em>; the per-table work lives in a {@code *ConfigImportService}
+ * <p>Each configuration has its own explicit, individually-documented <em>upload</em> endpoint
+ * under {@code /api/orl-configurations}. Downloads, by contrast, are served by a <em>single</em>
+ * endpoint ({@code GET /{configName}/download}) that resolves the target table through
+ * {@link OrlConfigImporterRegistry}. The upload payload is CSV, but each table is an ORL
+ * <em>configuration</em>; the per-table work lives in a {@code *ConfigImportService}
  * (implementing {@link OrlConfigImporter}) and the import+audit transaction in
  * {@link OrlConfigurationService}.
  *
@@ -56,6 +61,8 @@ public class OrlConfigurationController {
     private static final String UPLOAD_HEADER = "X-EGRC-UserId";
 
     private final OrlConfigurationService configurationService;
+    /** Resolves a config name to its importer for the single download endpoint. */
+    private final OrlConfigImporterRegistry importerRegistry;
 
     private final BusinessUnitConfigImportService businessUnitService;
     private final EntityMasterConfigImportService entityMasterService;
@@ -83,12 +90,6 @@ public class OrlConfigurationController {
         return upload(businessUnitService, username, file);
     }
 
-    @Operation(summary = "Download business-unit configuration")
-    @GetMapping("/biz-units/download")
-    public void downloadBusinessUnits(HttpServletResponse response) throws IOException {
-        download(businessUnitService, response);
-    }
-
     // ── Entity master ────────────────────────────────────────────────────────
 
     @Operation(summary = "Upload entity-master configuration",
@@ -104,12 +105,6 @@ public class OrlConfigurationController {
             @RequestHeader(value = UPLOAD_HEADER, required = false) String username,
             @RequestParam("file") MultipartFile file) {
         return upload(entityMasterService, username, file);
-    }
-
-    @Operation(summary = "Download entity-master configuration")
-    @GetMapping("/entity-mstr/download")
-    public void downloadEntityMaster(HttpServletResponse response) throws IOException {
-        download(entityMasterService, response);
     }
 
     // ── BU/location headcount ────────────────────────────────────────────────
@@ -129,12 +124,6 @@ public class OrlConfigurationController {
         return upload(buLocationHeadcountService, username, file);
     }
 
-    @Operation(summary = "Download BU/location headcount configuration")
-    @GetMapping("/bu-loctn-headcount/download")
-    public void downloadBuLocationHeadcount(HttpServletResponse response) throws IOException {
-        download(buLocationHeadcountService, response);
-    }
-
     // ── Risk-type / risk-area map ─────────────────────────────────────────────
 
     @Operation(summary = "Upload risk-type / risk-area map configuration",
@@ -150,12 +139,6 @@ public class OrlConfigurationController {
             @RequestHeader(value = UPLOAD_HEADER, required = false) String username,
             @RequestParam("file") MultipartFile file) {
         return upload(riskTypeRiskAreaMapService, username, file);
-    }
-
-    @Operation(summary = "Download risk-type / risk-area map configuration")
-    @GetMapping("/risk-type-risk-area-maps/download")
-    public void downloadRiskTypeRiskAreaMaps(HttpServletResponse response) throws IOException {
-        download(riskTypeRiskAreaMapService, response);
     }
 
     // ── Feature score band ────────────────────────────────────────────────────
@@ -175,12 +158,6 @@ public class OrlConfigurationController {
         return upload(featureScoreBandService, username, file);
     }
 
-    @Operation(summary = "Download feature-score-band configuration (latest version per group)")
-    @GetMapping("/feature-score-band/download")
-    public void downloadFeatureScoreBand(HttpServletResponse response) throws IOException {
-        download(featureScoreBandService, response);
-    }
-
     // ── Net risk band ─────────────────────────────────────────────────────────
 
     @Operation(summary = "Upload net-risk-band configuration",
@@ -196,12 +173,6 @@ public class OrlConfigurationController {
             @RequestHeader(value = UPLOAD_HEADER, required = false) String username,
             @RequestParam("file") MultipartFile file) {
         return upload(netRiskBandService, username, file);
-    }
-
-    @Operation(summary = "Download net-risk-band configuration (latest version per group)")
-    @GetMapping("/net-risk-band/download")
-    public void downloadNetRiskBand(HttpServletResponse response) throws IOException {
-        download(netRiskBandService, response);
     }
 
     // ── Train stats ───────────────────────────────────────────────────────────
@@ -221,12 +192,6 @@ public class OrlConfigurationController {
         return upload(trainStatsService, username, file);
     }
 
-    @Operation(summary = "Download train-stats configuration (latest version per group)")
-    @GetMapping("/train-stats/download")
-    public void downloadTrainStats(HttpServletResponse response) throws IOException {
-        download(trainStatsService, response);
-    }
-
     // ── Landscape dimensions ──────────────────────────────────────────────────
 
     @Operation(summary = "Upload landscape-dimension configuration",
@@ -244,10 +209,25 @@ public class OrlConfigurationController {
         return upload(landscapeDimensionService, username, file);
     }
 
-    @Operation(summary = "Download landscape-dimension configuration")
-    @GetMapping("/lndscp-dim/download")
-    public void downloadLandscapeDimensions(HttpServletResponse response) throws IOException {
-        download(landscapeDimensionService, response);
+    // ── Single CSV download (any configuration) ────────────────────────────────
+
+    @Operation(summary = "Download a configuration table as CSV",
+            description = "Streams the requested ORL configuration table as a CSV file. The table is "
+                    + "selected by the {configName} path segment; valid values are: biz-units, "
+                    + "entity-mstr, bu-loctn-headcount, risk-type-risk-area-maps, feature-score-band, "
+                    + "net-risk-band, train-stats, lndscp-dim.")
+    @ApiResponses(value = {
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "CSV stream returned"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "Unknown configName"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "500", description = "Unexpected server error")
+    })
+    @GetMapping("/{configName}/download")
+    public void downloadConfiguration(
+            @Parameter(description = "Configuration table identifier, e.g. 'biz-units'", required = true)
+            @PathVariable String configName,
+            HttpServletResponse response) throws IOException {
+        // Unknown configName → NotFoundException (404) from the registry, before any streaming.
+        download(importerRegistry.get(configName), response);
     }
 
     // ── Shared helpers ────────────────────────────────────────────────────────

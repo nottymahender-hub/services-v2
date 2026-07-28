@@ -98,8 +98,19 @@ public class RiskAreaParser {
      * @return an ordered map keyed by risk area name; empty when blank/unparseable
      */
     public Map<String, AreaLookup> lookupByRiskArea(String json) {
+        return lookupByRiskArea(parseQuietly(json));
+    }
+
+    /**
+     * {@link #lookupByRiskArea(String)} over an already-parsed document. Lets a caller that needs
+     * several views of the same RISK_AREA JSON parse it once (via {@link #parseQuietly(String)})
+     * and reuse the result, instead of re-deserialising the string per view.
+     *
+     * @param groups the parsed risk-area groups (never {@code null})
+     */
+    public Map<String, AreaLookup> lookupByRiskArea(List<RiskAreaGroup> groups) {
         Map<String, AreaLookup> lookup = new LinkedHashMap<>();
-        for (RiskAreaGroup group : parseQuietly(json)) {
+        for (RiskAreaGroup group : groups) {
             for (RiskAreaEntry entry : safeEntries(group)) {
                 if (entry.riskArea() != null) {
                     lookup.putIfAbsent(entry.riskArea(),
@@ -119,8 +130,13 @@ public class RiskAreaParser {
      * @return an ordered map keyed by risk area name; empty when blank/unparseable
      */
     public Map<String, List<String>> riskAreaClusterMap(String json) {
+        return riskAreaClusterMap(parseQuietly(json));
+    }
+
+    /** {@link #riskAreaClusterMap(String)} over an already-parsed document (parse once, reuse). */
+    public Map<String, List<String>> riskAreaClusterMap(List<RiskAreaGroup> groups) {
         Map<String, List<String>> map = new LinkedHashMap<>();
-        for (RiskAreaGroup group : parseQuietly(json)) {
+        for (RiskAreaGroup group : groups) {
             for (RiskAreaEntry entry : safeEntries(group)) {
                 if (entry.riskArea() != null) {
                     map.putIfAbsent(entry.riskArea(),
@@ -138,8 +154,13 @@ public class RiskAreaParser {
      * @return distinct risk cluster codes; empty when blank/unparseable
      */
     public List<String> distinctRiskClusters(String json) {
+        return distinctRiskClusters(parseQuietly(json));
+    }
+
+    /** {@link #distinctRiskClusters(String)} over an already-parsed document (parse once, reuse). */
+    public List<String> distinctRiskClusters(List<RiskAreaGroup> groups) {
         Set<String> clusters = new LinkedHashSet<>();
-        for (RiskAreaGroup group : parseQuietly(json)) {
+        for (RiskAreaGroup group : groups) {
             for (RiskAreaEntry entry : safeEntries(group)) {
                 if (entry.riskClusters() != null) {
                     entry.riskClusters().stream().filter(Objects::nonNull).forEach(clusters::add);

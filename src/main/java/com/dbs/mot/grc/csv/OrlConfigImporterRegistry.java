@@ -4,6 +4,7 @@ import com.dbs.mot.grc.exception.NotFoundException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -43,8 +44,10 @@ public class OrlConfigImporterRegistry {
                                 + existing.getClass().getName() + " and " + importer.getClass().getName());
             }
         }
-        this.importersByName = Map.copyOf(byName);
-        log.info("Registered {} ORL config importer(s): {}", importersByName.size(), byName.keySet());
+        // Wrap the LinkedHashMap (not Map.copyOf, which does NOT preserve insertion order) so
+        // knownNames() stays insertion-ordered and stable for docs/error messages.
+        this.importersByName = Collections.unmodifiableMap(byName);
+        log.info("Registered {} ORL config importer(s): {}", importersByName.size(), importersByName.keySet());
     }
 
     /**

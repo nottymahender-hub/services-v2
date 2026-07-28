@@ -17,6 +17,7 @@ import com.dbs.mot.grc.dto.LandscapeBuDetails;
 import com.dbs.mot.grc.dto.LandscapeDimensions;
 import com.dbs.mot.grc.dto.LiveNRRDetails;
 import com.dbs.mot.grc.dto.MonthNRRDetails;
+import com.dbs.mot.grc.dto.RiskAreaGroup;
 import com.dbs.mot.grc.dto.SaveAssmtDetailRequest;
 import com.dbs.mot.grc.entity.FactOrl;
 import com.dbs.mot.grc.entity.OrlLndscpAssmt;
@@ -91,8 +92,12 @@ public class LandscapeAssmtDetailsService {
 
         Map<DimensionKey, FactOrl> currentFacts = factsForAssmt(assmt.getId(), bizDateOf(assmt));
         Map<DimensionKey, NetRiskRating> prevFinalRatings = previousFinalRatings(assmt);
+
+        // Parse the landscape's RISK_AREA JSON once and reuse it for every view below
+        // (per-row group/cluster lookup + the embedded dimensions), rather than re-parsing it 3×.
+        List<RiskAreaGroup> riskAreaGroups = riskAreaParser.parseQuietly(dim.getRiskArea());
         Map<String, RiskAreaParser.AreaLookup> riskAreaLookup =
-                riskAreaParser.lookupByRiskArea(dim.getRiskArea());
+                riskAreaParser.lookupByRiskArea(riskAreaGroups);
 
         List<LandscapeAssmtDetailItem> items = rows.stream()
                 .map(row -> toItem(row, dim.getBizUnitLvl(),
@@ -115,7 +120,7 @@ public class LandscapeAssmtDetailsService {
                 .lndscpLastRefreshed(factRepository.findMaxBizDt())
                 .lndscpLastModifiedOn(resolveLastModifiedOn(assmt))
                 .lndscpLastModifiedBy(resolveLastModifiedBy(assmt))
-                .dimensions(toDimensions(dim))
+                .dimensions(toDimensions(dim, riskAreaGroups))
                 .callouts(callouts)
                 .assessments(items)
                 .build();
@@ -144,6 +149,8 @@ public class LandscapeAssmtDetailsService {
         DimensionKey key = keyOf(row);
         LocalDate currentBizDt = assmt.bizDt();
         FactOrl currentFact = factFor(currentBizDt, key).orElse(null);
+        // Assembled once; reused for the live block when the latest business date == currentBizDt.
+        Map<String, Object> currentMetrics = grcMetricsService.forBizDate(currentBizDt, key);
 
         String currentNrrCalculated =
                 NetRiskRating.display(currentFact != null ? currentFact.getCalNetRiskRtng() : null);
@@ -154,7 +161,7 @@ public class LandscapeAssmtDetailsService {
                 .overlayJstfkn(row.getOvrlyJstfkn())
                 .ctrlEffRtn(currentFact != null ? currentFact.getCtrlEffRtn() : null)
                 .assmtPeriod(assmt.assmtPeriod())
-                .grcMetrics(grcMetricsService.forBizDate(currentBizDt, key))
+                .grcMetrics(currentMetrics)
                 .commentry(currentFact != null ? currentFact.getCommentary() : null)
                 .revisedCommentry(row.getRevisedCommentary())
                 .build();
@@ -162,10 +169,11 @@ public class LandscapeAssmtDetailsService {
         MonthNRRDetails previous = previousMonthDetails(assmt, key);
 
         // The "live" snapshot is the fact row on the latest business date across fact_orl, matched
-        // to this dimension — fetched via the same by-date path as current/previous (one MAX(biz_dt)
-        // read, reused for both the live lookup and the top-level lastRefreshed).
+        // to this dimension. That MAX(biz_dt) is read once and reused for the response's top-level
+        // lastRefreshed. When it equals the assessment's own biz_dt, live == current, so the
+        // already-fetched fact and metrics are reused instead of issuing the same queries again.
         LocalDate maxBizDt = factRepository.findMaxBizDt();
-        LiveNRRDetails live = liveDetails(maxBizDt, key);
+        LiveNRRDetails live = resolveLive(maxBizDt, currentBizDt, key, currentFact, currentMetrics);
 
         log.info("Returning detail id={} of assessment id={} (prev {}, live {})",
                 assmtDetailId, lndscpAssmtId,
@@ -292,14 +300,43 @@ public class LandscapeAssmtDetailsService {
             log.debug("No live fact_orl row for key {} on biz_dt={}", key, maxBizDt);
             return null;
         }
+        return liveFrom(latest, maxBizDt, grcMetricsService.forBizDate(maxBizDt, key));
+    }
+
+    /**
+     * Resolves the live snapshot, avoiding a duplicate fact + module-metric lookup when the latest
+     * business date is the assessment's own {@code biz_dt} (live and current are then identical):
+     * the already-fetched current fact and metrics are reused. Otherwise the live row is fetched
+     * for {@code maxBizDt}.
+     *
+     * @return {@code null} when there is no fact data, or the dimension has no row on {@code maxBizDt}
+     */
+    private LiveNRRDetails resolveLive(LocalDate maxBizDt, LocalDate currentBizDt, DimensionKey key,
+                                       FactOrl currentFact, Map<String, Object> currentMetrics) {
+        if (maxBizDt == null) {
+            return null;
+        }
+        if (maxBizDt.equals(currentBizDt)) {
+            if (currentFact == null) {
+                log.debug("No live fact_orl row for key {} on biz_dt={} (same as current)", key, maxBizDt);
+                return null;
+            }
+            log.debug("Live snapshot reuses the current-month fact for key {} on biz_dt={}", key, maxBizDt);
+            return liveFrom(currentFact, maxBizDt, currentMetrics);
+        }
+        return liveDetails(maxBizDt, key);
+    }
+
+    /** Builds a {@link LiveNRRDetails} from an already-loaded fact row and its GRC metrics. */
+    private LiveNRRDetails liveFrom(FactOrl fact, LocalDate maxBizDt, Map<String, Object> grcMetrics) {
         return LiveNRRDetails.builder()
-                .nrr(NetRiskRating.display(latest.getCalNetRiskRtng()))
+                .nrr(NetRiskRating.display(fact.getCalNetRiskRtng()))
                 .nrrOverlaid(OVERLAID_NO)
                 .overlayJstfkn(null)
                 .lastRefreshed(maxBizDt)
-                .ctrlEffRtn(latest.getCtrlEffRtn())
-                .grcMetrics(grcMetricsService.forBizDate(maxBizDt, key))
-                .commentry(latest.getCommentary())
+                .ctrlEffRtn(fact.getCtrlEffRtn())
+                .grcMetrics(grcMetrics)
+                .commentry(fact.getCommentary())
                 .build();
     }
 
@@ -325,11 +362,6 @@ public class LandscapeAssmtDetailsService {
         return assmt.getDetails() != null ? List.copyOf(assmt.getDetails()) : List.of();
     }
 
-    /** The assessment's detail rows, never null. */
-    private Set<OrlLndscpAssmtDetails> detailsOf(OrlLndscpAssmt assmt) {
-        return assmt.getDetails() != null ? assmt.getDetails() : Set.of();
-    }
-
     private DimensionKey keyOf(OrlLndscpAssmtDetails row) {
         return new DimensionKey(row.getRiskArea(), row.getOrlBuNmL2(), row.getOrlBuNmL3(),
                 row.getOrlBuNmL4(), row.getLocation());
@@ -341,36 +373,32 @@ public class LandscapeAssmtDetailsService {
     }
 
     /**
-     * Follows {@code PREV_ASSMT_NUM} to the previous month's assessment. A dangling reference
-     * is logged and treated as absent rather than failing the request.
-     */
-    private Optional<OrlLndscpAssmt> loadPreviousAssmt(OrlLndscpAssmt assmt) {
-        if (assmt.getPrevAssmtNum() == null) {
-            return Optional.empty();
-        }
-        Long prevId = assmt.getPrevAssmtNum().getId();
-        Optional<OrlLndscpAssmt> prev = assmtRepository.findById(prevId);
-        if (prev.isEmpty()) {
-            log.warn("PREV_ASSMT_NUM={} of assessment id={} points to a missing assessment",
-                    prevId, assmt.getId());
-        }
-        return prev;
-    }
-
-    /**
      * Previous month's final rating per dimension key: the prior detail row's
      * {@code OVRLY_NET_RISK_RTNG}, falling back to the prior month's {@code CAL_NET_RISK_RTNG}.
      * Empty when there is no previous assessment.
      */
     private Map<DimensionKey, NetRiskRating> previousFinalRatings(OrlLndscpAssmt assmt) {
-        Optional<OrlLndscpAssmt> prev = loadPreviousAssmt(assmt);
-        if (prev.isEmpty()) {
+        if (assmt.getPrevAssmtNum() == null) {
             return Collections.emptyMap();
         }
-        Map<DimensionKey, FactOrl> prevFacts = factsForAssmt(prev.get().getId(), bizDateOf(prev.get()));
+        Long prevId = assmt.getPrevAssmtNum().getId();
+        // Load the previous assessment aggregate: its detail rows (the @MappedCollection) carry the
+        // overlays we need, and the root carries its business date. A dangling PREV_ASSMT_NUM is
+        // logged and treated as "no previous month" rather than failing the request.
+        OrlLndscpAssmt prev = assmtRepository.findById(prevId).orElse(null);
+        if (prev == null) {
+            log.warn("PREV_ASSMT_NUM={} of assessment id={} points to a missing assessment",
+                    prevId, assmt.getId());
+            return Collections.emptyMap();
+        }
+        // Match only the previous month's own facts (targeted semi-join, not a whole-date scan).
+        Map<DimensionKey, FactOrl> prevFacts = factsForAssmt(prevId, prev.getBizDt());
+        Set<OrlLndscpAssmtDetails> prevDetails =
+                prev.getDetails() != null ? prev.getDetails() : Set.of();
         Map<DimensionKey, NetRiskRating> ratings = new LinkedHashMap<>();
-        for (OrlLndscpAssmtDetails d : detailsOf(prev.get())) {
+        for (OrlLndscpAssmtDetails d : prevDetails) {
             DimensionKey key = keyOf(d);
+            // Previous final rating: the prior overlay when set, else the prior month's calculated rating.
             NetRiskRating rating = d.getOvrlyNetRiskRtng();
             if (rating == null) {
                 FactOrl fact = prevFacts.get(key);
@@ -378,6 +406,7 @@ public class LandscapeAssmtDetailsService {
             }
             ratings.put(key, rating);
         }
+        log.debug("Loaded {} previous-month rating(s) from assmt id={}", ratings.size(), prevId);
         return ratings;
     }
 
@@ -450,8 +479,13 @@ public class LandscapeAssmtDetailsService {
         return assmt.getUpdatedBy() != null ? assmt.getUpdatedBy() : assmt.getCreatedBy();
     }
 
-    private LandscapeDimensions toDimensions(OrlLndscpDim dim) {
-        Map<String, List<String>> riskAreas = riskAreaParser.riskAreaClusterMap(dim.getRiskArea());
+    /**
+     * Builds the embedded landscape dimensions from the config row and the <em>already-parsed</em>
+     * RISK_AREA groups (parsed once by the caller), so the risk-area/cluster views don't re-parse
+     * the JSON.
+     */
+    private LandscapeDimensions toDimensions(OrlLndscpDim dim, List<RiskAreaGroup> riskAreaGroups) {
+        Map<String, List<String>> riskAreas = riskAreaParser.riskAreaClusterMap(riskAreaGroups);
         LandscapeBuDetails buDetails = LandscapeBuDetails.builder()
                 .lvl(dim.getBizUnitLvl())
                 .bizUnits(parseCsv(dim.getBizUnits()))
@@ -459,7 +493,7 @@ public class LandscapeAssmtDetailsService {
 
         return LandscapeDimensions.builder()
                 .riskAreas(riskAreas.isEmpty() ? null : riskAreas)
-                .riskClusters(riskAreaParser.distinctRiskClusters(dim.getRiskArea()))
+                .riskClusters(riskAreaParser.distinctRiskClusters(riskAreaGroups))
                 .buDetails(buDetails)
                 .locations(parseCsv(dim.getLocations()))
                 .build();

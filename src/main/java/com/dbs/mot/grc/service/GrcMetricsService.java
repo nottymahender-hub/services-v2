@@ -33,8 +33,8 @@ public class GrcMetricsService {
 
     /**
      * The modules to assemble, in JSON output order. Declaring them once keeps the "all four
-     * modules, always, in this order" guarantee in a single place and lets both lookup strategies
-     * ({@link #forBizDate} and {@link #live}) share one assembly loop.
+     * modules, always, in this order" guarantee in a single place, shared by every
+     * {@link #forBizDate} lookup.
      */
     private final List<ModuleSource> moduleSources;
 

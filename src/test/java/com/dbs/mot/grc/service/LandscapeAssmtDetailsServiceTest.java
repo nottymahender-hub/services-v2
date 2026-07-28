@@ -189,9 +189,37 @@ class LandscapeAssmtDetailsServiceTest {
         assertThat(response.getPrevMonthNRRDetails().getNrrCalculated()).isEqualTo("Medium-Low Risk");
         assertThat(response.getPrevMonthNRRDetails().getNrr()).isEqualTo("High Risk");
 
-        // Live snapshot: latest biz_dt (2024-07-01) matched to this dimension.
+        // Live snapshot: latest biz_dt (2024-07-01) equals the assessment's biz_dt, so live reuses
+        // the current-month fact/metrics — same values as current.
         assertThat(response.getLiveNRRDetails()).isNotNull();
         assertThat(response.getLiveNRRDetails().getNrr()).isEqualTo("Low Risk");
+        assertThat(response.getLiveNRRDetails().getLastRefreshed()).isEqualTo(LocalDate.parse("2024-07-01"));
+    }
+
+    @Test
+    void fetchDetailById_assessmentOlderThanLatest_livesFromMaxBizDt() {
+        // Assmt 40's biz_dt is 2024-06-01 but the latest fact biz_dt is 2024-07-01, so the live
+        // block is fetched separately for 2024-07-01 (different from current) — exercises the
+        // non-reuse branch. Detail 400 (OR/Tech/SG): current CAL 'Med Low', live CAL 'Low'.
+        AssmtDetailResponse response = service.fetchDetailById(40L, 400L);
+
+        assertThat(response.getLastRefreshed()).isEqualTo(LocalDate.parse("2024-07-01"));
+        assertThat(response.getCurrentMonthNRRDetails().getNrrCalculated()).isEqualTo("Medium-Low Risk");
+        assertThat(response.getLiveNRRDetails()).isNotNull();
+        assertThat(response.getLiveNRRDetails().getNrr()).isEqualTo("Low Risk");
+        assertThat(response.getLiveNRRDetails().getLastRefreshed()).isEqualTo(LocalDate.parse("2024-07-01"));
+        // Assmt 40 has no previous assessment.
+        assertThat(response.getPrevMonthNRRDetails()).isNull();
+    }
+
+    @Test
+    void fetchDetailById_noFacts_liveIsNull() {
+        jdbc.execute("DELETE FROM fact_orl");
+        AssmtDetailResponse response = service.fetchDetailById(41L, 401L);
+
+        assertThat(response.getLastRefreshed()).isNull();
+        assertThat(response.getLiveNRRDetails()).isNull();
+        assertThat(response.getCurrentMonthNRRDetails().getNrrCalculated()).isNull();
     }
 
     @Test

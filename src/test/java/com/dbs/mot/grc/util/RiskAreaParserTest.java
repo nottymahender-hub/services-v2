@@ -118,7 +118,7 @@ class RiskAreaParserTest {
 
     @Test
     void distinctRiskClusters_blank_returnsEmpty() {
-        assertThat(parser.distinctRiskClusters(null)).isEmpty();
+        assertThat(parser.distinctRiskClusters((String) null)).isEmpty();
     }
 
     // ── normalizeCompact ─────────────────────────────────────────────────────────

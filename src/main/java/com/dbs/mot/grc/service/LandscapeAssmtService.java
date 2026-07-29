@@ -3,6 +3,7 @@ package com.dbs.mot.grc.service;
 import com.dbs.mot.grc.dto.LandscapeAssmtProjection;
 import com.dbs.mot.grc.dto.LandscapeAssmtSummary;
 import com.dbs.mot.grc.repository.OrlLndscpAssmtRepository;
+import com.dbs.mot.grc.util.SgtDateTimes;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -47,7 +48,9 @@ public class LandscapeAssmtService {
     }
 
     private LandscapeAssmtSummary toSummary(LandscapeAssmtProjection assmt) {
-        LocalDateTime lastModifiedOn = assmt.updateDtTm() != null ? assmt.updateDtTm() : assmt.createDtTm();
+        // Stored UTC → Singapore time for the response.
+        LocalDateTime lastModifiedOn =
+                SgtDateTimes.toSgt(assmt.updateDtTm() != null ? assmt.updateDtTm() : assmt.createDtTm());
         String lastModifiedBy = assmt.updatedBy() != null ? assmt.updatedBy() : assmt.createdBy();
 
         return LandscapeAssmtSummary.builder()

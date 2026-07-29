@@ -70,11 +70,21 @@ class AssmtDetailCommentaryControllerTest {
            .andExpect(jsonPath("$.success", is(true)))
            .andExpect(jsonPath("$.data.lndscpAssmtId", is(11)))
            .andExpect(jsonPath("$.data.assmtDetailId", is(300)))
-           .andExpect(jsonPath("$.data.revisedCommentary", is("Reviewed and accepted")));
+           .andExpect(jsonPath("$.data.revisedCommentary", is("Reviewed and accepted")))
+           // The reviser (from the header) and the revision timestamp are echoed back.
+           .andExpect(jsonPath("$.data.commentaryRevisedBy", is(USER)))
+           .andExpect(jsonPath("$.data.commentaryRevisedAt").exists());
 
         String stored = jdbc.queryForObject(
                 "SELECT REVISED_COMMENTARY FROM orl_lndscp_assmt_details WHERE id=300", String.class);
         assert "Reviewed and accepted".equals(stored);
+        String revisedBy = jdbc.queryForObject(
+                "SELECT COMMENTARY_REVISED_BY FROM orl_lndscp_assmt_details WHERE id=300", String.class);
+        assert USER.equals(revisedBy);
+        Integer revisedAtSet = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM orl_lndscp_assmt_details WHERE id=300 AND COMMENTARY_REVISED_AT IS NOT NULL",
+                Integer.class);
+        assert revisedAtSet != null && revisedAtSet == 1;
         String updatedBy = jdbc.queryForObject(
                 "SELECT UPDATED_BY FROM orl_lndscp_assmt_details WHERE id=300", String.class);
         assert USER.equals(updatedBy);

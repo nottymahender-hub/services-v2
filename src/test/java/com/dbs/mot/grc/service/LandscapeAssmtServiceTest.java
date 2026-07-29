@@ -63,14 +63,16 @@ class LandscapeAssmtServiceTest {
     void fetchAll_lastModified_usesUpdateFieldsWhenPresent() {
         LandscapeAssmtSummary updated = summaryFor(21L);
         assertThat(updated.getLastModifiedBy()).isEqualTo("editor");
-        assertThat(updated.getLastModifiedOn()).isEqualTo("2024-03-01 12:00:00");
+        // UPDATE_DT_TM stored UTC 12:00 → surfaced in SGT (+8h) 20:00.
+        assertThat(updated.getLastModifiedOn()).isEqualTo("2024-03-01 20:00:00");
     }
 
     @Test
     void fetchAll_lastModified_fallsBackToCreateFieldsWhenNoUpdate() {
         LandscapeAssmtSummary created = summaryFor(20L);
         assertThat(created.getLastModifiedBy()).isEqualTo("creator");
-        assertThat(created.getLastModifiedOn()).isEqualTo("2024-01-01 09:00:00");
+        // CREATE_DT_TM stored UTC 09:00 → surfaced in SGT (+8h) 17:00.
+        assertThat(created.getLastModifiedOn()).isEqualTo("2024-01-01 17:00:00");
     }
 
     private LandscapeAssmtSummary summaryFor(Long id) {

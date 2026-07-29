@@ -74,9 +74,8 @@ class AssmtDetailSaveControllerTest {
         return v == null ? "NULL" : "'" + v.replace("'", "''") + "'";
     }
 
-    private String body(String revised, String nrr, String jstfkn) {
-        return "{" + field("revisedCommentry", revised) + "," + field("overlaidNRR", nrr) + ","
-                + field("overlayJstfkn", jstfkn) + "}";
+    private String body(String nrr, String jstfkn) {
+        return "{" + field("overlaidNRR", nrr) + "," + field("overlayJstfkn", jstfkn) + "}";
     }
 
     private String field(String name, String value) {
@@ -89,7 +88,7 @@ class AssmtDetailSaveControllerTest {
     void save_valid_persistsOverlayAndStampsUpdatedBy() throws Exception {
         mvc.perform(post(URL, 11, 300).header("X-EGRC-UserId", USER)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(body("Revised text", "Low", "Overlay reason")))
+                        .content(body("Low", "Overlay reason")))
            .andExpect(status().isOk())
            .andExpect(jsonPath("$.success", is(true)))
            .andExpect(jsonPath("$.message", containsString("300")))
@@ -102,7 +101,6 @@ class AssmtDetailSaveControllerTest {
            // No previous assessment/fact seeded here → derived change is N.A.
            .andExpect(jsonPath("$.data.riskRatingChange", is("N.A")));
 
-        assertColumn(300, "REVISED_COMMENTARY", "Revised text");
         assertColumn(300, "OVRLY_NET_RISK_RTNG", "Low");
         assertColumn(300, "OVRLY_JSTFKN", "Overlay reason");
         assertColumn(300, "UPDATED_BY", USER);
@@ -116,12 +114,12 @@ class AssmtDetailSaveControllerTest {
     void save_allNull_clearsOverlay() throws Exception {
         mvc.perform(post(URL, 11, 300).header("X-EGRC-UserId", USER)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(body(null, null, null)))
+                        .content(body(null, null)))
            .andExpect(status().isOk());
 
         Integer cleared = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM orl_lndscp_assmt_details WHERE id=300 "
-                        + "AND REVISED_COMMENTARY IS NULL AND OVRLY_NET_RISK_RTNG IS NULL AND OVRLY_JSTFKN IS NULL",
+                        + "AND OVRLY_NET_RISK_RTNG IS NULL AND OVRLY_JSTFKN IS NULL",
                 Integer.class);
         assert cleared != null && cleared == 1;
     }
@@ -132,7 +130,7 @@ class AssmtDetailSaveControllerTest {
     void save_missingHeader_returns401() throws Exception {
         mvc.perform(post(URL, 11, 300)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(body("x", null, null)))
+                        .content(body(null, null)))
            .andExpect(status().isUnauthorized());
     }
 
@@ -140,7 +138,7 @@ class AssmtDetailSaveControllerTest {
     void save_blankHeader_returns401() throws Exception {
         mvc.perform(post(URL, 11, 300).header("X-EGRC-UserId", "   ")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(body("x", null, null)))
+                        .content(body(null, null)))
            .andExpect(status().isUnauthorized());
     }
 
@@ -150,7 +148,7 @@ class AssmtDetailSaveControllerTest {
     void save_unknownAssessment_returns404() throws Exception {
         mvc.perform(post(URL, 9999, 300).header("X-EGRC-UserId", USER)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(body("x", null, null)))
+                        .content(body(null, null)))
            .andExpect(status().isNotFound())
            .andExpect(jsonPath("$.message", containsString("9999")));
     }
@@ -159,7 +157,7 @@ class AssmtDetailSaveControllerTest {
     void save_unknownDetail_returns404() throws Exception {
         mvc.perform(post(URL, 11, 8888).header("X-EGRC-UserId", USER)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(body("x", null, null)))
+                        .content(body(null, null)))
            .andExpect(status().isNotFound())
            .andExpect(jsonPath("$.message", containsString("8888")));
     }
@@ -171,12 +169,12 @@ class AssmtDetailSaveControllerTest {
         // check), so saving it via assessment 11 succeeds and updates the row.
         mvc.perform(post(URL, 11, 310).header("X-EGRC-UserId", USER)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(body("Revised via other assmt", null, null)))
+                        .content(body("Low", "reason")))
            .andExpect(status().isOk())
            .andExpect(jsonPath("$.success", is(true)))
            .andExpect(jsonPath("$.message", containsString("310")));
 
-        assertColumn(310, "REVISED_COMMENTARY", "Revised via other assmt");
+        assertColumn(310, "OVRLY_NET_RISK_RTNG", "Low");
         assertColumn(310, "UPDATED_BY", USER);
     }
 
@@ -186,7 +184,7 @@ class AssmtDetailSaveControllerTest {
     void save_detailNotOpen_returns409() throws Exception {
         mvc.perform(post(URL, 11, 301).header("X-EGRC-UserId", USER)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(body("x", null, null)))
+                        .content(body(null, null)))
            .andExpect(status().isConflict())
            .andExpect(jsonPath("$.message", containsString("Open")));
     }
@@ -195,7 +193,7 @@ class AssmtDetailSaveControllerTest {
     void save_overlaidNRRWithoutJustification_returns400() throws Exception {
         mvc.perform(post(URL, 11, 300).header("X-EGRC-UserId", USER)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(body(null, "Low", null)))
+                        .content(body("Low", null)))
            .andExpect(status().isBadRequest());
     }
 
@@ -203,7 +201,7 @@ class AssmtDetailSaveControllerTest {
     void save_justificationWithoutOverlaidNRR_returns400() throws Exception {
         mvc.perform(post(URL, 11, 300).header("X-EGRC-UserId", USER)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(body(null, null, "reason")))
+                        .content(body(null, "reason")))
            .andExpect(status().isBadRequest());
     }
 
@@ -211,7 +209,7 @@ class AssmtDetailSaveControllerTest {
     void save_invalidOverlaidNRR_returns400() throws Exception {
         mvc.perform(post(URL, 11, 300).header("X-EGRC-UserId", USER)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(body(null, "Bogus", "reason")))
+                        .content(body("Bogus", "reason")))
            .andExpect(status().isBadRequest())
            .andExpect(jsonPath("$.message", containsString("must be one of")));
     }
@@ -221,7 +219,7 @@ class AssmtDetailSaveControllerTest {
         String tooLong = "A".repeat(4001);
         mvc.perform(post(URL, 11, 300).header("X-EGRC-UserId", USER)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(body(null, "Low", tooLong)))
+                        .content(body("Low", tooLong)))
            .andExpect(status().isBadRequest())
            .andExpect(jsonPath("$.message", containsString("4000")));
     }

@@ -26,11 +26,11 @@ import java.util.stream.StreamSupport;
  * <h3>Flow</h3>
  * <ol>
  *   <li>Load all {@code orl_lndscp_dim} rows and keep only those that are {@code ACTIVE}
- *       and whose effective window contains today (filtering in the service layer — the
- *       repository query stays a plain {@code findAll()}).</li>
+ *       and whose effective window contains the caller-supplied as-of date (filtering in the
+ *       service layer — the repository query stays a plain {@code findAll()}).</li>
  *   <li>Group the qualifying rows by landscape name.</li>
  *   <li>Per landscape: skip with {@code SKIPPED_AMBIGUOUS_CONFIG} when more than one
- *       config qualifies, skip with {@code SKIPPED_ALREADY_EXISTS} when this month's
+ *       config qualifies, skip with {@code SKIPPED_ALREADY_EXISTS} when the reported month's
  *       assessment already exists, otherwise generate via
  *       {@link LandscapeAssmtGenerationService#generateForDim}.</li>
  * </ol>
@@ -53,28 +53,28 @@ public class BulkAssmtGenerationService {
     private final LandscapeAssmtGenerationService generationService;
 
     /**
-     * Generates this month's assessment for every active landscape, reporting a
+     * Generates the reported month's assessment for every active landscape, reporting a
      * per-landscape outcome instead of failing fast.
      *
-     * @param userId caller identity, stored as {@code CREATED_BY} on generated rows
+     * @param asOfDate the as-of date driving both the effectivity filter and the reported period
+     *                 (M-1 of this date's month); see {@link LandscapeAssmtGenerationService}
+     * @param userId   caller identity, stored as {@code CREATED_BY} on generated rows
      * @return per-landscape results plus generated/skipped counts
      */
-    public BulkAssmtGenerationResponse generateForAllActiveLandscapes(String userId) {
-        LocalDate today = LocalDate.now();
-
-        // Group the ACTIVE, currently-effective configs by landscape name,
+    public BulkAssmtGenerationResponse generateForAllActiveLandscapes(LocalDate asOfDate, String userId) {
+        // Group the ACTIVE, as-of-effective configs by landscape name,
         // preserving encounter order for a stable, readable response.
         Map<String, List<OrlLndscpDim>> configsByName =
                 StreamSupport.stream(dimRepository.findAll().spliterator(), false)
-                .filter(dim -> dim.isActiveAndEffectiveOn(today))
+                .filter(dim -> dim.isActiveAndEffectiveOn(asOfDate))
                 .collect(Collectors.groupingBy(
                         OrlLndscpDim::getLndscpNm, LinkedHashMap::new, Collectors.toList()));
         log.info("Bulk generation requested by '{}' — {} active landscape(s) effective on {}",
-                userId, configsByName.size(), today);
+                userId, configsByName.size(), asOfDate);
 
         List<AssmtGenerationResult> results = new ArrayList<>();
         for (Map.Entry<String, List<OrlLndscpDim>> entry : configsByName.entrySet()) {
-            results.add(generateOne(entry.getKey(), entry.getValue(), userId));
+            results.add(generateOne(entry.getKey(), entry.getValue(), asOfDate, userId));
         }
 
         int generated = (int) results.stream()
@@ -96,7 +96,7 @@ public class BulkAssmtGenerationService {
      * skip conditions (ambiguous config, duplicate period) into result entries.
      */
     private AssmtGenerationResult generateOne(String lndscpNm, List<OrlLndscpDim> configs,
-                                              String userId) {
+                                              LocalDate asOfDate, String userId) {
         if (configs.size() > 1) {
             String ids = configs.stream()
                     .map(dim -> String.valueOf(dim.getId()))
@@ -113,7 +113,7 @@ public class BulkAssmtGenerationService {
 
         OrlLndscpDim dim = configs.getFirst();
         try {
-            AssmtGenerationResponse generatedAssmt = generationService.generateForDim(dim, userId);
+            AssmtGenerationResponse generatedAssmt = generationService.generateForDim(dim, asOfDate, userId);
             return AssmtGenerationResult.builder()
                     .lndscpNm(lndscpNm)
                     .lndscpNum(dim.getId())

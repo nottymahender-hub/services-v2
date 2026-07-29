@@ -147,7 +147,8 @@ class LandscapeAssmtControllerTest {
         mvc.perform(get(URL).header("X-EGRC-UserId", "tester"))
            .andExpect(status().isOk())
            .andExpect(jsonPath("$.data[2].lastModifiedBy", is("updater1")))
-           .andExpect(jsonPath("$.data[2].lastModifiedOn", is("2024-01-15 12:00:00")));
+           // UPDATE_DT_TM stored UTC 12:00 → surfaced in SGT (+8h) 20:00.
+           .andExpect(jsonPath("$.data[2].lastModifiedOn", is("2024-01-15 20:00:00")));
     }
 
     @Test
@@ -156,7 +157,8 @@ class LandscapeAssmtControllerTest {
         mvc.perform(get(URL).header("X-EGRC-UserId", "tester"))
            .andExpect(status().isOk())
            .andExpect(jsonPath("$.data[0].lastModifiedBy", is("creator2")))
-           .andExpect(jsonPath("$.data[0].lastModifiedOn", is("2024-04-01 08:00:00")));
+           // CREATE_DT_TM stored UTC 08:00 → surfaced in SGT (+8h) 16:00.
+           .andExpect(jsonPath("$.data[0].lastModifiedOn", is("2024-04-01 16:00:00")));
     }
 
     @Test

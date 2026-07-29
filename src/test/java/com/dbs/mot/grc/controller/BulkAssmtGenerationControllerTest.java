@@ -319,6 +319,40 @@ class BulkAssmtGenerationControllerTest {
         assert "N.A".equals(naChange) : "expected N.A, got " + naChange;
     }
 
+    // ── biz_dt param drives the reported period + MODULE_RISK_RTNG_CHGE ────────────
+
+    @Test
+    void generation_withBizDt_setsReportedPeriod_andWritesModuleRiskRatingChange() throws Exception {
+        // As-of 2026-02-20 → reports January 2026 (previous = December 2025).
+        // Current INC module fact (Jan 2026 month-end) NRR 'Low'; previous (Dec 2025) NRR 'High'
+        // → module NRR less severe → Improved.
+        jdbc.execute("INSERT INTO inc_fact_orl (biz_dt,RISK_AREA,ORL_BU_NM_L2,ORL_BU_NM_L3,ORL_BU_NM_L4,LOCATION,NET_RISK_RATING,inc_is_sinp_count_l3m_mtd) "
+                + "VALUES(DATE '2026-01-31','Market Abuse','Technology','','','SG','Low',3)");
+        jdbc.execute("INSERT INTO inc_fact_orl (biz_dt,RISK_AREA,ORL_BU_NM_L2,ORL_BU_NM_L3,ORL_BU_NM_L4,LOCATION,NET_RISK_RATING,inc_is_sinp_count_l3m_mtd) "
+                + "VALUES(DATE '2025-12-31','Market Abuse','Technology','','','SG','High',5)");
+        // A previous (December 2025) assessment so the generation resolves prevBizDt = 2025-12-31.
+        jdbc.update("INSERT INTO orl_lndscp_assmt(id,LNDSCP_NUM,ASSEMT_PERIOD,biz_dt,status,CREATED_BY) "
+                + "VALUES(600,1,'December 2025',DATE '2025-12-31','Open','seed')");
+
+        mvc.perform(post(URL).param("bizDt", "2026-02-20").header("X-EGRC-UserId", "tester"))
+           .andExpect(status().isOk());
+
+        // The reported period is the month before the as-of date's month.
+        Long assmtId = jdbc.queryForObject(
+                "SELECT id FROM orl_lndscp_assmt WHERE LNDSCP_NUM=1 AND ASSEMT_PERIOD='January 2026'",
+                Long.class);
+        assert assmtId != null : "expected a January 2026 assessment for landscape 1";
+
+        // The generated L2 row's MODULE_RISK_RTNG_CHGE JSON carries the INC module change.
+        String json = jdbc.queryForObject(
+                "SELECT MODULE_RISK_RTNG_CHGE FROM orl_lndscp_assmt_details "
+                + "WHERE lndscp_assmt_id=" + assmtId + " AND category='L2' AND RISK_AREA='Market Abuse' "
+                + "AND ORL_BU_NM_L2='Technology' AND LOCATION='SG'", String.class);
+        assert json != null && json.contains("\"INC\"")
+                && json.contains("\"riskRatingChange\":\"Improved\"")
+                : "expected INC improved in MODULE_RISK_RTNG_CHGE, got " + json;
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────────────
 
     private void assertRowCount(long lndscpNum, String whereClause, int expected) {

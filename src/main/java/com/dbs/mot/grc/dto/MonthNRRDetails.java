@@ -24,10 +24,10 @@ public class MonthNRRDetails {
     /** Previous-month block only: {@code prev orl_lndscp_assmt_details.id}. */
     private final Long id;
 
-    /** {@code fact_orl.CAL_NET_RISK_RTNG} (display form). */
+    /** {@code fact_orl.CAL_NET_RISK_RTNG} (DB value, e.g. {@code "Med Low"}). */
     private final String nrrCalculated;
 
-    /** {@code orl_lndscp_assmt_details.OVRLY_NET_RISK_RTNG} (display form). */
+    /** {@code orl_lndscp_assmt_details.OVRLY_NET_RISK_RTNG} (DB value, e.g. {@code "Med Low"}). */
     private final String nrr;
 
     /** {@code "Y"} when the overlay rating is set for this month, else {@code "N"}. */
@@ -44,10 +44,11 @@ public class MonthNRRDetails {
 
     /**
      * Per-module GRC metrics assembled from the module fact tables. All four module keys
-     * ({@code RCSA}, {@code INC}, {@code INA}, {@code KRI}) are always present; a module with no
-     * snapshot row for this business date maps to {@code null}.
+     * ({@code RCSA}, {@code INC}, {@code INA}, {@code KRI}) are always present, and each block is
+     * always fully populated — a module with no snapshot row still lists every metric with a
+     * {@code null} value and {@code "N.A"} changes (see {@link GrcModuleBlock}).
      */
-    private final Map<String, Object> grcMetrics;
+    private final Map<String, GrcModuleBlock> grcMetrics;
 
     /** {@code fact_orl.COMMENTARY}. */
     private final String commentry;

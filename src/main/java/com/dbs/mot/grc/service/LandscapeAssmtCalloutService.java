@@ -9,6 +9,7 @@ import com.dbs.mot.grc.entity.OrlLndscpCalloutCommentHist;
 import com.dbs.mot.grc.repository.OrlLndscpAssmtRepository;
 import com.dbs.mot.grc.repository.OrlLndscpCalloutCommentHistRepository;
 import com.dbs.mot.grc.repository.OrlLndscpCalloutRepository;
+import com.dbs.mot.grc.util.SgtDateTimes;
 import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -229,8 +230,9 @@ public class LandscapeAssmtCalloutService {
                 .comment(c.getComment())
                 .deleted(c.getDelFlg())
                 .sme(c.getSme())
-                .createdOn(c.getCreateDtTm())
-                .updatedOn(c.getUpdateDtTm())
+                // Stored UTC → Singapore time for the response.
+                .createdOn(SgtDateTimes.toSgt(c.getCreateDtTm()))
+                .updatedOn(SgtDateTimes.toSgt(c.getUpdateDtTm()))
                 .lastModifiedBy(c.getLastModifiedSme())
                 .build();
     }

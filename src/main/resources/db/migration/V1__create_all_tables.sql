@@ -174,7 +174,12 @@ CREATE TABLE IF NOT EXISTS `orl_lndscp_assmt_details` (
     `OVRLY_JSTFKN` VARCHAR(4000) NULL DEFAULT NULL,
     -- Risk-rating change vs. the previous assessment for this dimension; re-evaluated on overlay change.
     `RISK_RTNG_CHGE` ENUM('Improved','Deteriorated','Stable','N.A') NULL DEFAULT NULL,
+    -- Per-module risk-rating change as JSON (module riskRatingChange + neutral per-metric changes).
+    `MODULE_RISK_RTNG_CHGE` LONGTEXT NULL DEFAULT NULL,
     `STATUS` ENUM('Open','Locked','Pending unlock','Completed') NOT NULL DEFAULT 'Open',
+    -- Who last revised the commentary and when (set only by the /commentry API, in UTC).
+    `COMMENTARY_REVISED_BY` VARCHAR(50) NULL DEFAULT NULL,
+    `COMMENTARY_REVISED_AT` DATETIME NULL DEFAULT NULL,
     `CREATED_BY` VARCHAR(50) NOT NULL,
     `CREATE_DT_TM` DATETIME NOT NULL DEFAULT current_timestamp(),
     `UPDATE_DT_TM` DATETIME NULL DEFAULT NULL ON UPDATE current_timestamp(),
@@ -251,7 +256,6 @@ CREATE TABLE IF NOT EXISTS `fact_orl` (
     `LOCATION` VARCHAR(50) NOT NULL DEFAULT '',
     `category` ENUM('L2','L3','L4','grp_l2','grp_l3','grp_l4','loc') NOT NULL,
     `INHERENT_RISK` ENUM('Minor','Moderate','Major') NULL DEFAULT NULL,
-    `RISK_RTNG_CHGE` ENUM('Improved','Deteriorated','Stable','N.A') NULL DEFAULT NULL,
     `CAL_NET_RISK_RTNG` ENUM('Low','Med Low','Med High','High') NOT NULL,
     `CTRL_EFF_RTN` VARCHAR(200) NULL DEFAULT NULL,
     `COMMENTARY` LONGTEXT NULL DEFAULT NULL,

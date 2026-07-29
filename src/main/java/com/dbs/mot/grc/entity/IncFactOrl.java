@@ -1,7 +1,6 @@
 package com.dbs.mot.grc.entity;
 
 import com.dbs.mot.grc.enums.NetRiskRating;
-import com.dbs.mot.grc.enums.RiskRatingChange;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -44,8 +43,6 @@ public class IncFactOrl implements ModuleFact {
 
     @Column("NET_RISK_RATING")
     private NetRiskRating netRiskRtng;
-    @Column("RISK_RTNG_CHGE")
-    private RiskRatingChange riskRtngChge;
 
     @Column("inc_is_gorc_count_l3m_mtd")
     private Integer incIsGorcCountL3mMtd;

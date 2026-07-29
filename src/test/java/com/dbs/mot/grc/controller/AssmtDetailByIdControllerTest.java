@@ -74,11 +74,11 @@ class AssmtDetailByIdControllerTest {
         insertFact("2026-07-31", "Med Low", "Satisfactory to Good", "Live commentary");         // live
 
         // Per-module rows for the same dimension.
-        insertIncFact("2026-06-30", "Low", "Improved", 5);
-        insertIncFact("2026-07-15", "High", "Improved", 7);
-        insertIncFact("2026-07-31", "Med Low", "Stable", 9);
-        insertKriFact("2026-07-15", "High", "Improved", 4, 2, 1);
-        insertRcsaFact("2026-07-15", "High", "Stable", 3);
+        insertIncFact("2026-06-30", "Low", 5);
+        insertIncFact("2026-07-15", "High", 7);
+        insertIncFact("2026-07-31", "Med Low", 9);
+        insertKriFact("2026-07-15", "High", 4, 2, 1);
+        insertRcsaFact("2026-07-15", "High", 3);
 
         insertDetail(200, 10, "CBG", "SG", "L2", "Med High", null, "Completed", null, null);
         insertDetail(300, 11, "CBG", "SG", "L2", "High", "Overlaid due to audit findings",
@@ -86,6 +86,17 @@ class AssmtDetailByIdControllerTest {
         insertDetail(301, 11, "CBG", null, "grp_l2", null, null, "Open", null, null);
         insertDetailNoBu(302, 11, "SG", "loc", "Open");
         insertDetail(310, 12, "CBG", "SG", "L2", null, null, "Open", null, null);
+
+        // The current/previous blocks read each module's riskRatingChge from the detail's stored
+        // MODULE_RISK_RTNG_CHGE JSON (written at generation), so seed it for the asserted rows.
+        // UPDATE_DT_TM is DB-managed (bumped on any UPDATE); re-assert the seeded value so the
+        // lastModifiedOn assertion stays deterministic.
+        // COMMENTARY_REVISED_* stored UTC (09:00 → SGT 17:00) for the drill-down assertion below.
+        jdbc.execute("UPDATE orl_lndscp_assmt_details "
+                + "SET MODULE_RISK_RTNG_CHGE='{\"INC\":{\"riskRatingChange\":\"Improved\"}}',"
+                + "    COMMENTARY_REVISED_BY='reviser1',"
+                + "    COMMENTARY_REVISED_AT=TIMESTAMP '2026-07-05 09:00:00',"
+                + "    UPDATE_DT_TM=TIMESTAMP '2026-07-05 09:00:00' WHERE id=300");
     }
 
     private void insertDetail(long id, long assmtId, String l2, String loc, String category,
@@ -117,29 +128,29 @@ class AssmtDetailByIdControllerTest {
                 """.formatted(q(bizDt), q(cal), q(ctrl), q(commentary)));
     }
 
-    private void insertIncFact(String bizDt, String nrr, String chge, int sinp) {
+    private void insertIncFact(String bizDt, String nrr, int sinp) {
         jdbc.execute("""
                 INSERT INTO inc_fact_orl
-                    (biz_dt,RISK_AREA,ORL_BU_NM_L2,LOCATION,NET_RISK_RATING,RISK_RTNG_CHGE,inc_is_sinp_count_l3m_mtd)
-                VALUES(DATE %s,'AML Sanctions','CBG','SG',%s,%s,%d)
-                """.formatted(q(bizDt), q(nrr), q(chge), sinp));
+                    (biz_dt,RISK_AREA,ORL_BU_NM_L2,LOCATION,NET_RISK_RATING,inc_is_sinp_count_l3m_mtd)
+                VALUES(DATE %s,'AML Sanctions','CBG','SG',%s,%d)
+                """.formatted(q(bizDt), q(nrr), sinp));
     }
 
-    private void insertKriFact(String bizDt, String nrr, String chge, int active, int red, int green) {
+    private void insertKriFact(String bizDt, String nrr, int active, int red, int green) {
         jdbc.execute("""
                 INSERT INTO kri_fact_orl
-                    (biz_dt,RISK_AREA,ORL_BU_NM_L2,LOCATION,NET_RISK_RATING,RISK_RTNG_CHGE,
+                    (biz_dt,RISK_AREA,ORL_BU_NM_L2,LOCATION,NET_RISK_RATING,
                      KRI_ACTIVE_CNT,KRI_RED_CNT,KRI_GREEN_CNT)
-                VALUES(DATE %s,'AML Sanctions','CBG','SG',%s,%s,%d,%d,%d)
-                """.formatted(q(bizDt), q(nrr), q(chge), active, red, green));
+                VALUES(DATE %s,'AML Sanctions','CBG','SG',%s,%d,%d,%d)
+                """.formatted(q(bizDt), q(nrr), active, red, green));
     }
 
-    private void insertRcsaFact(String bizDt, String nrr, String chge, int highRisk) {
+    private void insertRcsaFact(String bizDt, String nrr, int highRisk) {
         jdbc.execute("""
                 INSERT INTO rcsa_fact_orl
-                    (biz_dt,RISK_AREA,ORL_BU_NM_L2,LOCATION,NET_RISK_RATING,RISK_RTNG_CHGE,combined_count_high_risk)
-                VALUES(DATE %s,'AML Sanctions','CBG','SG',%s,%s,%d)
-                """.formatted(q(bizDt), q(nrr), q(chge), highRisk));
+                    (biz_dt,RISK_AREA,ORL_BU_NM_L2,LOCATION,NET_RISK_RATING,combined_count_high_risk)
+                VALUES(DATE %s,'AML Sanctions','CBG','SG',%s,%d)
+                """.formatted(q(bizDt), q(nrr), highRisk));
     }
 
     private String q(String value) {
@@ -201,7 +212,11 @@ class AssmtDetailByIdControllerTest {
            .andExpect(jsonPath("$.data.bu", is("CBG")))
            .andExpect(jsonPath("$.data.location", is("SG")))
            .andExpect(jsonPath("$.data.status", is("Open")))
-           .andExpect(jsonPath("$.data.lastModifiedOn", startsWith("2026-07-05T09:00:00")))
+           // UPDATE_DT_TM is stored UTC (09:00) and surfaced in SGT (+8h → 17:00).
+           .andExpect(jsonPath("$.data.lastModifiedOn", startsWith("2026-07-05T17:00:00")))
+           // Commentary-revision audit: who + when (UTC 09:00 → SGT 17:00).
+           .andExpect(jsonPath("$.data.commentaryRevisedBy", is("reviser1")))
+           .andExpect(jsonPath("$.data.commentaryRevisedAt", startsWith("2026-07-05T17:00:00")))
            .andExpect(jsonPath("$.data.lastModifiedBy", is("user1")))
            .andExpect(jsonPath("$.data.lastRefreshed", is("2026-07-31")))
            .andExpect(jsonPath("$.data.category", is("L2")))
@@ -216,8 +231,8 @@ class AssmtDetailByIdControllerTest {
     void detail_currentMonthNRRDetails_fromFactAndOverlay() throws Exception {
         mvc.perform(get(URL_TPL, 11, 300).header("X-EGRC-UserId", "tester"))
            .andExpect(status().isOk())
-           .andExpect(jsonPath("$.data.currentMonthNRRDetails.nrrCalculated", is("Low Risk")))
-           .andExpect(jsonPath("$.data.currentMonthNRRDetails.nrr", is("High Risk")))
+           .andExpect(jsonPath("$.data.currentMonthNRRDetails.nrrCalculated", is("Low")))
+           .andExpect(jsonPath("$.data.currentMonthNRRDetails.nrr", is("High")))
            .andExpect(jsonPath("$.data.currentMonthNRRDetails.nrrOverlaid", is("Y")))
            .andExpect(jsonPath("$.data.currentMonthNRRDetails.overlayJstfkn", is("Overlaid due to audit findings")))
            .andExpect(jsonPath("$.data.currentMonthNRRDetails.ctrlEffRtn", is("Good")))
@@ -228,19 +243,19 @@ class AssmtDetailByIdControllerTest {
 
     @Test
     void detail_currentMonthGrcMetrics_assembledFromModuleTables() throws Exception {
+        String grc = "$.data.currentMonthNRRDetails.grcMetrics";
         mvc.perform(get(URL_TPL, 11, 300).header("X-EGRC-UserId", "tester"))
            .andExpect(status().isOk())
-           .andExpect(jsonPath("$.data.currentMonthNRRDetails.grcMetrics").isMap())
-           // INC block: nrr (display form) + risk_rating_chge (stored, for current) + metric
-           .andExpect(jsonPath("$.data.currentMonthNRRDetails.grcMetrics.INC.nrr", is("High Risk")))
-           .andExpect(jsonPath("$.data.currentMonthNRRDetails.grcMetrics.INC.risk_rating_chge", is("Improved")))
-           .andExpect(jsonPath("$.data.currentMonthNRRDetails.grcMetrics.INC.inc_is_sinp_count_l3m_mtd", is(7)))
-           // RCSA block
-           .andExpect(jsonPath("$.data.currentMonthNRRDetails.grcMetrics.RCSA.combined_count_high_risk", is(3)))
-           // KRI block with derived proportions present
-           .andExpect(jsonPath("$.data.currentMonthNRRDetails.grcMetrics.KRI.KRI_RED_CNT", is(2)))
-           .andExpect(jsonPath("$.data.currentMonthNRRDetails.grcMetrics.KRI.KRI_RED_PROP").exists())
-           .andExpect(jsonPath("$.data.currentMonthNRRDetails.grcMetrics.KRI.KRI_GREEN_PROP").exists());
+           .andExpect(jsonPath(grc).isMap())
+           // INC block: nrr (DB value) + module-level riskRatingChge (from MODULE_RISK_RTNG_CHGE JSON)
+           .andExpect(jsonPath(grc + ".INC.nrr", is("High")))
+           .andExpect(jsonPath(grc + ".INC.riskRatingChge", is("Improved")))
+           // Metrics are a list of {name,value,riskRatingChge}; look them up by name.
+           .andExpect(jsonPath(grc + ".INC.metrics[?(@.name=='inc_is_sinp_count_l3m_mtd')].value", hasItem(7)))
+           .andExpect(jsonPath(grc + ".RCSA.metrics[?(@.name=='combined_count_high_risk')].value", hasItem(3)))
+           .andExpect(jsonPath(grc + ".KRI.metrics[?(@.name=='KRI_RED_CNT')].value", hasItem(2)))
+           .andExpect(jsonPath(grc + ".KRI.metrics[?(@.name=='KRI_RED_PROP')].name", hasItem("KRI_RED_PROP")))
+           .andExpect(jsonPath(grc + ".KRI.metrics[?(@.name=='KRI_GREEN_PROP')].name", hasItem("KRI_GREEN_PROP")));
     }
 
     // ── prevMonthNRRDetails ───────────────────────────────────────────────────────
@@ -250,14 +265,14 @@ class AssmtDetailByIdControllerTest {
         mvc.perform(get(URL_TPL, 11, 300).header("X-EGRC-UserId", "tester"))
            .andExpect(status().isOk())
            .andExpect(jsonPath("$.data.prevMonthNRRDetails.id", is(200)))
-           .andExpect(jsonPath("$.data.prevMonthNRRDetails.nrrCalculated", is("Low Risk")))
-           .andExpect(jsonPath("$.data.prevMonthNRRDetails.nrr", is("Medium-High Risk")))
+           .andExpect(jsonPath("$.data.prevMonthNRRDetails.nrrCalculated", is("Low")))
+           .andExpect(jsonPath("$.data.prevMonthNRRDetails.nrr", is("Med High")))
            .andExpect(jsonPath("$.data.prevMonthNRRDetails.nrrOverlaid", is("Y")))
            .andExpect(jsonPath("$.data.prevMonthNRRDetails.overlayJstfkn").value(nullValue()))
            .andExpect(jsonPath("$.data.prevMonthNRRDetails.ctrlEffRtn", is("Attention Needed To Satisfactory")))
            .andExpect(jsonPath("$.data.prevMonthNRRDetails.assmtPeriod", is("June 2026")))
            .andExpect(jsonPath("$.data.prevMonthNRRDetails.commentry", is("June commentary")))
-           .andExpect(jsonPath("$.data.prevMonthNRRDetails.grcMetrics.INC.inc_is_sinp_count_l3m_mtd", is(5)));
+           .andExpect(jsonPath("$.data.prevMonthNRRDetails.grcMetrics.INC.metrics[?(@.name=='inc_is_sinp_count_l3m_mtd')].value", hasItem(5)));
     }
 
     @Test
@@ -280,19 +295,19 @@ class AssmtDetailByIdControllerTest {
     void detail_liveNRRDetails_fromLatestFactAndModuleLatest() throws Exception {
         mvc.perform(get(URL_TPL, 11, 300).header("X-EGRC-UserId", "tester"))
            .andExpect(status().isOk())
-           .andExpect(jsonPath("$.data.liveNRRDetails.nrr", is("Medium-Low Risk")))
+           .andExpect(jsonPath("$.data.liveNRRDetails.nrr", is("Med Low")))
            .andExpect(jsonPath("$.data.liveNRRDetails.nrrOverlaid", is("N")))
            .andExpect(jsonPath("$.data.liveNRRDetails.overlayJstfkn").value(nullValue()))
            .andExpect(jsonPath("$.data.liveNRRDetails.lastRefreshed", is("2026-07-31")))
            .andExpect(jsonPath("$.data.liveNRRDetails.ctrlEffRtn", is("Satisfactory to Good")))
            .andExpect(jsonPath("$.data.liveNRRDetails.commentry", is("Live commentary")))
            // Live GRC metrics use each module's own latest row (INC @ 2026-07-31 → sinp 9).
-           .andExpect(jsonPath("$.data.liveNRRDetails.grcMetrics.INC.inc_is_sinp_count_l3m_mtd", is(9)))
-           // Live INC nrr is the live row's rating in display form (Med Low → "Medium-Low Risk").
-           .andExpect(jsonPath("$.data.liveNRRDetails.grcMetrics.INC.nrr", is("Medium-Low Risk")))
-           // risk_rating_chge is DERIVED here: current INC rating (High) vs live INC rating (Med Low)
-           // → less severe → "Improved" (not the module fact's own stored 'Stable').
-           .andExpect(jsonPath("$.data.liveNRRDetails.grcMetrics.INC.risk_rating_chge", is("Improved")));
+           .andExpect(jsonPath("$.data.liveNRRDetails.grcMetrics.INC.metrics[?(@.name=='inc_is_sinp_count_l3m_mtd')].value", hasItem(9)))
+           // Live INC nrr is the live row's rating as the stored DB value (Med Low).
+           .andExpect(jsonPath("$.data.liveNRRDetails.grcMetrics.INC.nrr", is("Med Low")))
+           // riskRatingChge is COMPUTED here: current INC rating (High) vs live INC rating (Med Low)
+           // → less severe → "Improved".
+           .andExpect(jsonPath("$.data.liveNRRDetails.grcMetrics.INC.riskRatingChge", is("Improved")));
     }
 
     @Test
@@ -303,20 +318,25 @@ class AssmtDetailByIdControllerTest {
     }
 
     @Test
-    void detail_currentMonthGrcMetrics_namesAllModulesAsNullWhenNoModuleRows() throws Exception {
-        // Row 301 (grp_l2, empty location) matches no module rows, so every module is still
-        // named in grcMetrics but maps to null — the block's shape never varies.
+    void detail_currentMonthGrcMetrics_allModulesDefaultedWhenNoModuleRows() throws Exception {
+        // Row 301 (grp_l2, empty location) matches no module rows, so every module is still present
+        // and fully populated: nrr "N.A", all metrics listed with null values. Shape never varies.
+        String grc = "$.data.currentMonthNRRDetails.grcMetrics";
         mvc.perform(get(URL_TPL, 11, 301).header("X-EGRC-UserId", "tester"))
            .andExpect(status().isOk())
            .andExpect(jsonPath("$.data.currentMonthNRRDetails.nrr").value(nullValue()))
            .andExpect(jsonPath("$.data.currentMonthNRRDetails.nrrCalculated").value(nullValue()))
            .andExpect(jsonPath("$.data.currentMonthNRRDetails.nrrOverlaid", is("N")))
            .andExpect(jsonPath("$.data.currentMonthNRRDetails.overlayJstfkn").value(nullValue()))
-           .andExpect(jsonPath("$.data.currentMonthNRRDetails.grcMetrics", aMapWithSize(4)))
-           .andExpect(jsonPath("$.data.currentMonthNRRDetails.grcMetrics.RCSA").value(nullValue()))
-           .andExpect(jsonPath("$.data.currentMonthNRRDetails.grcMetrics.INC").value(nullValue()))
-           .andExpect(jsonPath("$.data.currentMonthNRRDetails.grcMetrics.INA").value(nullValue()))
-           .andExpect(jsonPath("$.data.currentMonthNRRDetails.grcMetrics.KRI").value(nullValue()));
+           .andExpect(jsonPath(grc, aMapWithSize(4)))
+           .andExpect(jsonPath(grc + ".RCSA.nrr", is("N.A")))
+           .andExpect(jsonPath(grc + ".INC.nrr", is("N.A")))
+           .andExpect(jsonPath(grc + ".INA.nrr", is("N.A")))
+           .andExpect(jsonPath(grc + ".KRI.nrr", is("N.A")))
+           // Every metric is still listed, each with a null value and an N.A change.
+           .andExpect(jsonPath(grc + ".KRI.metrics", not(empty())))
+           .andExpect(jsonPath(grc + ".KRI.metrics[?(@.name=='KRI_ACTIVE_CNT')].value", everyItem(nullValue())))
+           .andExpect(jsonPath(grc + ".KRI.metrics[?(@.name=='KRI_ACTIVE_CNT')].riskRatingChge", hasItem("N.A")));
     }
 
     // ── bu / location category rules ────────────────────────────────────────────

@@ -6,10 +6,13 @@ import com.dbs.mot.grc.enums.LevelCategory;
 import com.dbs.mot.grc.enums.NetRiskRating;
 import com.dbs.mot.grc.enums.RiskRatingChange;
 import com.dbs.mot.grc.exception.ConflictException;
+import com.dbs.mot.grc.util.ModuleRiskRatingChanges;
 import com.dbs.mot.grc.util.RiskAreaParser;
 import com.dbs.mot.grc.util.RiskRatingChanges;
 import com.dbs.mot.grc.dto.AssmtGenerationResponse;
+import com.dbs.mot.grc.dto.DimensionKey;
 import com.dbs.mot.grc.entity.FactOrl;
+import com.dbs.mot.grc.entity.ModuleFact;
 import com.dbs.mot.grc.entity.OrlBizUnit;
 import com.dbs.mot.grc.entity.OrlLndscpAssmt;
 import com.dbs.mot.grc.entity.OrlLndscpAssmtDetails;
@@ -43,9 +46,11 @@ import java.util.function.Function;
  * Generates a landscape assessment and all of its detail rows for a given landscape config.
  *
  * <h3>Flow</h3>
- * <p>An assessment generated in month M reports the <b>previous</b> calendar month (M-1): its
- * {@code ASSEMT_PERIOD} is M-1 and its {@code biz_dt} is that month's end (or the latest
- * {@code fact_orl.biz_dt} within it). It links back to the M-2 assessment.
+ * <p>Generation is anchored on a caller-supplied <b>as-of date</b> ({@code bizDt}). The assessment
+ * reports the calendar month <b>before</b> that as-of date's month (M-1): its {@code ASSEMT_PERIOD}
+ * is M-1 and its stored {@code biz_dt} is that reported month's end (or the latest
+ * {@code fact_orl.biz_dt} within it). It links back to the M-2 assessment. For example an as-of
+ * date of 20 Feb 2026 produces a January 2026 assessment whose previous assessment is December 2025.
  *
  * <ol>
  *   <li>Reject if an assessment already exists for this landscape + reported period (M-1) — 409.</li>
@@ -58,12 +63,13 @@ import java.util.function.Function;
  *       transaction.</li>
  * </ol>
  *
- * <p>Detail rows are <b>thin</b>: only dimensions, category, status and audit columns are
- * written. The computed values (calculated NRR, commentary, GRC metrics, etc.) are not
- * stored here — they live in {@code fact_orl} and are matched at read time by the
- * assessment read APIs.
+ * <p>Detail rows are <b>thin</b>: dimensions, category, status, audit columns and the two
+ * risk-rating-change columns ({@code RISK_RTNG_CHGE} — the overall change vs. the previous
+ * assessment; {@code MODULE_RISK_RTNG_CHGE} — the per-module change JSON). The remaining computed
+ * values (calculated NRR, commentary, GRC metrics, etc.) are not stored here — they live in
+ * {@code fact_orl} / the module fact tables and are matched at read time by the assessment read APIs.
  *
- * <p>The single entry point is {@link #generateForDim(OrlLndscpDim, String)}; the config
+ * <p>The single entry point is {@link #generateForDim(OrlLndscpDim, LocalDate, String)}; the config
  * to generate from is resolved by the caller ({@link BulkAssmtGenerationService}).
  */
 @Slf4j
@@ -78,6 +84,8 @@ public class LandscapeAssmtGenerationService {
     private final OrlBizUnitRepository bizUnitRepository;
     private final RiskAreaParser riskAreaParser;
     private final FactOrlRepository factRepository;
+    private final GrcMetricsService grcMetricsService;
+    private final ModuleRiskRatingChanges moduleRiskRatingChanges;
 
     /**
      * Generates the assessment for an already-resolved config row. Called per landscape by
@@ -85,19 +93,21 @@ public class LandscapeAssmtGenerationService {
      * landscape's failure cannot roll back the others.
      *
      * @param dim    the landscape config to generate from
+     * @param asOfDate the as-of date driving the reported period; the assessment reports the month
+     *                 <em>before</em> this date's month (M-1) and links to M-2
      * @param userId caller identity, stored as {@code CREATED_BY}
      * @return a summary of the generated assessment
      * @throws ConflictException if an assessment already exists for this landscape + month
      */
     @Transactional
-    public AssmtGenerationResponse generateForDim(OrlLndscpDim dim, String userId) {
+    public AssmtGenerationResponse generateForDim(OrlLndscpDim dim, LocalDate asOfDate, String userId) {
         Long lndscpNum = dim.getId();
-        log.debug("Generating assessment for lndscpNum={} ('{}') by '{}'",
-                lndscpNum, dim.getLndscpNm(), userId);
+        log.debug("Generating assessment for lndscpNum={} ('{}') asOfDate={} by '{}'",
+                lndscpNum, dim.getLndscpNm(), asOfDate, userId);
 
-        // An assessment generated in month M reports the previous calendar month (M-1):
+        // The as-of date's month is M; the assessment reports the previous calendar month (M-1):
         // its period label is M-1 and it links back to the M-2 assessment.
-        YearMonth assmtMonth = YearMonth.from(LocalDate.now()).minusMonths(1);
+        YearMonth assmtMonth = YearMonth.from(asOfDate).minusMonths(1);
         String assmtPeriod = assmtMonth.format(PERIOD_FMT);
         String priorPeriod = assmtMonth.minusMonths(1).format(PERIOD_FMT);
         LocalDate bizDt = resolveBizDate(assmtMonth);
@@ -123,14 +133,17 @@ public class LandscapeAssmtGenerationService {
         log.debug("Previous assessment for lndscpNum={} period='{}': {}",
                 lndscpNum, priorPeriod, prevAssmtId.map(String::valueOf).orElse("none"));
 
-        // Previous assessment's final rating per dimension — the baseline for each generated
-        // row's RISK_RTNG_CHGE. Loaded once (empty when there is no prior assessment).
-        Map<String, NetRiskRating> prevFinalByKey = loadPreviousFinalRatings(prevAssmtId.orElse(null));
+        // Load the previous assessment aggregate once — it drives both the baseline final ratings
+        // (for RISK_RTNG_CHGE) and the previous month's biz_dt (for the MODULE_RISK_RTNG_CHGE
+        // comparison). Empty/absent when there is no prior assessment.
+        OrlLndscpAssmt prevAssmt = prevAssmtId.flatMap(assmtRepository::findById).orElse(null);
+        Map<String, NetRiskRating> prevFinalByKey = loadPreviousFinalRatings(prevAssmt);
+        LocalDate prevBizDt = prevAssmt != null ? prevAssmt.getBizDt() : null;
 
         // ── Build the (thin) detail rows ─────────────────────────────────────────
         List<OrlLndscpAssmtDetails> details = new ArrayList<>();
         for (RowSpec spec : expand(riskAreas, bizUnits, locations, lvl)) {
-            details.add(buildDetail(spec, lvl, buByName, bizDt, prevFinalByKey, userId));
+            details.add(buildDetail(spec, lvl, buByName, bizDt, prevBizDt, prevFinalByKey, userId));
         }
         log.debug("Expanded {} detail row(s) for lndscpNum={}", details.size(), lndscpNum);
 
@@ -208,6 +221,7 @@ public class LandscapeAssmtGenerationService {
     private OrlLndscpAssmtDetails buildDetail(RowSpec spec, Integer lvl,
                                               Map<String, OrlBizUnit> buByName,
                                               LocalDate bizDt,
+                                              LocalDate prevBizDt,
                                               Map<String, NetRiskRating> prevFinalByKey,
                                               String userId) {
         // Resolve the BU hierarchy columns (null for 'loc' rows which carry no BU).
@@ -243,6 +257,13 @@ public class LandscapeAssmtGenerationService {
         NetRiskRating prevFinal = prevFinalByKey.get(dimKey(riskArea, l2n, l3n, l4n, locn));
         RiskRatingChange riskRtngChge = RiskRatingChanges.derive(prevFinal, currentCalc);
 
+        // MODULE_RISK_RTNG_CHGE: per-module change JSON comparing this month's module facts against
+        // the previous assessment month's, built once here so the drill-down reads it back verbatim.
+        DimensionKey key = new DimensionKey(riskArea, l2n, l3n, l4n, locn);
+        Map<String, ModuleFact> currentModuleFacts = grcMetricsService.moduleFacts(bizDt, key);
+        Map<String, ModuleFact> prevModuleFacts = grcMetricsService.moduleFacts(prevBizDt, key);
+        String moduleRiskRtngChge = moduleRiskRatingChanges.build(currentModuleFacts, prevModuleFacts);
+
         // Thin row — other computed values are matched from fact_orl at read time.
         // Empty dimension columns are stored as '' (never null) so the unique index
         // on (assessment, risk area, BU path, location) actually enforces uniqueness.
@@ -254,6 +275,7 @@ public class LandscapeAssmtGenerationService {
                 .location(locn)
                 .category(spec.category())
                 .riskRtngChge(riskRtngChge)
+                .moduleRiskRtngChge(moduleRiskRtngChge)
                 .status(DetailStatus.OPEN)
                 .createdBy(userId)
                 .build();
@@ -276,17 +298,14 @@ public class LandscapeAssmtGenerationService {
 
     /**
      * Previous assessment's final rating per dimension key: the prior detail row's overlay when set,
-     * else the prior month's calculated rating. Empty when there is no previous assessment. Loaded
-     * once via one aggregate read + one targeted fact semi-join.
+     * else the prior month's calculated rating. Empty when there is no previous assessment. Derived
+     * from the already-loaded previous aggregate plus one targeted fact semi-join.
      */
-    private Map<String, NetRiskRating> loadPreviousFinalRatings(Long prevAssmtId) {
-        if (prevAssmtId == null) {
-            return Collections.emptyMap();
-        }
-        OrlLndscpAssmt prev = assmtRepository.findById(prevAssmtId).orElse(null);
+    private Map<String, NetRiskRating> loadPreviousFinalRatings(OrlLndscpAssmt prev) {
         if (prev == null) {
             return Collections.emptyMap();
         }
+        Long prevAssmtId = prev.getId();
         LocalDate prevBizDt = prev.getBizDt();
         Map<String, NetRiskRating> prevFactCal = new HashMap<>();
         if (prevBizDt != null) {

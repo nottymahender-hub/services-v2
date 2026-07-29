@@ -23,6 +23,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -33,8 +34,10 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.time.LocalDate;
 import java.util.List;
 
 /**
@@ -100,24 +103,33 @@ public class LandscapeAssmtController {
     // ── Generation ───────────────────────────────────────────────────────────────
 
     @Operation(summary = "Generate assessments for all active landscapes",
-            description = "Generates this month's assessment for every ACTIVE landscape effective today; "
-                    + "ambiguous configs and already-generated landscapes are skipped per-landscape.")
+            description = "Generates the reported month's assessment for every ACTIVE landscape effective "
+                    + "on the as-of date (bizDt); the reported period is the calendar month before "
+                    + "bizDt's month (e.g. bizDt=2026-02-20 generates January 2026). When bizDt is "
+                    + "omitted the current date is used. Ambiguous configs and already-generated "
+                    + "landscapes are skipped per-landscape.")
     @ApiResponses(value = {
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "Bulk run completed"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "bizDt is not a valid ISO date (yyyy-MM-dd)"),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "Missing or blank X-EGRC-UserId header"),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "500", description = "Unexpected server error")
     })
     @PostMapping("/assessments/generate")
     public ResponseEntity<ApiResponse<BulkAssmtGenerationResponse>> generateForAllLandscapes(
+            @Parameter(description = "As-of date (ISO yyyy-MM-dd); reported period is the month before "
+                    + "this date's month. Defaults to the current date when omitted.")
+            @RequestParam(value = "bizDt", required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate bizDt,
             @Parameter(description = "Operator identity", required = true)
             @RequestHeader(value = USER_HEADER, required = false) String username) {
 
         String user = requireUser(username);
-        log.debug("POST /landscape/assessments/generate requested by '{}'", user);
+        LocalDate asOfDate = bizDt != null ? bizDt : LocalDate.now();
+        log.debug("POST /landscape/assessments/generate requested by '{}' asOfDate={}", user, asOfDate);
 
-        BulkAssmtGenerationResponse result = bulkGenerationService.generateForAllActiveLandscapes(user);
+        BulkAssmtGenerationResponse result = bulkGenerationService.generateForAllActiveLandscapes(asOfDate, user);
         String message = result.getTotalLandscapes() == 0
-                ? "No active landscapes are effective today — nothing to generate."
+                ? "No active landscapes are effective on " + asOfDate + " — nothing to generate."
                 : "Generated " + result.getGenerated() + " of " + result.getTotalLandscapes()
                         + " active landscape(s); " + result.getSkipped() + " skipped.";
         return ResponseEntity.ok(ApiResponse.successWithData(message, result));

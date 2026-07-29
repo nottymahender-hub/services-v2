@@ -9,18 +9,18 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * Unit tests for the {@link PersistableEnum} machinery: db-value resolution, the net-risk
- * display form, and the Spring Data JDBC read/write converters.
+ * Unit tests for the {@link PersistableEnum} machinery: db-value resolution and the Spring Data
+ * JDBC read/write converters.
  */
 class PersistableEnumTest {
 
     @Test
-    void netRiskRating_dbAndDisplayValues() {
+    void netRiskRating_dbValues() {
+        // Net risk rating is surfaced exactly as stored (no separate display label).
         assertThat(NetRiskRating.MED_LOW.getDbValue()).isEqualTo("Med Low");
-        assertThat(NetRiskRating.MED_LOW.getDisplayValue()).isEqualTo("Medium-Low Risk");
         assertThat(NetRiskRating.fromDbValue("High")).isEqualTo(NetRiskRating.HIGH);
-        assertThat(NetRiskRating.display(NetRiskRating.HIGH)).isEqualTo("High Risk");
-        assertThat(NetRiskRating.display(null)).isNull();
+        assertThat(PersistableEnum.dbValue(NetRiskRating.HIGH)).isEqualTo("High");
+        assertThat(PersistableEnum.dbValue((NetRiskRating) null)).isNull();
     }
 
     @Test

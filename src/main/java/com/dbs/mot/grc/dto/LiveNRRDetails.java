@@ -19,7 +19,7 @@ import java.util.Map;
 @Builder
 public class LiveNRRDetails {
 
-    /** {@code fact_orl.CAL_NET_RISK_RTNG} of the latest snapshot (display form). */
+    /** {@code fact_orl.CAL_NET_RISK_RTNG} of the latest snapshot (DB value, e.g. {@code "Med Low"}). */
     private final String nrr;
 
     /** Always {@code "N"} — a live snapshot carries no analyst overlay. */
@@ -36,10 +36,11 @@ public class LiveNRRDetails {
 
     /**
      * Per-module GRC metrics assembled from each module fact table's own latest row. All four
-     * module keys ({@code RCSA}, {@code INC}, {@code INA}, {@code KRI}) are always present; a
-     * module with no row for the dimension maps to {@code null}.
+     * module keys ({@code RCSA}, {@code INC}, {@code INA}, {@code KRI}) are always present and each
+     * block is always fully populated — a module with no live row still lists every metric with a
+     * {@code null} value and {@code "N.A"} changes (see {@link GrcModuleBlock}).
      */
-    private final Map<String, Object> grcMetrics;
+    private final Map<String, GrcModuleBlock> grcMetrics;
 
     /** {@code fact_orl.COMMENTARY} of the latest snapshot. */
     private final String commentry;

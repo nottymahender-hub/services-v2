@@ -79,12 +79,12 @@ class LandscapeAssmtDetailsControllerTest {
 
         // ── fact_orl snapshots ────────────────────────────────────────────────
         // Current month (biz_dt 2024-07-01, for assmt 5): computed values per dimension.
-        insertFact("2024-07-01", "OR", "Tech", "DTI", "BCM", "SG", "Low", "Improved", "Commentary for 101");
-        insertFact("2024-07-01", "OR", "Tech", "DTI", null, "HK", "Low", "Stable", "Commentary for 102");
-        insertFact("2024-07-01", "OR", "Tech", null, null, "IN", "Low", "Stable", null);
-        insertFact("2024-07-01", "CR", "Risk Mgmt", null, null, "SG", "Low", "Stable", null);
+        insertFact("2024-07-01", "OR", "Tech", "DTI", "BCM", "SG", "Low", "Commentary for 101");
+        insertFact("2024-07-01", "OR", "Tech", "DTI", null, "HK", "Low", "Commentary for 102");
+        insertFact("2024-07-01", "OR", "Tech", null, null, "IN", "Low", null);
+        insertFact("2024-07-01", "CR", "Risk Mgmt", null, null, "SG", "Low", null);
         // Previous month (biz_dt 2024-06-01, for assmt 4): row 91's dimension falls back to CAL.
-        insertFact("2024-06-01", "OR", "Tech", "DTI", null, "HK", "Med Low", "Deteriorated", "June commentary");
+        insertFact("2024-06-01", "OR", "Tech", "DTI", null, "HK", "Med Low", "June commentary");
 
         // Previous assessment (id 4) thin rows — matched by dimension to derive prevAssmtFinalNRR:
         //   matches row 101 (OR,Tech,DTI,BCM,SG): OVRLY set → 'High'
@@ -120,14 +120,14 @@ class LandscapeAssmtDetailsControllerTest {
 
     /** Inserts a fact_orl snapshot row (empty dimensions stored as '', matching details). */
     private void insertFact(String bizDt, String riskArea, String l2, String l3, String l4,
-                            String loc, String cal, String rtngChge, String commentary) {
+                            String loc, String cal, String commentary) {
         jdbc.execute("""
                 INSERT INTO fact_orl
                     (biz_dt,RISK_AREA,ORL_BU_NM_L2,ORL_BU_NM_L3,ORL_BU_NM_L4,LOCATION,category,
-                     CAL_NET_RISK_RTNG,RISK_RTNG_CHGE,CTRL_EFF_RTN,COMMENTARY)
-                VALUES(DATE %s,%s,%s,%s,%s,%s,'L2',%s,%s,'Satisfactory to Good',%s)
+                     CAL_NET_RISK_RTNG,CTRL_EFF_RTN,COMMENTARY)
+                VALUES(DATE %s,%s,%s,%s,%s,%s,'L2',%s,'Satisfactory to Good',%s)
                 """.formatted(q(bizDt), q(riskArea), qDim(l2), qDim(l3), qDim(l4), qDim(loc),
-                q(cal), q(rtngChge), q(commentary)));
+                q(cal), q(commentary)));
     }
 
     /** SQL literal: quoted value, or NULL. */
@@ -214,19 +214,19 @@ class LandscapeAssmtDetailsControllerTest {
 
     @Test
     void lndscpLastModifiedOn_fallsBackToCreateDtTm_whenUpdateNull() throws Exception {
-        // assmt 5 has no UPDATE_DT_TM → falls back to CREATE_DT_TM / CREATED_BY.
+        // assmt 5 has no UPDATE_DT_TM → falls back to CREATE_DT_TM (UTC 00:00 → SGT 08:00) / CREATED_BY.
         mvc.perform(get(URL_TPL, 5).header("X-EGRC-UserId", "tester"))
            .andExpect(status().isOk())
-           .andExpect(jsonPath("$.data.lndscpLastModifiedOn", startsWith("2024-07-01T00:00:00")))
+           .andExpect(jsonPath("$.data.lndscpLastModifiedOn", startsWith("2024-07-01T08:00:00")))
            .andExpect(jsonPath("$.data.lndscpLastModifiedBy", is("seed")));
     }
 
     @Test
     void lndscpLastModifiedOn_usesUpdateFields_whenPresent() throws Exception {
-        // assmt 7 has UPDATE_DT_TM = 2024-06-01T10:00:00 and UPDATED_BY = 'editor'.
+        // assmt 7 has UPDATE_DT_TM = 2024-06-01T10:00:00 (UTC) → SGT 18:00, UPDATED_BY = 'editor'.
         mvc.perform(get(URL_TPL, 7).header("X-EGRC-UserId", "tester"))
            .andExpect(status().isOk())
-           .andExpect(jsonPath("$.data.lndscpLastModifiedOn", startsWith("2024-06-01T10:00:00")))
+           .andExpect(jsonPath("$.data.lndscpLastModifiedOn", startsWith("2024-06-01T18:00:00")))
            .andExpect(jsonPath("$.data.lndscpLastModifiedBy", is("editor")));
     }
 
@@ -355,19 +355,19 @@ class LandscapeAssmtDetailsControllerTest {
     // ── nrr fields ─────────────────────────────────────────────────────────────
 
     @Test
-    void nrrCalculated_returnsDisplayForm() throws Exception {
-        // id 101 (fact CAL='Low') → display "Low Risk"
+    void nrrCalculated_returnsDbValue() throws Exception {
+        // id 101 (fact CAL='Low') → stored DB value "Low"
         mvc.perform(get(URL_TPL, 5).header("X-EGRC-UserId", "tester"))
            .andExpect(status().isOk())
-           .andExpect(jsonPath("$.data.assessments[?(@.id==101)].nrrCalculated", hasItem("Low Risk")));
+           .andExpect(jsonPath("$.data.assessments[?(@.id==101)].nrrCalculated", hasItem("Low")));
     }
 
     @Test
-    void nrr_returnsOvrlyNetRiskRtngDisplayForm() throws Exception {
-        // id 101 (OVRLY='High') → display "High Risk"
+    void nrr_returnsOvrlyNetRiskRtngDbValue() throws Exception {
+        // id 101 (OVRLY='High') → stored DB value "High"
         mvc.perform(get(URL_TPL, 5).header("X-EGRC-UserId", "tester"))
            .andExpect(status().isOk())
-           .andExpect(jsonPath("$.data.assessments[?(@.id==101)].nrr", hasItem("High Risk")));
+           .andExpect(jsonPath("$.data.assessments[?(@.id==101)].nrr", hasItem("High")));
     }
 
     @Test
@@ -375,8 +375,8 @@ class LandscapeAssmtDetailsControllerTest {
         // id 102 has no overlay, so nrr falls back to the calculated rating (fact CAL='Low').
         mvc.perform(get(URL_TPL, 5).header("X-EGRC-UserId", "tester"))
            .andExpect(status().isOk())
-           .andExpect(jsonPath("$.data.assessments[?(@.id==102)].nrrCalculated", hasItem("Low Risk")))
-           .andExpect(jsonPath("$.data.assessments[?(@.id==102)].nrr", hasItem("Low Risk")));
+           .andExpect(jsonPath("$.data.assessments[?(@.id==102)].nrrCalculated", hasItem("Low")))
+           .andExpect(jsonPath("$.data.assessments[?(@.id==102)].nrr", hasItem("Low")));
     }
 
     @Test
@@ -418,18 +418,18 @@ class LandscapeAssmtDetailsControllerTest {
 
     @Test
     void prevAssmtFinalNRR_usesOvrlyOfMatchedPrevRow_whenOverlaid() throws Exception {
-        // id 101 → matched prev row 90 has OVRLY='High' → display "High Risk"
+        // id 101 → matched prev row 90 has OVRLY='High' → DB value "High"
         mvc.perform(get(URL_TPL, 5).header("X-EGRC-UserId", "tester"))
            .andExpect(status().isOk())
-           .andExpect(jsonPath("$.data.assessments[?(@.id==101)].prevAssmtFinalNRR", hasItem("High Risk")));
+           .andExpect(jsonPath("$.data.assessments[?(@.id==101)].prevAssmtFinalNRR", hasItem("High")));
     }
 
     @Test
     void prevAssmtFinalNRR_fallsBackToCalOfMatchedPrevRow_whenNotOverlaid() throws Exception {
-        // id 102 → matched prev row 91 has OVRLY=null, CAL='Med Low' → display "Medium-Low Risk"
+        // id 102 → matched prev row 91 has OVRLY=null, CAL='Med Low' → DB value "Med Low"
         mvc.perform(get(URL_TPL, 5).header("X-EGRC-UserId", "tester"))
            .andExpect(status().isOk())
-           .andExpect(jsonPath("$.data.assessments[?(@.id==102)].prevAssmtFinalNRR", hasItem("Medium-Low Risk")));
+           .andExpect(jsonPath("$.data.assessments[?(@.id==102)].prevAssmtFinalNRR", hasItem("Med Low")));
     }
 
     @Test

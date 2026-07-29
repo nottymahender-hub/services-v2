@@ -78,4 +78,6 @@ public class LandscapeAssmtDetailItem {
 
     /** {@code "Y"} when {@code OVRLY_NET_RISK_RTNG} is present, else {@code "N"}. */
     private final String nrrOverlaid;
+
+    private final String overlayJstfkn;
 }

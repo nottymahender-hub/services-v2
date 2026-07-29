@@ -63,8 +63,8 @@ class LandscapeAssmtDetailsServiceTest {
         jdbc.execute("INSERT INTO orl_lndscp_assmt(id,LNDSCP_NUM,ASSEMT_PERIOD,biz_dt,status,PREV_ASSMT_NUM,CREATED_BY,CREATE_DT_TM) "
                 + "VALUES(41,1,'Q1-2024',DATE '2024-07-01','Open',40,'seed',TIMESTAMP '2024-07-01 00:00:00')");
 
-        insertFact("2024-07-01", "Low", "Improved", "Satisfactory to Good", "current commentary");
-        insertFact("2024-06-01", "Med Low", "Stable", "Good", "june commentary");
+        insertFact("2024-07-01", "Low", "Satisfactory to Good", "current commentary");
+        insertFact("2024-06-01", "Med Low", "Good", "june commentary");
 
         // Previous (assmt 40) matched row carries an overlay → prevAssmtFinalNRR = 'High'.
         insertDetail(400, 40, "L2", "High", "Completed");
@@ -89,12 +89,12 @@ class LandscapeAssmtDetailsServiceTest {
                 """.formatted(id, assmtId, category, ovrly == null ? "NULL" : "'" + ovrly + "'", status));
     }
 
-    private void insertFact(String bizDt, String cal, String rtngChge, String ctrl, String commentary) {
+    private void insertFact(String bizDt, String cal, String ctrl, String commentary) {
         jdbc.execute("""
                 INSERT INTO fact_orl
-                    (biz_dt,RISK_AREA,ORL_BU_NM_L2,LOCATION,category,CAL_NET_RISK_RTNG,RISK_RTNG_CHGE,CTRL_EFF_RTN,COMMENTARY)
-                VALUES(DATE '%s','OR','Tech','SG','L2','%s','%s','%s','%s')
-                """.formatted(bizDt, cal, rtngChge, ctrl, commentary));
+                    (biz_dt,RISK_AREA,ORL_BU_NM_L2,LOCATION,category,CAL_NET_RISK_RTNG,CTRL_EFF_RTN,COMMENTARY)
+                VALUES(DATE '%s','OR','Tech','SG','L2','%s','%s','%s')
+                """.formatted(bizDt, cal, ctrl, commentary));
     }
 
     // ── fetchByAssmtId (list drill-down) ────────────────────────────────────────
@@ -117,12 +117,12 @@ class LandscapeAssmtDetailsServiceTest {
         assertThat(item.getRiskClusters()).containsExactly("C1", "C2");
         assertThat(item.getBu()).isEqualTo("Tech");     // BIZ_UNIT_LVL=2 → ORL_BU_NM_L2
         assertThat(item.getLocation()).isEqualTo("SG");
-        assertThat(item.getNrrCalculated()).isEqualTo("Low Risk");
-        assertThat(item.getNrr()).isEqualTo("Low Risk"); // no overlay → falls back to calculated
+        assertThat(item.getNrrCalculated()).isEqualTo("Low");
+        assertThat(item.getNrr()).isEqualTo("Low"); // no overlay → falls back to calculated
         assertThat(item.getNrrOverlaid()).isEqualTo("N");
         assertThat(item.getCtrlEffRtn()).isEqualTo("Satisfactory to Good");
         // Previous assessment's matched row (400) had OVRLY 'High'.
-        assertThat(item.getPrevAssmtFinalNRR()).isEqualTo("High Risk");
+        assertThat(item.getPrevAssmtFinalNRR()).isEqualTo("High");
     }
 
     @Test
@@ -139,8 +139,8 @@ class LandscapeAssmtDetailsServiceTest {
         // item still reflects only the Tech/SG fact, and no phantom item appears.
         jdbc.execute("""
                 INSERT INTO fact_orl
-                    (biz_dt,RISK_AREA,ORL_BU_NM_L2,LOCATION,category,CAL_NET_RISK_RTNG,RISK_RTNG_CHGE,CTRL_EFF_RTN,COMMENTARY)
-                VALUES(DATE '2024-07-01','OR','Zzz','XX','L2','High','Deteriorated','Poor/Fail','unrelated')
+                    (biz_dt,RISK_AREA,ORL_BU_NM_L2,LOCATION,category,CAL_NET_RISK_RTNG,CTRL_EFF_RTN,COMMENTARY)
+                VALUES(DATE '2024-07-01','OR','Zzz','XX','L2','High','Poor/Fail','unrelated')
                 """);
 
         LandscapeAssmtDetailSummary summary = service.fetchByAssmtId(41L);
@@ -149,7 +149,7 @@ class LandscapeAssmtDetailsServiceTest {
         LandscapeAssmtDetailItem item = summary.getAssessments().get(0);
         assertThat(item.getId()).isEqualTo(401L);
         // Still the Tech/SG fact's values — the unrelated 'Zzz/XX' fact was not fetched.
-        assertThat(item.getNrrCalculated()).isEqualTo("Low Risk");
+        assertThat(item.getNrrCalculated()).isEqualTo("Low");
         assertThat(item.getCtrlEffRtn()).isEqualTo("Satisfactory to Good");
     }
 
@@ -165,8 +165,8 @@ class LandscapeAssmtDetailsServiceTest {
         // The SG row (400) matches the 2024-06-01 fact (CAL 'Med Low'); it also has OVRLY 'High'.
         LandscapeAssmtDetailItem sgRow = summary.getAssessments().stream()
                 .filter(i -> i.getId() == 400L).findFirst().orElseThrow();
-        assertThat(sgRow.getNrrCalculated()).isEqualTo("Medium-Low Risk");
-        assertThat(sgRow.getNrr()).isEqualTo("High Risk");
+        assertThat(sgRow.getNrrCalculated()).isEqualTo("Med Low");
+        assertThat(sgRow.getNrr()).isEqualTo("High");
         assertThat(sgRow.getNrrOverlaid()).isEqualTo("Y");
     }
 
@@ -182,20 +182,20 @@ class LandscapeAssmtDetailsServiceTest {
         assertThat(response.getLastRefreshed()).isEqualTo(LocalDate.parse("2024-07-01"));
 
         // Current month (assmt 41 biz_dt 2024-07-01): CAL 'Low', no overlay.
-        assertThat(response.getCurrentMonthNRRDetails().getNrrCalculated()).isEqualTo("Low Risk");
-        assertThat(response.getCurrentMonthNRRDetails().getNrr()).isEqualTo("Low Risk");
+        assertThat(response.getCurrentMonthNRRDetails().getNrrCalculated()).isEqualTo("Low");
+        assertThat(response.getCurrentMonthNRRDetails().getNrr()).isEqualTo("Low");
         assertThat(response.getCurrentMonthNRRDetails().getNrrOverlaid()).isEqualTo("N");
         assertThat(response.getCurrentMonthNRRDetails().getCommentry()).isEqualTo("current commentary");
 
         // Previous month via PREV_ASSMT_NUM → matched row 400 (OVRLY 'High'), prev fact CAL 'Med Low'.
         assertThat(response.getPrevMonthNRRDetails()).isNotNull();
-        assertThat(response.getPrevMonthNRRDetails().getNrrCalculated()).isEqualTo("Medium-Low Risk");
-        assertThat(response.getPrevMonthNRRDetails().getNrr()).isEqualTo("High Risk");
+        assertThat(response.getPrevMonthNRRDetails().getNrrCalculated()).isEqualTo("Med Low");
+        assertThat(response.getPrevMonthNRRDetails().getNrr()).isEqualTo("High");
 
         // Live snapshot: latest biz_dt (2024-07-01) equals the assessment's biz_dt, so live reuses
         // the current-month fact/metrics — same values as current.
         assertThat(response.getLiveNRRDetails()).isNotNull();
-        assertThat(response.getLiveNRRDetails().getNrr()).isEqualTo("Low Risk");
+        assertThat(response.getLiveNRRDetails().getNrr()).isEqualTo("Low");
         assertThat(response.getLiveNRRDetails().getLastRefreshed()).isEqualTo(LocalDate.parse("2024-07-01"));
     }
 
@@ -207,9 +207,9 @@ class LandscapeAssmtDetailsServiceTest {
         AssmtDetailResponse response = service.fetchDetailById(40L, 400L);
 
         assertThat(response.getLastRefreshed()).isEqualTo(LocalDate.parse("2024-07-01"));
-        assertThat(response.getCurrentMonthNRRDetails().getNrrCalculated()).isEqualTo("Medium-Low Risk");
+        assertThat(response.getCurrentMonthNRRDetails().getNrrCalculated()).isEqualTo("Med Low");
         assertThat(response.getLiveNRRDetails()).isNotNull();
-        assertThat(response.getLiveNRRDetails().getNrr()).isEqualTo("Low Risk");
+        assertThat(response.getLiveNRRDetails().getNrr()).isEqualTo("Low");
         assertThat(response.getLiveNRRDetails().getLastRefreshed()).isEqualTo(LocalDate.parse("2024-07-01"));
         // Assmt 40 has no previous assessment.
         assertThat(response.getPrevMonthNRRDetails()).isNull();
@@ -235,18 +235,20 @@ class LandscapeAssmtDetailsServiceTest {
     // ── saveOverlay ─────────────────────────────────────────────────────────────
 
     @Test
-    void saveOverlay_persistsOverlayAndStampsUpdatedBy() {
+    void saveOverlay_persistsOverlay_stampsUpdatedBy_andLeavesCommentaryUntouched() {
+        // Seed an existing revised commentary; the overlay save must not touch it.
+        jdbc.execute("UPDATE orl_lndscp_assmt_details SET REVISED_COMMENTARY='pre-existing' WHERE id=401");
         SaveAssmtDetailRequest req = new SaveAssmtDetailRequest();
-        req.setRevisedCommentry("revised text");
         req.setOverlaidNRR("Low");
         req.setOverlayJstfkn("overlay reason");
 
         service.saveOverlay(41L, 401L, req, "auditor");
 
-        assertThat(column(401, "REVISED_COMMENTARY")).isEqualTo("revised text");
         assertThat(column(401, "OVRLY_NET_RISK_RTNG")).isEqualTo("Low");
         assertThat(column(401, "OVRLY_JSTFKN")).isEqualTo("overlay reason");
         assertThat(column(401, "UPDATED_BY")).isEqualTo("auditor");
+        // Overlay no longer saves commentary — the pre-existing value is preserved.
+        assertThat(column(401, "REVISED_COMMENTARY")).isEqualTo("pre-existing");
         // UPDATE_DT_TM is DB-managed (ON UPDATE CURRENT_TIMESTAMP).
         Integer stamped = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM orl_lndscp_assmt_details WHERE id=401 AND UPDATE_DT_TM IS NOT NULL",
@@ -257,13 +259,11 @@ class LandscapeAssmtDetailsServiceTest {
     @Test
     void saveOverlay_blankFields_clearOverlay() {
         SaveAssmtDetailRequest req = new SaveAssmtDetailRequest();
-        req.setRevisedCommentry("  ");
         req.setOverlaidNRR(null);
         req.setOverlayJstfkn(null);
 
         service.saveOverlay(41L, 401L, req, "auditor");
 
-        assertThat(column(401, "REVISED_COMMENTARY")).isNull();
         assertThat(column(401, "OVRLY_NET_RISK_RTNG")).isNull();
         assertThat(column(401, "OVRLY_JSTFKN")).isNull();
     }
@@ -312,8 +312,7 @@ class LandscapeAssmtDetailsServiceTest {
     void saveOverlay_overlayUnchanged_leavesRiskRatingChangeUntouched() {
         // Seed an existing change; saving with the same (absent) overlay must not recompute it.
         jdbc.execute("UPDATE orl_lndscp_assmt_details SET RISK_RTNG_CHGE='Deteriorated' WHERE id=401");
-        SaveAssmtDetailRequest req = new SaveAssmtDetailRequest();
-        req.setRevisedCommentry("note only");   // overlaidNRR stays null (unchanged)
+        SaveAssmtDetailRequest req = new SaveAssmtDetailRequest();   // overlaidNRR stays null (unchanged)
 
         OverlayResponse resp = service.saveOverlay(41L, 401L, req, "auditor");
 
@@ -324,7 +323,7 @@ class LandscapeAssmtDetailsServiceTest {
     // ── saveCommentary ──────────────────────────────────────────────────────────
 
     @Test
-    void saveCommentary_updatesRevisedCommentary_andReturnsIt() {
+    void saveCommentary_updatesCommentary_stampsReviserAndTimestamp_andReturnsThem() {
         SaveCommentaryRequest req = new SaveCommentaryRequest();
         req.setRevisedCommentry("Analyst note");
 
@@ -333,8 +332,15 @@ class LandscapeAssmtDetailsServiceTest {
         assertThat(resp.getLndscpAssmtId()).isEqualTo(41L);
         assertThat(resp.getAssmtDetailId()).isEqualTo(401L);
         assertThat(resp.getRevisedCommentary()).isEqualTo("Analyst note");
+        assertThat(resp.getCommentaryRevisedBy()).isEqualTo("auditor");
+        assertThat(resp.getCommentaryRevisedAt()).isNotNull();   // stamped (surfaced in SGT)
         assertThat(column(401, "REVISED_COMMENTARY")).isEqualTo("Analyst note");
+        assertThat(column(401, "COMMENTARY_REVISED_BY")).isEqualTo("auditor");
         assertThat(column(401, "UPDATED_BY")).isEqualTo("auditor");
+        Integer atSet = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM orl_lndscp_assmt_details WHERE id=401 AND COMMENTARY_REVISED_AT IS NOT NULL",
+                Integer.class);
+        assertThat(atSet).isEqualTo(1);
     }
 
     @Test

@@ -12,20 +12,18 @@ import lombok.Setter;
 import org.springframework.util.StringUtils;
 
 /**
- * Request body for {@code POST /landscape/{lndscpAssmtId}/{assmtDetailId}/save}. Persists the
- * analyst overlay onto an assessment detail row: revised commentary, overlaid net risk rating and
- * its justification.
+ * Request body for the overlay endpoint
+ * {@code POST /landscape/assessment/{lndscpAssmtId}/assessmentDetail/{assmtDetailId}/overlay}.
+ * Persists the analyst overlay onto an assessment detail row: the overlaid net risk rating and its
+ * justification. (Revised commentary is saved separately via the {@code /commentry} API.)
  *
- * <p>All fields are optional. When {@code overlaidNRR} is provided, {@code overlayJstfkn} is
+ * <p>Both fields are optional, but when {@code overlaidNRR} is provided {@code overlayJstfkn} is
  * required — and vice versa (enforced by {@link #isOverlayPairConsistent()}).
  */
 @Getter
 @Setter
 @NoArgsConstructor
 public class SaveAssmtDetailRequest {
-
-    @Schema(description = "Analyst-revised commentary (stored in REVISED_COMMENTARY).")
-    private String revisedCommentry;
 
     @Schema(description = "Overlaid net risk rating; one of Low, Med Low, Med High, High.",
             example = "Low")

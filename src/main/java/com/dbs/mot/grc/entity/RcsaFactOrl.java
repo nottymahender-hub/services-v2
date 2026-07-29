@@ -1,7 +1,6 @@
 package com.dbs.mot.grc.entity;
 
 import com.dbs.mot.grc.enums.NetRiskRating;
-import com.dbs.mot.grc.enums.RiskRatingChange;
 import com.dbs.mot.grc.util.Percentages;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -49,8 +48,6 @@ public class RcsaFactOrl implements ModuleFact {
 
     @Column("NET_RISK_RATING")
     private NetRiskRating netRiskRtng;
-    @Column("RISK_RTNG_CHGE")
-    private RiskRatingChange riskRtngChge;
 
     @Column("combined_count_high_risk")
     private Integer combinedCountHighRisk;

@@ -7,13 +7,17 @@ import com.dbs.mot.grc.enums.PersistableEnum;
 import com.dbs.mot.grc.enums.RiskRatingChange;
 import com.dbs.mot.grc.exception.ConflictException;
 import com.dbs.mot.grc.exception.NotFoundException;
+import com.dbs.mot.grc.util.ModuleRiskRatingChanges;
+import com.dbs.mot.grc.util.ModuleRiskRatingChanges.ModuleChange;
 import com.dbs.mot.grc.util.RiskAreaParser;
 import com.dbs.mot.grc.util.RiskRatingChanges;
+import com.dbs.mot.grc.util.SgtDateTimes;
 import com.dbs.mot.grc.dto.AssmtDetailCommentaryResponse;
 import com.dbs.mot.grc.dto.AssmtDetailResponse;
 import com.dbs.mot.grc.dto.AssmtHeader;
 import com.dbs.mot.grc.dto.CalloutResponse;
 import com.dbs.mot.grc.dto.DimensionKey;
+import com.dbs.mot.grc.dto.GrcModuleBlock;
 import com.dbs.mot.grc.dto.LandscapeAssmtDetailItem;
 import com.dbs.mot.grc.dto.LandscapeAssmtDetailSummary;
 import com.dbs.mot.grc.dto.LandscapeBuDetails;
@@ -25,6 +29,7 @@ import com.dbs.mot.grc.dto.RiskAreaGroup;
 import com.dbs.mot.grc.dto.SaveAssmtDetailRequest;
 import com.dbs.mot.grc.dto.SaveCommentaryRequest;
 import com.dbs.mot.grc.entity.FactOrl;
+import com.dbs.mot.grc.entity.ModuleFact;
 import com.dbs.mot.grc.entity.OrlLndscpAssmt;
 import com.dbs.mot.grc.entity.OrlLndscpAssmtDetails;
 import com.dbs.mot.grc.entity.OrlLndscpDim;
@@ -40,6 +45,7 @@ import org.springframework.util.StringUtils;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -80,6 +86,7 @@ public class LandscapeAssmtDetailsService {
     private final FactOrlRepository               factRepository;
     private final RiskAreaParser                  riskAreaParser;
     private final GrcMetricsService               grcMetricsService;
+    private final ModuleRiskRatingChanges         moduleRiskRatingChanges;
     private final LandscapeAssmtCalloutService    calloutService;
 
     /**
@@ -155,12 +162,16 @@ public class LandscapeAssmtDetailsService {
         DimensionKey key = keyOf(row);
         LocalDate currentBizDt = assmt.bizDt();
         FactOrl currentFact = factFor(currentBizDt, key).orElse(null);
-        // Assembled once. Its per-module net risk ratings are the baseline the live block's
-        // risk_rating_chge is derived against.
-        GrcMetricsService.ModuleGrcMetrics currentGrc = grcMetricsService.forBizDate(currentBizDt, key);
+        // Fetch this dimension's current module facts once — reused for the current block and as the
+        // live block's comparison baseline (so the live per-metric/NRR changes are computed vs. it).
+        Map<String, ModuleFact> currentModuleFacts = grcMetricsService.moduleFacts(currentBizDt, key);
+        // The current block's module-level and per-metric changes come from this detail's stored
+        // MODULE_RISK_RTNG_CHGE JSON (written at generation), not derived at read time.
+        Map<String, ModuleChange> currentModuleChanges =
+                moduleRiskRatingChanges.parse(row.getModuleRiskRtngChge());
 
         String currentNrrCalculated =
-                NetRiskRating.display(currentFact != null ? currentFact.getCalNetRiskRtng() : null);
+                PersistableEnum.dbValue(currentFact != null ? currentFact.getCalNetRiskRtng() : null);
         MonthNRRDetails current = MonthNRRDetails.builder()
                 .nrrCalculated(currentNrrCalculated)
                 .nrr(resolveNrr(row.getOvrlyNetRiskRtng(), currentNrrCalculated))
@@ -168,7 +179,7 @@ public class LandscapeAssmtDetailsService {
                 .overlayJstfkn(row.getOvrlyJstfkn())
                 .ctrlEffRtn(currentFact != null ? currentFact.getCtrlEffRtn() : null)
                 .assmtPeriod(assmt.assmtPeriod())
-                .grcMetrics(currentGrc.blocks())
+                .grcMetrics(grcMetricsService.storedBlocks(currentModuleFacts, currentModuleChanges))
                 .commentry(currentFact != null ? currentFact.getCommentary() : null)
                 .revisedCommentry(row.getRevisedCommentary())
                 .build();
@@ -178,9 +189,9 @@ public class LandscapeAssmtDetailsService {
         // The "live" snapshot is the fact row on the latest business date across fact_orl, matched
         // to this dimension. That MAX(biz_dt) is read once and reused for the response's top-level
         // lastRefreshed; when it equals the assessment's own biz_dt the current fact_orl row is
-        // reused. The live GRC block's risk_rating_chge is derived against the current NRRs.
+        // reused. The live GRC block's changes are computed against the current module facts.
         LocalDate maxBizDt = factRepository.findMaxBizDt();
-        LiveNRRDetails live = resolveLive(maxBizDt, currentBizDt, key, currentFact, currentGrc.netRiskRatings());
+        LiveNRRDetails live = resolveLive(maxBizDt, currentBizDt, key, currentFact, currentModuleFacts);
 
         log.info("Returning detail id={} of assessment id={} (prev {}, live {})",
                 assmtDetailId, lndscpAssmtId,
@@ -194,20 +205,23 @@ public class LandscapeAssmtDetailsService {
                 .bu(resolveBuByCategory(row))
                 .location(resolveLocation(row))
                 .status(PersistableEnum.dbValue(row.getStatus()))
-                .lastModifiedOn(row.getUpdateDtTm() != null ? row.getUpdateDtTm() : row.getCreateDtTm())
+                .lastModifiedOn(SgtDateTimes.toSgt(row.getUpdateDtTm() != null ? row.getUpdateDtTm() : row.getCreateDtTm()))
                 .lastModifiedBy(row.getUpdatedBy() != null ? row.getUpdatedBy() : row.getCreatedBy())
                 .lastRefreshed(maxBizDt)
                 .currentMonthNRRDetails(current)
                 .prevMonthNRRDetails(previous)
                 .liveNRRDetails(live)
                 .category(PersistableEnum.dbValue(row.getCategory()))
+                .commentaryRevisedBy(row.getCommentaryRevisedBy())
+                .commentaryRevisedAt(SgtDateTimes.toSgt(row.getCommentaryRevisedAt()))
                 .build();
     }
 
     /**
-     * Saves the analyst overlay (revised commentary, overlaid net risk rating, overlay
-     * justification) onto an assessment detail row and stamps the auditor, returning the persisted
-     * overlay fields. When the <em>overlaid net risk rating changes</em>, the detail's
+     * Saves the analyst overlay (overlaid net risk rating and its justification) onto an assessment
+     * detail row and stamps the auditor, returning the persisted overlay fields. Revised commentary
+     * is <strong>not</strong> handled here — it is saved solely via the {@code /commentry} API. When
+     * the <em>overlaid net risk rating changes</em>, the detail's
      * {@code RISK_RTNG_CHGE} is re-evaluated (previous assessment's final NRR vs. this detail's
      * effective NRR) via {@link RiskRatingChanges}. {@code UPDATE_DT_TM} is DB-managed.
      *
@@ -246,7 +260,6 @@ public class LandscapeAssmtDetailsService {
         }
 
         OrlLndscpAssmtDetails saved = detailsRepository.save(detail.toBuilder()
-                .revisedCommentary(blankToNull(request.getRevisedCommentry()))
                 .ovrlyNetRiskRtng(newOverlay)
                 .ovrlyJstfkn(blankToNull(request.getOverlayJstfkn()))
                 .riskRtngChge(riskRtngChge)
@@ -268,7 +281,8 @@ public class LandscapeAssmtDetailsService {
 
     /**
      * Saves only the analyst-revised commentary ({@code REVISED_COMMENTARY}) of a detail row and
-     * stamps the auditor, returning the saved value. Same guards as the overlay save.
+     * stamps who revised it and when ({@code COMMENTARY_REVISED_BY}/{@code COMMENTARY_REVISED_AT},
+     * the latter in UTC), returning the saved values. Same guards as the overlay save.
      *
      * @throws NotFoundException if the assessment or the detail does not exist
      * @throws ConflictException if the detail is not in {@code Open} status
@@ -284,18 +298,24 @@ public class LandscapeAssmtDetailsService {
         }
         OrlLndscpAssmtDetails detail = requireOpenDetail(assmtDetailId);
 
+        // Record the revision author + timestamp (UTC; surfaced in SGT on read) with the commentary.
+        LocalDateTime revisedAt = LocalDateTime.now(ZoneOffset.UTC);
         OrlLndscpAssmtDetails saved = detailsRepository.save(detail.toBuilder()
                 .revisedCommentary(blankToNull(request.getRevisedCommentry()))
+                .commentaryRevisedBy(username)
+                .commentaryRevisedAt(revisedAt)
                 .updatedBy(username)
                 .build());
 
-        log.info("Saved commentary for detail id={} of assessment id={} by '{}'",
-                assmtDetailId, lndscpAssmtId, username);
+        log.info("Saved commentary for detail id={} of assessment id={} by '{}' at {} (UTC)",
+                assmtDetailId, lndscpAssmtId, username, revisedAt);
 
         return AssmtDetailCommentaryResponse.builder()
                 .lndscpAssmtId(lndscpAssmtId)
                 .assmtDetailId(assmtDetailId)
                 .revisedCommentary(saved.getRevisedCommentary())
+                .commentaryRevisedBy(saved.getCommentaryRevisedBy())
+                .commentaryRevisedAt(SgtDateTimes.toSgt(saved.getCommentaryRevisedAt()))
                 .build();
     }
 
@@ -346,7 +366,7 @@ public class LandscapeAssmtDetailsService {
      * rating. Shared by the list items and the drill-down's current/previous-month blocks.
      */
     private String resolveNrr(NetRiskRating overlay, String nrrCalculated) {
-        return overlay != null ? NetRiskRating.display(overlay) : nrrCalculated;
+        return overlay != null ? PersistableEnum.dbValue(overlay) : nrrCalculated;
     }
 
     // ── fact_orl lookups ─────────────────────────────────────────────────────
@@ -387,34 +407,38 @@ public class LandscapeAssmtDetailsService {
 
     /**
      * Resolves the live snapshot: the {@code fact_orl} row on {@code maxBizDt} (the latest business
-     * date) matching the dimension, plus the live GRC block whose {@code risk_rating_chge} is
-     * derived against the current assessment's per-module ratings ({@code currentNrrs}). When
+     * date) matching the dimension, plus the live GRC blocks whose changes are computed on the fly
+     * against the current assessment's module facts ({@code currentModuleFacts}). When
      * {@code maxBizDt} equals the assessment's own {@code biz_dt} the already-fetched current
-     * {@code fact_orl} row is reused (no duplicate fact read).
+     * {@code fact_orl}/module rows are reused (no duplicate reads).
      *
      * @return {@code null} when there is no fact data, or the dimension has no row on {@code maxBizDt}
      */
     private LiveNRRDetails resolveLive(LocalDate maxBizDt, LocalDate currentBizDt, DimensionKey key,
-                                       FactOrl currentFact, Map<String, NetRiskRating> currentNrrs) {
+                                       FactOrl currentFact, Map<String, ModuleFact> currentModuleFacts) {
         if (maxBizDt == null) {
             return null;
         }
-        FactOrl liveFact = maxBizDt.equals(currentBizDt)
+        boolean liveIsCurrent = maxBizDt.equals(currentBizDt);
+        FactOrl liveFact = liveIsCurrent
                 ? currentFact                              // live == current: reuse the fact row
                 : factFor(maxBizDt, key).orElse(null);
         if (liveFact == null) {
             log.debug("No live fact_orl row for key {} on biz_dt={}", key, maxBizDt);
             return null;
         }
-        // Live risk_rating_chge is derived (live module rating vs. current assessment's module rating).
-        Map<String, Object> liveBlocks = grcMetricsService.forLive(maxBizDt, key, currentNrrs).blocks();
+        // Live changes are computed on the fly (live vs. current module facts); reuse the current
+        // module facts when live and current share the same business date.
+        Map<String, ModuleFact> liveModuleFacts =
+                liveIsCurrent ? currentModuleFacts : grcMetricsService.moduleFacts(maxBizDt, key);
+        Map<String, GrcModuleBlock> liveBlocks = grcMetricsService.liveBlocks(liveModuleFacts, currentModuleFacts);
         return liveFrom(liveFact, maxBizDt, liveBlocks);
     }
 
     /** Builds a {@link LiveNRRDetails} from an already-loaded fact row and its GRC metrics. */
-    private LiveNRRDetails liveFrom(FactOrl fact, LocalDate maxBizDt, Map<String, Object> grcMetrics) {
+    private LiveNRRDetails liveFrom(FactOrl fact, LocalDate maxBizDt, Map<String, GrcModuleBlock> grcMetrics) {
         return LiveNRRDetails.builder()
-                .nrr(NetRiskRating.display(fact.getCalNetRiskRtng()))
+                .nrr(PersistableEnum.dbValue(fact.getCalNetRiskRtng()))
                 .nrrOverlaid(OVERLAID_NO)
                 .overlayJstfkn(null)
                 .lastRefreshed(maxBizDt)
@@ -521,7 +545,11 @@ public class LandscapeAssmtDetailsService {
         LocalDate prevBizDt = prev.bizDt();
         FactOrl prevFact = factFor(prevBizDt, key).orElse(null);
         String prevNrrCalculated =
-                NetRiskRating.display(prevFact != null ? prevFact.getCalNetRiskRtng() : null);
+                PersistableEnum.dbValue(prevFact != null ? prevFact.getCalNetRiskRtng() : null);
+        // Previous block's module-level and per-metric changes come from the previous detail's own
+        // stored MODULE_RISK_RTNG_CHGE JSON.
+        Map<String, ModuleChange> prevModuleChanges =
+                moduleRiskRatingChanges.parse(d.getModuleRiskRtngChge());
         return MonthNRRDetails.builder()
                 .id(d.getId())
                 .nrrCalculated(prevNrrCalculated)
@@ -530,8 +558,7 @@ public class LandscapeAssmtDetailsService {
                 .overlayJstfkn(d.getOvrlyJstfkn())
                 .ctrlEffRtn(prevFact != null ? prevFact.getCtrlEffRtn() : null)
                 .assmtPeriod(prev.assmtPeriod())
-                // Previous block's risk_rating_chge comes from the module fact (see forBizDate).
-                .grcMetrics(grcMetricsService.forBizDate(prevBizDt, key).blocks())
+                .grcMetrics(grcMetricsService.forBizDate(prevBizDt, key, prevModuleChanges))
                 .commentry(prevFact != null ? prevFact.getCommentary() : null)
                 .build();
     }
@@ -554,9 +581,12 @@ public class LandscapeAssmtDetailsService {
         };
     }
 
-    /** {@code UPDATE_DT_TM} when the assessment has been updated, else {@code CREATE_DT_TM}. */
+    /**
+     * {@code UPDATE_DT_TM} when the assessment has been updated, else {@code CREATE_DT_TM},
+     * converted from the stored UTC to Singapore time for the response.
+     */
     private LocalDateTime resolveLastModifiedOn(OrlLndscpAssmt assmt) {
-        return assmt.getUpdateDtTm() != null ? assmt.getUpdateDtTm() : assmt.getCreateDtTm();
+        return SgtDateTimes.toSgt(assmt.getUpdateDtTm() != null ? assmt.getUpdateDtTm() : assmt.getCreateDtTm());
     }
 
     /** {@code UPDATED_BY} when the assessment has been updated, else {@code CREATED_BY}. */
@@ -592,7 +622,7 @@ public class LandscapeAssmtDetailsService {
                     + "groupName/riskClusters left empty", row.getRiskArea(), row.getId());
         }
         String nrrCalculated =
-                NetRiskRating.display(currentFact != null ? currentFact.getCalNetRiskRtng() : null);
+                PersistableEnum.dbValue(currentFact != null ? currentFact.getCalNetRiskRtng() : null);
         return LandscapeAssmtDetailItem.builder()
                 .id(row.getId())
                 .riskArea(row.getRiskArea())
@@ -608,8 +638,9 @@ public class LandscapeAssmtDetailsService {
                 .ctrlEffRtn(currentFact != null ? currentFact.getCtrlEffRtn() : null)
                 .commentry(currentFact != null ? currentFact.getCommentary() : null)
                 .category(PersistableEnum.dbValue(row.getCategory()))
-                .prevAssmtFinalNRR(NetRiskRating.display(prevAssmtFinalNRR))
+                .prevAssmtFinalNRR(PersistableEnum.dbValue(prevAssmtFinalNRR))
                 .nrrOverlaid(row.getOvrlyNetRiskRtng() != null ? OVERLAID_YES : OVERLAID_NO)
+                .overlayJstfkn(row.getOvrlyJstfkn())
                 .build();
     }
 

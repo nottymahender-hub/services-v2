@@ -171,6 +171,22 @@ public class RiskAreaParser {
     }
 
     /**
+     * Returns the distinct risk area names ({@code riskAreas[*].riskArea}) across all groups,
+     * in document order. Used by assessment generation to expand the config's risk areas.
+     *
+     * @param json the raw RISK_AREA JSON string
+     * @return distinct, non-null risk area names; empty when the document is blank/unparseable
+     */
+    public List<String> riskAreaNames(String json) {
+        return parseQuietly(json).stream()
+                .flatMap(group -> safeEntries(group).stream())
+                .map(RiskAreaEntry::riskArea)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+    }
+
+    /**
      * Re-serialises the RISK_AREA document to canonical, compact JSON for storage, so stored
      * values are normalised regardless of the whitespace/formatting in the uploaded CSV cell.
      *

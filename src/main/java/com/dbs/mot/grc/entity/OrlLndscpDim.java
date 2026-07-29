@@ -61,4 +61,15 @@ public class OrlLndscpDim {
     @ReadOnlyProperty
     @Column("CREATE_DT_TM")
     private LocalDateTime createDtTm;
+
+    /**
+     * Whether this config row is ACTIVE and its effective window
+     * ({@code EFFECT_START_DT}..{@code EFFECT_END_DT}, inclusive) contains the given date.
+     * Used by bulk assessment generation to pick the config effective "today".
+     */
+    public boolean isActiveAndEffectiveOn(LocalDate date) {
+        return status == DimStatus.ACTIVE
+                && !date.isBefore(effectStartDt)
+                && !date.isAfter(effectEndDt);
+    }
 }

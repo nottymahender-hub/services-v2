@@ -59,4 +59,12 @@ public interface FactOrlRepository extends CrudRepository<FactOrl, Long> {
      */
     @Query("SELECT MAX(biz_dt) FROM fact_orl")
     LocalDate findMaxBizDt();
+
+    /**
+     * The latest {@code fact_orl.biz_dt} within an inclusive date range, or {@code null} when the
+     * range holds no snapshot. Used by assessment generation to resolve a reported month's business
+     * date (the month-end, else the latest snapshot within the month).
+     */
+    @Query("SELECT MAX(biz_dt) FROM fact_orl WHERE biz_dt BETWEEN :start AND :end")
+    LocalDate findMaxBizDtBetween(@Param("start") LocalDate start, @Param("end") LocalDate end);
 }

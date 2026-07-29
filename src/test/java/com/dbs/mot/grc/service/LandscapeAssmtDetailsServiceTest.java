@@ -5,7 +5,7 @@ import com.dbs.mot.grc.dto.AssmtDetailResponse;
 import com.dbs.mot.grc.dto.LandscapeAssmtDetailItem;
 import com.dbs.mot.grc.dto.LandscapeAssmtDetailSummary;
 import com.dbs.mot.grc.dto.OverlayResponse;
-import com.dbs.mot.grc.dto.SaveAssmtDetailRequest;
+import com.dbs.mot.grc.dto.SaveAssmtDetailOverlayNRRRequest;
 import com.dbs.mot.grc.dto.SaveCommentaryRequest;
 import com.dbs.mot.grc.exception.ConflictException;
 import com.dbs.mot.grc.exception.NotFoundException;
@@ -238,7 +238,7 @@ class LandscapeAssmtDetailsServiceTest {
     void saveOverlay_persistsOverlay_stampsUpdatedBy_andLeavesCommentaryUntouched() {
         // Seed an existing revised commentary; the overlay save must not touch it.
         jdbc.execute("UPDATE orl_lndscp_assmt_details SET REVISED_COMMENTARY='pre-existing' WHERE id=401");
-        SaveAssmtDetailRequest req = new SaveAssmtDetailRequest();
+        SaveAssmtDetailOverlayNRRRequest req = new SaveAssmtDetailOverlayNRRRequest();
         req.setOverlaidNRR("Low");
         req.setOverlayJstfkn("overlay reason");
 
@@ -258,7 +258,7 @@ class LandscapeAssmtDetailsServiceTest {
 
     @Test
     void saveOverlay_blankFields_clearOverlay() {
-        SaveAssmtDetailRequest req = new SaveAssmtDetailRequest();
+        SaveAssmtDetailOverlayNRRRequest req = new SaveAssmtDetailOverlayNRRRequest();
         req.setOverlaidNRR(null);
         req.setOverlayJstfkn(null);
 
@@ -270,7 +270,7 @@ class LandscapeAssmtDetailsServiceTest {
 
     @Test
     void saveOverlay_detailNotOpen_throwsConflict() {
-        SaveAssmtDetailRequest req = new SaveAssmtDetailRequest();
+        SaveAssmtDetailOverlayNRRRequest req = new SaveAssmtDetailOverlayNRRRequest();
         assertThatThrownBy(() -> service.saveOverlay(41L, 402L, req, "auditor"))
                 .isInstanceOf(ConflictException.class)
                 .hasMessageContaining("Open");
@@ -278,14 +278,14 @@ class LandscapeAssmtDetailsServiceTest {
 
     @Test
     void saveOverlay_unknownAssessment_throwsNotFound() {
-        assertThatThrownBy(() -> service.saveOverlay(9999L, 401L, new SaveAssmtDetailRequest(), "auditor"))
+        assertThatThrownBy(() -> service.saveOverlay(9999L, 401L, new SaveAssmtDetailOverlayNRRRequest(), "auditor"))
                 .isInstanceOf(NotFoundException.class)
                 .hasMessageContaining("9999");
     }
 
     @Test
     void saveOverlay_unknownDetail_throwsNotFound() {
-        assertThatThrownBy(() -> service.saveOverlay(41L, 8888L, new SaveAssmtDetailRequest(), "auditor"))
+        assertThatThrownBy(() -> service.saveOverlay(41L, 8888L, new SaveAssmtDetailOverlayNRRRequest(), "auditor"))
                 .isInstanceOf(NotFoundException.class)
                 .hasMessageContaining("8888");
     }
@@ -294,7 +294,7 @@ class LandscapeAssmtDetailsServiceTest {
     void saveOverlay_returnsResponse_andRecomputesRiskRatingChange_whenOverlayChanges() {
         // Detail 401 starts with no overlay. Previous assessment 40's matched row 400 has OVRLY 'High'
         // → previous final 'High'; new overlay 'Low' → less severe → Improved.
-        SaveAssmtDetailRequest req = new SaveAssmtDetailRequest();
+        SaveAssmtDetailOverlayNRRRequest req = new SaveAssmtDetailOverlayNRRRequest();
         req.setOverlaidNRR("Low");
         req.setOverlayJstfkn("justified");
 
@@ -312,7 +312,7 @@ class LandscapeAssmtDetailsServiceTest {
     void saveOverlay_overlayUnchanged_leavesRiskRatingChangeUntouched() {
         // Seed an existing change; saving with the same (absent) overlay must not recompute it.
         jdbc.execute("UPDATE orl_lndscp_assmt_details SET RISK_RTNG_CHGE='Deteriorated' WHERE id=401");
-        SaveAssmtDetailRequest req = new SaveAssmtDetailRequest();   // overlaidNRR stays null (unchanged)
+        SaveAssmtDetailOverlayNRRRequest req = new SaveAssmtDetailOverlayNRRRequest();   // overlaidNRR stays null (unchanged)
 
         OverlayResponse resp = service.saveOverlay(41L, 401L, req, "auditor");
 

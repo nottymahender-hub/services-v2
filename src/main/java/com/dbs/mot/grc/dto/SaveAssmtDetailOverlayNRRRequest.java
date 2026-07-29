@@ -23,7 +23,7 @@ import org.springframework.util.StringUtils;
 @Getter
 @Setter
 @NoArgsConstructor
-public class SaveAssmtDetailRequest {
+public class SaveAssmtDetailOverlayNRRRequest {
 
     @Schema(description = "Overlaid net risk rating; one of Low, Med Low, Med High, High.",
             example = "Low")

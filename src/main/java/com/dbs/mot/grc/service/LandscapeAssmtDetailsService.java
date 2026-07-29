@@ -26,7 +26,7 @@ import com.dbs.mot.grc.dto.LiveNRRDetails;
 import com.dbs.mot.grc.dto.MonthNRRDetails;
 import com.dbs.mot.grc.dto.OverlayResponse;
 import com.dbs.mot.grc.dto.RiskAreaGroup;
-import com.dbs.mot.grc.dto.SaveAssmtDetailRequest;
+import com.dbs.mot.grc.dto.SaveAssmtDetailOverlayNRRRequest;
 import com.dbs.mot.grc.dto.SaveCommentaryRequest;
 import com.dbs.mot.grc.entity.FactOrl;
 import com.dbs.mot.grc.entity.ModuleFact;
@@ -230,7 +230,7 @@ public class LandscapeAssmtDetailsService {
      */
     @Transactional
     public OverlayResponse saveOverlay(Long lndscpAssmtId, Long assmtDetailId,
-                                       SaveAssmtDetailRequest request, String username) {
+                                       SaveAssmtDetailOverlayNRRRequest request, String username) {
         log.debug("Saving overlay for detail id={} of assessment id={} by '{}'",
                 assmtDetailId, lndscpAssmtId, username);
 
@@ -636,7 +636,7 @@ public class LandscapeAssmtDetailsService {
                 // Risk-rating change is now stored on (and read from) the detail row, not fact_orl.
                 .riskRatingChange(PersistableEnum.dbValue(row.getRiskRtngChge()))
                 .ctrlEffRtn(currentFact != null ? currentFact.getCtrlEffRtn() : null)
-                .commentry(currentFact != null ? currentFact.getCommentary() : null)
+                .commentry(StringUtils.hasText(row.getRevisedCommentary()) ? row.getRevisedCommentary() : currentFact != null ? currentFact.getCommentary() : null)
                 .category(PersistableEnum.dbValue(row.getCategory()))
                 .prevAssmtFinalNRR(PersistableEnum.dbValue(prevAssmtFinalNRR))
                 .nrrOverlaid(row.getOvrlyNetRiskRtng() != null ? OVERLAID_YES : OVERLAID_NO)

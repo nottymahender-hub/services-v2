@@ -9,7 +9,7 @@ import com.dbs.mot.grc.dto.CalloutResponse;
 import com.dbs.mot.grc.dto.LandscapeAssmtDetailSummary;
 import com.dbs.mot.grc.dto.LandscapeAssmtSummary;
 import com.dbs.mot.grc.dto.OverlayResponse;
-import com.dbs.mot.grc.dto.SaveAssmtDetailRequest;
+import com.dbs.mot.grc.dto.SaveAssmtDetailOverlayNRRRequest;
 import com.dbs.mot.grc.dto.SaveCommentaryRequest;
 import com.dbs.mot.grc.exception.UnauthorizedException;
 import com.dbs.mot.grc.service.BulkAssmtGenerationService;
@@ -216,7 +216,7 @@ public class LandscapeAssmtController {
             @PathVariable Long lndscpAssmtId,
             @Parameter(description = "orl_lndscp_assmt_details.id", required = true)
             @PathVariable Long assmtDetailId,
-            @Valid @RequestBody SaveAssmtDetailRequest request,
+            @Valid @RequestBody SaveAssmtDetailOverlayNRRRequest request,
             @Parameter(description = "Operator identity", required = true)
             @RequestHeader(value = USER_HEADER, required = false) String username) {
 

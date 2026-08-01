@@ -56,16 +56,12 @@ import java.util.Optional;
 import java.util.Set;
 
 /**
- * Read logic for the landscape-assessment APIs ({@code /landscape/{id}/assessments},
- * {@code /dimensions} and {@code /{id}/{detailId}}).
+ * Read logic for the landscape-assessment APIs (list, drill-down, overlay + commentary save).
  *
- * <p>Assessment detail rows are thin; computed values live in {@code fact_orl} and are matched
- * at read time by dimension key ({@code RISK_AREA, ORL_BU_NM_L2..L4, LOCATION}). The list
- * endpoint fetches only the facts whose dimension key matches the assessment's own detail rows
- * (a DB-side semi-join — {@code FactOrlRepository.findMatchingByAssmtDetails}), so it never loads
- * a whole business date's facts; the single-row drill-down fetches each fact directly by
- * (biz date, dimension key). Net risk ratings are returned in their display form
- * (e.g. {@code "Medium-Low Risk"}); other enum columns are returned as their stored value.
+ * <p>Detail rows are thin; computed values live in {@code fact_orl}, matched at read time by
+ * dimension key ({@code RISK_AREA, ORL_BU_NM_L2..L4, LOCATION}). The list uses a DB-side semi-join
+ * ({@code FactOrlRepository.findMatchingByAssmtDetails}) to fetch only the facts it needs; the
+ * drill-down fetches each fact by (biz date, dimension key). Enum columns are returned as their DB value.
  */
 @Slf4j
 @Service
@@ -244,7 +240,7 @@ public class LandscapeAssmtDetailsService {
         String overlaidNrr = blankToNull(request.getOverlaidNRR());
         NetRiskRating newOverlay = overlaidNrr != null ? NetRiskRating.fromDbValue(overlaidNrr) : null;
 
-        // 7a: only re-evaluate the risk-rating change when the overlaid rating actually changes.
+        // Re-evaluate the risk-rating change only when the overlaid rating actually changes.
         RiskRatingChange riskRtngChge = detail.getRiskRtngChge();
         boolean overlayChanged = !Objects.equals(newOverlay, detail.getOvrlyNetRiskRtng());
         if (overlayChanged) {
@@ -633,7 +629,7 @@ public class LandscapeAssmtDetailsService {
                 .status(PersistableEnum.dbValue(row.getStatus()))
                 .nrrCalculated(nrrCalculated)
                 .nrr(resolveNrr(row.getOvrlyNetRiskRtng(), nrrCalculated))
-                // Risk-rating change is now stored on (and read from) the detail row, not fact_orl.
+                // Risk-rating change is read from the detail row.
                 .riskRatingChange(PersistableEnum.dbValue(row.getRiskRtngChge()))
                 .ctrlEffRtn(currentFact != null ? currentFact.getCtrlEffRtn() : null)
                 .commentry(StringUtils.hasText(row.getRevisedCommentary()) ? row.getRevisedCommentary() : currentFact != null ? currentFact.getCommentary() : null)

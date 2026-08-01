@@ -9,24 +9,16 @@ import org.springframework.stereotype.Repository;
 import java.util.Optional;
 
 /**
- * Repository for {@code orl_lndscp_assmt_details} rows.
- *
- * <p>Detail rows are owned by {@link com.dbs.mot.grc.entity.OrlLndscpAssmt} as a
- * {@code @MappedCollection}. Single-row reads/updates go through the inherited {@code CrudRepository}
- * methods ({@code findById}, {@code save}); the overlay save uses {@code save()} on a loaded row.
+ * Repository for {@code orl_lndscp_assmt_details} (owned by {@code OrlLndscpAssmt} as a
+ * {@code @MappedCollection}); single-row reads/updates use the inherited {@code CrudRepository} methods.
  */
 @Repository
 public interface OrlLndscpAssmtDetailsRepository extends CrudRepository<OrlLndscpAssmtDetails, Long> {
 
     /**
-     * The single detail row for an assessment matching a full dimension key — used to locate the
-     * previous month's matching row directly, without loading the previous assessment's detail
-     * collection.
-     *
-     * <p>This stays a named {@code @Query} (not a derived query) because it filters on
-     * {@code lndscp_assmt_id}, which is the aggregate's {@code @MappedCollection} back-reference and
-     * is intentionally <em>not</em> mapped as a property on the child entity — so no derived-query
-     * path can name it. Parameters are bound by name (no SQL injection).
+     * The single detail row for an assessment + full dimension key (the previous month's matching row),
+     * without loading its detail collection. A named {@code @Query} because it filters on the unmapped
+     * {@code lndscp_assmt_id} back-reference, which no derived-query path can name.
      */
     @Query("""
             SELECT * FROM orl_lndscp_assmt_details

@@ -92,7 +92,7 @@ class AssmtDetailSaveControllerTest {
            .andExpect(status().isOk())
            .andExpect(jsonPath("$.success", is(true)))
            .andExpect(jsonPath("$.message", containsString("300")))
-           // Response echoes the persisted overlay fields + ids (task 7).
+           // Response echoes the persisted overlay fields + ids.
            .andExpect(jsonPath("$.data.lndscpAssmtId", is(11)))
            .andExpect(jsonPath("$.data.assmtDetailId", is(300)))
            .andExpect(jsonPath("$.data.overlaidNRR", is("Low")))

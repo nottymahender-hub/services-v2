@@ -12,28 +12,16 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * Spring Data JDBC repository for {@code orl_lndscp_assmt}.
- *
- * <ul>
- *   <li>{@code findById} (inherited) also loads the {@code details}
- *       {@code MappedCollection} declared on {@link OrlLndscpAssmt} — used only by the
- *       assessment-details listing, which genuinely returns every detail row.</li>
- *   <li>{@link #findAllSummaries()} and {@link #findHeaderById(Long)} are projection queries used
- *       by the listing and drill-down endpoints so Spring Data JDBC does not eagerly load the
- *       detail collection.</li>
- * </ul>
- *
- * <p>The listing projection joins in the parent {@code orl_lndscp_dim} row to carry the landscape
- * name in one query.
+ * Spring Data JDBC repository for {@code orl_lndscp_assmt}. Projection queries
+ * ({@link #findAllSummaries()}, {@link #findHeaderById(Long)}) avoid eagerly loading the
+ * {@code details} {@code MappedCollection} that inherited {@code findById} pulls in.
  */
 @Repository
 public interface OrlLndscpAssmtRepository extends CrudRepository<OrlLndscpAssmt, Long> {
 
     /**
-     * Listing projection: each assessment joined to its parent {@code orl_lndscp_dim} to carry the
-     * landscape name, ordered most-recently-modified first. A {@code LEFT JOIN} is used so an
-     * assessment with a missing/dangling landscape config still appears (with a null name). This
-     * single joined read replaces loading every landscape config separately in the service.
+     * Listing projection: each assessment {@code LEFT JOIN}ed to its {@code orl_lndscp_dim} for the
+     * landscape name (null when the config is missing), ordered most-recently-modified first.
      */
     @Query("""
             SELECT a.id,
@@ -51,11 +39,7 @@ public interface OrlLndscpAssmtRepository extends CrudRepository<OrlLndscpAssmt,
             """)
     List<LandscapeAssmtProjection> findAllSummaries();
 
-    /**
-     * Header projection ({@code id}, landscape FK, period, business date, previous-assessment FK)
-     * for the drill-down. Used instead of {@code findById} so the assessment's {@code details}
-     * {@code MappedCollection} is not eagerly loaded when only the header fields are needed.
-     */
+    /** Header projection for the drill-down — avoids eagerly loading the {@code details} collection. */
     @Query("""
             SELECT id,
                    LNDSCP_NUM     AS lndscp_num,

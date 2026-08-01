@@ -17,24 +17,13 @@ import java.time.LocalDateTime;
 import java.util.Set;
 
 /**
- * Entity for the {@code orl_lndscp_assmt} table.
+ * Entity for {@code orl_lndscp_assmt}. FKs ({@code lndscpNum}, {@code prevAssmtNum}) are one-way
+ * {@link AggregateReference}s; {@code details} is a {@link MappedCollection} of the child rows,
+ * eagerly loaded by {@code findById}.
  *
- * <p>{@code lndscpNum} is a foreign-key reference to {@code orl_lndscp_dim.id},
- * modelled as a Spring Data JDBC {@link AggregateReference} (one-way, no cascade).
- *
- * <p>{@code details} is a one-to-many composition of {@code orl_lndscp_assmt_details}
- * rows, modelled as a Spring Data JDBC {@link MappedCollection}. Loading this
- * aggregate via {@code findById} automatically fetches its detail rows in a second,
- * plain (no-join) query — the child entity holds no back-reference to this parent,
- * keeping the relationship strictly one-way.
- *
- * <p><b>Caution:</b> because {@code details} is aggregate-owned, calling
- * {@code save()} on an <em>existing</em> assessment rewrites its children
- * (delete + reinsert). Only use {@code save()} for fresh inserts (as assessment
- * generation does); update individual detail/assessment fields via targeted
- * {@code @Modifying @Query} repository methods. Callers that only need existence should use
- * {@code existsById}, and the drill-down uses the {@code findHeaderById} projection, so the
- * detail collection is loaded only by the listing endpoint that actually returns every row.
+ * <p><b>Caution:</b> {@code save()} on an existing assessment rewrites its children (delete+reinsert),
+ * so use it only for fresh inserts (generation). Prefer {@code existsById} / the {@code findHeaderById}
+ * projection when the detail collection isn't needed.
  */
 @Table("orl_lndscp_assmt")
 @Getter

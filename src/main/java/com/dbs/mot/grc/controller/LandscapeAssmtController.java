@@ -11,6 +11,7 @@ import com.dbs.mot.grc.dto.LandscapeAssmtSummary;
 import com.dbs.mot.grc.dto.OverlayResponse;
 import com.dbs.mot.grc.dto.SaveAssmtDetailOverlayNRRRequest;
 import com.dbs.mot.grc.dto.SaveCommentaryRequest;
+import com.dbs.mot.grc.exception.BadRequestException;
 import com.dbs.mot.grc.exception.UnauthorizedException;
 import com.dbs.mot.grc.service.BulkAssmtGenerationService;
 import com.dbs.mot.grc.service.LandscapeAssmtCalloutService;
@@ -105,34 +106,42 @@ public class LandscapeAssmtController {
     @Operation(summary = "Generate assessments for all active landscapes",
             description = "Generates the reported month's assessment for every ACTIVE landscape effective "
                     + "on the as-of date (bizDt); the reported period is the calendar month before "
-                    + "bizDt's month (e.g. bizDt=2026-02-20 generates January 2026). When bizDt is "
-                    + "omitted the current date is used. Ambiguous configs and already-generated "
+                    + "bizDt's month (e.g. bizDt=2026-02-20 generates January 2026). bizDt is mandatory "
+                    + "and must not be in the future. Ambiguous configs and already-generated "
                     + "landscapes are skipped per-landscape.")
     @ApiResponses(value = {
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "Bulk run completed"),
-            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "bizDt is not a valid ISO date (yyyy-MM-dd)"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "bizDt is missing, not a valid ISO date, or in the future"),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "Missing or blank X-EGRC-UserId header"),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "500", description = "Unexpected server error")
     })
     @PostMapping("/assessments/generate")
     public ResponseEntity<ApiResponse<BulkAssmtGenerationResponse>> generateForAllLandscapes(
-            @Parameter(description = "As-of date (ISO yyyy-MM-dd); reported period is the month before "
-                    + "this date's month. Defaults to the current date when omitted.")
-            @RequestParam(value = "bizDt", required = false)
+            @Parameter(description = "As-of date (ISO yyyy-MM-dd), mandatory, not in the future; "
+                    + "reported period is the month before this date's month.", required = true)
+            @RequestParam("bizDt")
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate bizDt,
             @Parameter(description = "Operator identity", required = true)
             @RequestHeader(value = USER_HEADER, required = false) String username) {
 
         String user = requireUser(username);
-        LocalDate asOfDate = bizDt != null ? bizDt : LocalDate.now();
-        log.debug("POST /landscape/assessments/generate requested by '{}' asOfDate={}", user, asOfDate);
+        requireNotFuture(bizDt);
+        log.debug("POST /landscape/assessments/generate requested by '{}' bizDt={}", user, bizDt);
 
-        BulkAssmtGenerationResponse result = bulkGenerationService.generateForAllActiveLandscapes(asOfDate, user);
+        BulkAssmtGenerationResponse result = bulkGenerationService.generateForAllActiveLandscapes(bizDt, user);
         String message = result.getTotalLandscapes() == 0
-                ? "No active landscapes are effective on " + asOfDate + " — nothing to generate."
+                ? "No active landscapes are effective on " + bizDt + " — nothing to generate."
                 : "Generated " + result.getGenerated() + " of " + result.getTotalLandscapes()
                         + " active landscape(s); " + result.getSkipped() + " skipped.";
         return ResponseEntity.ok(ApiResponse.successWithData(message, result));
+    }
+
+    /** Rejects a future as-of date — no assessment may be generated ahead of today. */
+    private void requireNotFuture(LocalDate bizDt) {
+        if (bizDt.isAfter(LocalDate.now())) {
+            log.warn("Rejected generation request: bizDt {} is in the future", bizDt);
+            throw new BadRequestException("bizDt must not be in the future.");
+        }
     }
 
     // ── Assessment detail summary (with embedded dimensions + callouts) ────────────

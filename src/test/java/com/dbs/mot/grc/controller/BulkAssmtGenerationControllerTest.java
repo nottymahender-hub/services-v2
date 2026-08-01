@@ -10,6 +10,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.time.LocalDate;
 import java.time.YearMonth;
 import java.time.format.DateTimeFormatter;
 import java.util.Locale;
@@ -38,7 +39,10 @@ class BulkAssmtGenerationControllerTest {
     private static final DateTimeFormatter PERIOD_FMT =
             DateTimeFormatter.ofPattern("MMMM yyyy", Locale.ENGLISH);
 
-    // A run in month M generates an assessment for the previous month (M-1) and links to M-2.
+    // bizDt is mandatory; today keeps the reported period at M-1 (= assessmentPeriod).
+    private static final String TODAY = LocalDate.now().toString();
+
+    // A run with as-of month M generates an assessment for the previous month (M-1) and links to M-2.
     private final String assessmentPeriod = YearMonth.now().minusMonths(1).format(PERIOD_FMT);
     private final String priorPeriod = YearMonth.now().minusMonths(2).format(PERIOD_FMT);
 
@@ -52,7 +56,7 @@ class BulkAssmtGenerationControllerTest {
         jdbc.execute("DELETE FROM orl_lndscp_assmt");
         jdbc.execute("DELETE FROM orl_lndscp_dim");
         jdbc.execute("DELETE FROM orl_biz_unit");
-        // Generation now derives RISK_RTNG_CHGE from fact_orl, so clear it for deterministic runs.
+        // Generation derives RISK_RTNG_CHGE from fact_orl; clear it for deterministic runs.
         jdbc.execute("DELETE FROM fact_orl");
 
         jdbc.execute("""
@@ -79,16 +83,33 @@ class BulkAssmtGenerationControllerTest {
 
     @Test
     void missingUserId_returns401() throws Exception {
-        mvc.perform(post(URL))
+        mvc.perform(post(URL).param("bizDt", TODAY))
            .andExpect(status().isUnauthorized())
            .andExpect(jsonPath("$.message", containsString("X-EGRC-UserId")));
+    }
+
+    @Test
+    void missingBizDt_returns400() throws Exception {
+        // bizDt is mandatory — a missing required param is a 400, not a 500.
+        mvc.perform(post(URL).header("X-EGRC-UserId", "tester"))
+           .andExpect(status().isBadRequest())
+           .andExpect(jsonPath("$.message", containsString("bizDt")));
+    }
+
+    @Test
+    void futureBizDt_returns400() throws Exception {
+        // No future assessments — a bizDt after today is rejected.
+        mvc.perform(post(URL).param("bizDt", LocalDate.now().plusDays(1).toString())
+                        .header("X-EGRC-UserId", "tester"))
+           .andExpect(status().isBadRequest())
+           .andExpect(jsonPath("$.message", containsString("future")));
     }
 
     // ── Happy path ──────────────────────────────────────────────────────────────
 
     @Test
     void generateAll_generatesEveryActiveLandscape() throws Exception {
-        mvc.perform(post(URL).header("X-EGRC-UserId", "tester"))
+        mvc.perform(post(URL).param("bizDt", TODAY).header("X-EGRC-UserId", "tester"))
            .andExpect(status().isOk())
            .andExpect(jsonPath("$.success", is(true)))
            .andExpect(jsonPath("$.message", containsString("Generated 2 of 2")))
@@ -113,7 +134,7 @@ class BulkAssmtGenerationControllerTest {
     @Test
     void generateAll_noActiveLandscapes_returns200WithEmptyResults() throws Exception {
         jdbc.execute("DELETE FROM orl_lndscp_dim");
-        mvc.perform(post(URL).header("X-EGRC-UserId", "tester"))
+        mvc.perform(post(URL).param("bizDt", TODAY).header("X-EGRC-UserId", "tester"))
            .andExpect(status().isOk())
            .andExpect(jsonPath("$.message", containsString("nothing to generate")))
            .andExpect(jsonPath("$.data.totalLandscapes", is(0)))
@@ -124,9 +145,9 @@ class BulkAssmtGenerationControllerTest {
 
     @Test
     void generateAll_secondRunSameMonth_skipsAllAsAlreadyExists() throws Exception {
-        mvc.perform(post(URL).header("X-EGRC-UserId", "tester")).andExpect(status().isOk());
+        mvc.perform(post(URL).param("bizDt", TODAY).header("X-EGRC-UserId", "tester")).andExpect(status().isOk());
 
-        mvc.perform(post(URL).header("X-EGRC-UserId", "tester"))
+        mvc.perform(post(URL).param("bizDt", TODAY).header("X-EGRC-UserId", "tester"))
            .andExpect(status().isOk())
            .andExpect(jsonPath("$.data.generated", is(0)))
            .andExpect(jsonPath("$.data.skipped", is(2)))
@@ -149,7 +170,7 @@ class BulkAssmtGenerationControllerTest {
                     '[{"groupName":"Conduct","isGroup":false,"riskAreas":[{"riskArea":"Market Abuse","riskClusters":["OR"]}]}]','SG','seed')
                 """);
 
-        mvc.perform(post(URL).header("X-EGRC-UserId", "tester"))
+        mvc.perform(post(URL).param("bizDt", TODAY).header("X-EGRC-UserId", "tester"))
            .andExpect(status().isOk())
            .andExpect(jsonPath("$.data.totalLandscapes", is(2)))
            .andExpect(jsonPath("$.data.generated", is(1)))
@@ -186,7 +207,7 @@ class BulkAssmtGenerationControllerTest {
                     '[{"groupName":"Conduct","isGroup":false,"riskAreas":[{"riskArea":"Market Abuse","riskClusters":["OR"]}]}]','SG','seed')
                 """);
 
-        mvc.perform(post(URL).header("X-EGRC-UserId", "tester"))
+        mvc.perform(post(URL).param("bizDt", TODAY).header("X-EGRC-UserId", "tester"))
            .andExpect(status().isOk())
            .andExpect(jsonPath("$.data.totalLandscapes", is(2)))
            .andExpect(jsonPath("$.data.results[*].lndscpNm",
@@ -197,7 +218,7 @@ class BulkAssmtGenerationControllerTest {
 
     @Test
     void generation_producesL2GrpAndLocCategories_withEmptyDimsAsBlank() throws Exception {
-        mvc.perform(post(URL).header("X-EGRC-UserId", "tester")).andExpect(status().isOk());
+        mvc.perform(post(URL).param("bizDt", TODAY).header("X-EGRC-UserId", "tester")).andExpect(status().isOk());
 
         // L2 rows: BU set, location set (Alpha = LNDSCP_NUM 1, one per risk area).
         assertRowCount(1, "category='L2' AND ORL_BU_NM_L2='Technology' AND LOCATION='SG'", 2);
@@ -211,13 +232,13 @@ class BulkAssmtGenerationControllerTest {
 
     @Test
     void generation_writesThinRows_openStatusNoOverlay() throws Exception {
-        mvc.perform(post(URL).header("X-EGRC-UserId", "tester")).andExpect(status().isOk());
+        mvc.perform(post(URL).param("bizDt", TODAY).header("X-EGRC-UserId", "tester")).andExpect(status().isOk());
         assertRowCount(1, "d.STATUS='Open' AND d.OVRLY_NET_RISK_RTNG IS NULL", 16);
     }
 
     @Test
     void generation_resolvesBuHierarchy_level3() throws Exception {
-        mvc.perform(post(URL).header("X-EGRC-UserId", "tester")).andExpect(status().isOk());
+        mvc.perform(post(URL).param("bizDt", TODAY).header("X-EGRC-UserId", "tester")).andExpect(status().isOk());
         // Beta (LNDSCP_NUM 2, level 3): DTI resolves to L2=Technology, L3=DTI; empty L4 = ''.
         assertRowCount(2, "category='L3' AND ORL_BU_NM_L2='Technology' AND ORL_BU_NM_L3='DTI' AND ORL_BU_NM_L4=''", 1);
         assertRowCount(2, "category='grp_l3'", 1);
@@ -227,14 +248,14 @@ class BulkAssmtGenerationControllerTest {
     @Test
     void generation_unresolvedBu_keepsNameAtOwnLevel() throws Exception {
         jdbc.execute("DELETE FROM orl_biz_unit WHERE BU_NM='Technology'");
-        mvc.perform(post(URL).header("X-EGRC-UserId", "tester")).andExpect(status().isOk());
+        mvc.perform(post(URL).param("bizDt", TODAY).header("X-EGRC-UserId", "tester")).andExpect(status().isOk());
         // Technology unresolved → still present with L2='Technology', empty L3/L4 = ''.
         assertRowCount(1, "ORL_BU_NM_L2='Technology' AND ORL_BU_NM_L3='' AND ORL_BU_NM_L4='' AND category='L2'", 4);
     }
 
     @Test
     void generation_duplicateEmptyDimensionRow_rejectedByUniqueIndex() throws Exception {
-        mvc.perform(post(URL).header("X-EGRC-UserId", "tester")).andExpect(status().isOk());
+        mvc.perform(post(URL).param("bizDt", TODAY).header("X-EGRC-UserId", "tester")).andExpect(status().isOk());
         Long assmtId = jdbc.queryForObject("SELECT id FROM orl_lndscp_assmt WHERE LNDSCP_NUM=2", Long.class);
 
         // Re-inserting a 'loc' row (empty BU path stored as '') must violate the unique index —
@@ -253,7 +274,7 @@ class BulkAssmtGenerationControllerTest {
         jdbc.update("INSERT INTO orl_lndscp_assmt(id,LNDSCP_NUM,ASSEMT_PERIOD,status,CREATED_BY) VALUES(500,1,?,'Open','seed')",
                 priorPeriod);
 
-        mvc.perform(post(URL).header("X-EGRC-UserId", "tester")).andExpect(status().isOk());
+        mvc.perform(post(URL).param("bizDt", TODAY).header("X-EGRC-UserId", "tester")).andExpect(status().isOk());
 
         Long prev = jdbc.queryForObject(
                 "SELECT PREV_ASSMT_NUM FROM orl_lndscp_assmt WHERE LNDSCP_NUM=1 AND ASSEMT_PERIOD=?",
@@ -263,7 +284,7 @@ class BulkAssmtGenerationControllerTest {
 
     @Test
     void generation_noPreviousAssessment_prevAssmtNumNull() throws Exception {
-        mvc.perform(post(URL).header("X-EGRC-UserId", "tester")).andExpect(status().isOk());
+        mvc.perform(post(URL).param("bizDt", TODAY).header("X-EGRC-UserId", "tester")).andExpect(status().isOk());
         Long prev = jdbc.queryForObject(
                 "SELECT PREV_ASSMT_NUM FROM orl_lndscp_assmt WHERE LNDSCP_NUM=1 AND ASSEMT_PERIOD=?",
                 Long.class, assessmentPeriod);
@@ -276,7 +297,7 @@ class BulkAssmtGenerationControllerTest {
         jdbc.update("INSERT INTO orl_lndscp_assmt(id,LNDSCP_NUM,ASSEMT_PERIOD,status,CREATED_BY) VALUES(501,2,?,'Open','seed')",
                 priorPeriod);
 
-        mvc.perform(post(URL).header("X-EGRC-UserId", "tester")).andExpect(status().isOk());
+        mvc.perform(post(URL).param("bizDt", TODAY).header("X-EGRC-UserId", "tester")).andExpect(status().isOk());
 
         Long prev = jdbc.queryForObject(
                 "SELECT PREV_ASSMT_NUM FROM orl_lndscp_assmt WHERE LNDSCP_NUM=1 AND ASSEMT_PERIOD=?",
@@ -300,7 +321,7 @@ class BulkAssmtGenerationControllerTest {
                 + "(id,lndscp_assmt_id,RISK_AREA,ORL_BU_NM_L2,ORL_BU_NM_L3,ORL_BU_NM_L4,LOCATION,category,OVRLY_NET_RISK_RTNG,STATUS,CREATED_BY) "
                 + "VALUES(900,500,'Market Abuse','Technology','','','SG','L2','High','Completed','seed')");
 
-        mvc.perform(post(URL).header("X-EGRC-UserId", "tester")).andExpect(status().isOk());
+        mvc.perform(post(URL).param("bizDt", TODAY).header("X-EGRC-UserId", "tester")).andExpect(status().isOk());
 
         // Generated Alpha L2 row: derive(previous 'High', current 'Low') → Improved.
         String change = jdbc.queryForObject(

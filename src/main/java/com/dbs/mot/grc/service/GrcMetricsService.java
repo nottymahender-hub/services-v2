@@ -30,21 +30,14 @@ import java.util.function.BiFunction;
 import java.util.function.UnaryOperator;
 
 /**
- * Assembles the per-module GRC metrics blocks for a dimension, sourced from the module snapshot
- * tables ({@code rcsa_fact_orl}, {@code inc_fact_orl}, {@code ina_fact_orl}, {@code kri_fact_orl}).
+ * Assembles the per-module GRC metrics blocks (RCSA/INC/INA/KRI) for a dimension from the
+ * {@code *_fact_orl} snapshot tables.
  *
- * <p>The result is an ordered map keyed by module ({@code RCSA/INC/INA/KRI}). <strong>Every module
- * is always present and every block is fully populated</strong> so the response shape never varies:
- * each {@link GrcModuleBlock} carries the module {@code nrr} (its stored DB value, e.g.
- * {@code "Med Low"}), a module-level {@code riskRatingChge}, and the complete ordered list of that
- * module's metrics. When a module has no snapshot row for the business date the block still lists
- * every metric with a {@code null} value, and {@code nrr}/all change labels are {@code "N.A"}.
- *
- * <p><strong>riskRatingChge:</strong> for the current/previous snapshots both the module-level and
- * per-metric changes are read from the assessment detail's stored {@code MODULE_RISK_RTNG_CHGE} JSON
- * (see {@link ModuleRiskRatingChanges#parse}); for the <em>live</em> snapshot they are computed on
- * the fly against the current snapshot (module-level via {@link RiskRatingChanges}, per-metric via
- * {@link ModuleRiskRatingChanges#metricChanges}).
+ * <p>Every module is always present and every {@link GrcModuleBlock} fully populated, so the response
+ * shape never varies: a module with no snapshot row still lists every metric with a {@code null}
+ * value and {@code "N.A"} for {@code nrr} and all change labels. {@code nrr} is the stored DB value.
+ * Current/previous {@code riskRatingChge} (module- and metric-level) comes from the detail's stored
+ * {@code MODULE_RISK_RTNG_CHGE} JSON; the live block computes it on the fly against the current snapshot.
  */
 @Slf4j
 @Service
@@ -52,19 +45,14 @@ public class GrcMetricsService {
 
     private static final String NA = ModuleRiskRatingChanges.NOT_APPLICABLE;
 
-    /**
-     * The modules to assemble, in JSON output order. Declaring them once keeps the "all four
-     * modules, always, in this order" guarantee in a single place, shared by every lookup.
-     */
+    /** The modules to assemble, in fixed JSON output order (RCSA → INC → INA → KRI). */
     private final List<ModuleSource> moduleSources;
 
     private final ModuleRiskRatingChanges moduleRiskRatingChanges;
 
     /**
-     * Binds each module to its lookup and its canonical metric template. The repositories are
-     * captured by the lookup lambdas rather than held as fields; the template (metric names in
-     * order, all values {@code null}) comes from an empty entity instance so the metric name set
-     * lives only in the entity.
+     * Binds each module to its repository lookup and its canonical metric template (metric names in
+     * order, all values {@code null}, from an empty entity instance so the name set lives in the entity).
      */
     public GrcMetricsService(RcsaFactOrlRepository rcsaRepository,
                             IncFactOrlRepository incRepository,
@@ -92,14 +80,8 @@ public class GrcMetricsService {
     }
 
     /**
-     * The raw module facts for a business date + dimension, keyed by module ({@code RCSA/INC/INA/KRI})
-     * in output order. Every module key is present; a module with no matching snapshot row maps to
-     * {@code null}. Used by generation (for the {@code MODULE_RISK_RTNG_CHGE} JSON) and by the
-     * drill-down to fetch the current facts once and reuse them for both the current and live blocks.
-     *
-     * @param bizDt the business date to match; when {@code null} every module maps to {@code null}
-     * @param key   the dimension to match
-     * @return ordered module → fact map (values may be {@code null})
+     * The raw module facts for a business date + dimension, keyed by module in output order (values
+     * {@code null} when no row / {@code bizDt} is {@code null}). Used by generation and the drill-down.
      */
     public Map<String, ModuleFact> moduleFacts(LocalDate bizDt, DimensionKey key) {
         Map<String, ModuleFact> facts = new LinkedHashMap<>();
@@ -111,28 +93,15 @@ public class GrcMetricsService {
         return facts;
     }
 
-    /**
-     * Current/previous GRC blocks: fetches the module facts for the business date and pairs them with
-     * the changes parsed from the assessment detail's stored {@code MODULE_RISK_RTNG_CHGE} JSON.
-     *
-     * @param bizDt         the business date to match; {@code null} → every module has no fact
-     * @param key           the assessment dimension to match
-     * @param moduleChanges module key → parsed {@link ModuleChange} (may be empty; a missing module
-     *                      resolves to {@link ModuleChange#NONE})
-     * @return ordered module → fully-populated block (all four modules always present)
-     */
+    /** Current/previous GRC blocks: fetches the facts for the business date, then {@link #storedBlocks}. */
     public Map<String, GrcModuleBlock> forBizDate(LocalDate bizDt, DimensionKey key,
                                                   Map<String, ModuleChange> moduleChanges) {
         return storedBlocks(moduleFacts(bizDt, key), moduleChanges);
     }
 
     /**
-     * Current/previous GRC blocks from already-fetched facts (so the drill-down can fetch the current
-     * facts once and reuse them for the live block). Each module's changes come from the stored JSON.
-     *
-     * @param facts         module key → snapshot fact (values may be {@code null})
-     * @param moduleChanges module key → parsed {@link ModuleChange} from the stored JSON
-     * @return ordered module → fully-populated block
+     * Current/previous GRC blocks from already-fetched facts, with module- and metric-level changes
+     * taken from the parsed {@code MODULE_RISK_RTNG_CHGE} JSON ({@link ModuleChange#NONE} when absent).
      */
     public Map<String, GrcModuleBlock> storedBlocks(Map<String, ModuleFact> facts,
                                                     Map<String, ModuleChange> moduleChanges) {
@@ -150,14 +119,8 @@ public class GrcMetricsService {
     }
 
     /**
-     * Live GRC blocks (latest snapshot). Each module's changes are computed on the fly against the
-     * current snapshot: the module-level change via {@link RiskRatingChanges} (live rating vs. the
-     * current assessment's rating) and each metric's neutral change via
-     * {@link ModuleRiskRatingChanges#metricChanges}.
-     *
-     * @param liveFacts    module key → live snapshot fact (values may be {@code null})
-     * @param currentFacts module key → current assessment's snapshot fact (the comparison baseline)
-     * @return ordered module → fully-populated block
+     * Live GRC blocks (latest snapshot), with changes computed on the fly against {@code currentFacts}:
+     * module-level via {@link RiskRatingChanges}, per-metric via {@link ModuleRiskRatingChanges#metricChanges}.
      */
     public Map<String, GrcModuleBlock> liveBlocks(Map<String, ModuleFact> liveFacts,
                                                   Map<String, ModuleFact> currentFacts) {
@@ -182,14 +145,8 @@ public class GrcMetricsService {
     }
 
     /**
-     * Builds one module block. The metric list always follows the module's canonical template
-     * (every metric, in order); a metric's value is taken from the fact when present, else
-     * {@code null}. {@code nrr} is the fact's rating (DB value) or {@code "N.A"} when there is no row.
-     *
-     * @param factOrNull      the module snapshot row, or {@code null} when absent
-     * @param moduleChange    the already-resolved module-level change label
-     * @param metricChangeFor per-metric change lookup (already {@code "N.A"}-defaulted)
-     * @param metricTemplate  the module's canonical metric names → default values
+     * Builds one module block over the canonical metric template (every metric, in order): each value
+     * from the fact when present else {@code null}; {@code nrr} the fact's DB value or {@code "N.A"}.
      */
     private GrcModuleBlock block(ModuleFact factOrNull, String moduleChange,
                                  UnaryOperator<String> metricChangeFor, Map<String, Object> metricTemplate) {
@@ -215,14 +172,7 @@ public class GrcMetricsService {
                 context, populated.size(), blocks.size(), populated);
     }
 
-    /**
-     * One module's identity, its lookup by exact business date + dimension, and its canonical metric
-     * template (metric names in order with {@code null} values, from an empty entity instance).
-     *
-     * @param moduleKey      the JSON key for the module, e.g. {@code "RCSA"}
-     * @param byBizDt        finds the module's row for an exact business date + dimension
-     * @param metricTemplate the module's ordered metric names → default (null) values
-     */
+    /** One module's JSON key, its lookup by (business date, dimension), and its canonical metric template. */
     private record ModuleSource(
             String moduleKey,
             BiFunction<LocalDate, DimensionKey, Optional<? extends ModuleFact>> byBizDt,

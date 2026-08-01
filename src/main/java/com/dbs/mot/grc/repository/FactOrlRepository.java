@@ -18,18 +18,9 @@ import java.util.Optional;
 public interface FactOrlRepository extends CrudRepository<FactOrl, Long> {
 
     /**
-     * The {@code fact_orl} rows for one business date that match the dimension keys of a given
-     * assessment's detail rows — i.e. <em>only</em> the facts the assessment actually needs, not
-     * every fact for the date. Implemented as a semi-join against {@code orl_lndscp_assmt_details}
-     * so the database, using the unique indexes on both tables, filters to the matching rows.
-     *
-     * <p>Both sides are unique on the dimension key ({@code fact_orl} on
-     * {@code (biz_dt, dims)}, the detail table on {@code (lndscp_assmt_id, dims)}), so the join
-     * yields at most one fact per key — no duplicates. Parameters are bound by name.
-     *
-     * @param lndscpAssmtId the assessment whose detail dimension keys select the facts
-     * @param bizDt         the business date to match
-     * @return matching {@code fact_orl} rows (empty when the assessment has no matching facts)
+     * The {@code fact_orl} rows for one business date matching a given assessment's detail dimension
+     * keys — a semi-join against {@code orl_lndscp_assmt_details}, so only the facts the assessment
+     * needs are read. Both sides are unique on the dimension key, so at most one fact per key.
      */
     @Query("""
             SELECT f.* FROM fact_orl f

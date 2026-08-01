@@ -43,34 +43,15 @@ import java.util.Set;
 import java.util.function.Function;
 
 /**
- * Generates a landscape assessment and all of its detail rows for a given landscape config.
+ * Generates a landscape assessment and its thin detail rows for a config, anchored on a caller-supplied
+ * as-of date. The assessment reports the month <b>before</b> the as-of date's month (M-1): its
+ * {@code ASSEMT_PERIOD} is M-1, its {@code biz_dt} that month's end (or the latest {@code fact_orl.biz_dt}
+ * within it), and it links to the M-2 assessment. Rows expand {@code RISK_AREA × business units × locations}
+ * into {@code L{lvl}}/{@code grp_l{lvl}}/{@code loc} category rows; the aggregate is saved in one transaction.
  *
- * <h3>Flow</h3>
- * <p>Generation is anchored on a caller-supplied <b>as-of date</b> ({@code bizDt}). The assessment
- * reports the calendar month <b>before</b> that as-of date's month (M-1): its {@code ASSEMT_PERIOD}
- * is M-1 and its stored {@code biz_dt} is that reported month's end (or the latest
- * {@code fact_orl.biz_dt} within it). It links back to the M-2 assessment. For example an as-of
- * date of 20 Feb 2026 produces a January 2026 assessment whose previous assessment is December 2025.
- *
- * <ol>
- *   <li>Reject if an assessment already exists for this landscape + reported period (M-1) — 409.</li>
- *   <li>Expand the config into detail-row specs: {@code RISK_AREA} keys × business units ×
- *       locations, producing {@code L{lvl}}, {@code grp_l{lvl}} and {@code loc} category rows.</li>
- *   <li>Resolve each business unit name to its full (L2, L3, L4) hierarchy path.</li>
- *   <li>Link the new assessment to the prior period's assessment (same {@code LNDSCP_NUM},
- *       period = M-2) via {@code PREV_ASSMT_NUM}; {@code null} when none exists.</li>
- *   <li>Persist the assessment aggregate (root + all thin detail children) in one
- *       transaction.</li>
- * </ol>
- *
- * <p>Detail rows are <b>thin</b>: dimensions, category, status, audit columns and the two
- * risk-rating-change columns ({@code RISK_RTNG_CHGE} — the overall change vs. the previous
- * assessment; {@code MODULE_RISK_RTNG_CHGE} — the per-module change JSON). The remaining computed
- * values (calculated NRR, commentary, GRC metrics, etc.) are not stored here — they live in
- * {@code fact_orl} / the module fact tables and are matched at read time by the assessment read APIs.
- *
- * <p>The single entry point is {@link #generateForDim(OrlLndscpDim, LocalDate, String)}; the config
- * to generate from is resolved by the caller ({@link BulkAssmtGenerationService}).
+ * <p>Detail rows carry only dimensions, category, status, audit columns and the two risk-rating-change
+ * columns ({@code RISK_RTNG_CHGE}, {@code MODULE_RISK_RTNG_CHGE}); other computed values live in
+ * {@code fact_orl}/module tables. Entry point: {@link #generateForDim(OrlLndscpDim, LocalDate, String)}.
  */
 @Slf4j
 @Service

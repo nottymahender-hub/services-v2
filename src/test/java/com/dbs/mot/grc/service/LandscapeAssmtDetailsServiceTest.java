@@ -247,7 +247,7 @@ class LandscapeAssmtDetailsServiceTest {
         assertThat(column(401, "OVRLY_NET_RISK_RTNG")).isEqualTo("Low");
         assertThat(column(401, "OVRLY_JSTFKN")).isEqualTo("overlay reason");
         assertThat(column(401, "UPDATED_BY")).isEqualTo("auditor");
-        // Overlay no longer saves commentary — the pre-existing value is preserved.
+        // Overlay does not save commentary; the pre-existing value is preserved.
         assertThat(column(401, "REVISED_COMMENTARY")).isEqualTo("pre-existing");
         // UPDATE_DT_TM is DB-managed (ON UPDATE CURRENT_TIMESTAMP).
         Integer stamped = jdbc.queryForObject(

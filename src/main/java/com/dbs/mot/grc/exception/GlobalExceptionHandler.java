@@ -8,6 +8,7 @@ import org.springframework.validation.FieldError;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingRequestHeaderException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
@@ -140,6 +141,16 @@ public class GlobalExceptionHandler {
         log.warn("Upload too large: {}", ex.getMessage());
         return ResponseEntity.status(HttpStatus.PAYLOAD_TOO_LARGE)
                 .body(ApiResponse.failure("Uploaded file exceeds the maximum allowed size."));
+    }
+
+    /**
+     * HTTP 400 — a required query/form parameter is absent (e.g. the mandatory {@code bizDt}).
+     */
+    @ExceptionHandler(MissingServletRequestParameterException.class)
+    public ResponseEntity<ApiResponse<Void>> handleMissingParam(MissingServletRequestParameterException ex) {
+        log.warn("Missing required request parameter: {}", ex.getParameterName());
+        return ResponseEntity.badRequest().body(ApiResponse.failure(
+                "Required parameter '" + ex.getParameterName() + "' is missing."));
     }
 
     /**

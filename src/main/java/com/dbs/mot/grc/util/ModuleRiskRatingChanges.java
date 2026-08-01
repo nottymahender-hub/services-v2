@@ -14,26 +14,13 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * Builds and reads the {@code orl_lndscp_assmt_details.MODULE_RISK_RTNG_CHGE} JSON — the per-module
- * risk-rating change persisted at generation and surfaced by the drill-down.
- *
- * <p><strong>Single source of truth for module-change derivation.</strong> For each module the JSON
- * object carries:
- * <ul>
- *   <li>{@code riskRatingChange} — the module's NRR-based change
- *       ({@code Improved/Deteriorated/Stable/N.A}) via {@link RiskRatingChanges}, comparing the
- *       previous vs. current month's module {@code NET_RISK_RATING};</li>
- *   <li>one entry per module metric — a <em>neutral</em> numeric change
- *       ({@code Increased/Decreased/Stable/N.A}) comparing the previous vs. current metric value.</li>
- * </ul>
- * Example:
+ * Single source of truth for the {@code orl_lndscp_assmt_details.MODULE_RISK_RTNG_CHGE} JSON, written
+ * at generation and read by the drill-down. Per module it holds an NRR-based {@code riskRatingChange}
+ * ({@code Improved/Deteriorated/Stable/N.A}, via {@link RiskRatingChanges}) plus a neutral change per
+ * metric ({@code Increased/Decreased/Stable/N.A}), e.g.
  * <pre>{"RCSA":{"riskRatingChange":"Improved","combined_count_high_risk":"Decreased",...}, ...}</pre>
- *
- * <p>The drill-down reads the whole document via {@link #parse(String)} — both the module-level
- * {@code riskRatingChange} and the per-metric labels feed the current/previous GRC blocks. The
- * <em>live</em> block instead computes its per-metric changes on the fly with
- * {@link #metricChanges(ModuleFact, ModuleFact)} (the same neutral rule), comparing the live vs. the
- * current snapshot.
+ * Current/previous blocks read it via {@link #parse(String)}; the live block recomputes the same via
+ * {@link #metricChanges(ModuleFact, ModuleFact)}.
  */
 @Slf4j
 @Component

@@ -17,18 +17,10 @@ import org.springframework.data.relational.core.mapping.Table;
 import java.time.LocalDateTime;
 
 /**
- * Entity for the {@code orl_lndscp_assmt_details} table.
- *
- * <p>This is a child entity owned by {@link OrlLndscpAssmt} via
- * {@link MappedCollection} (see {@code OrlLndscpAssmt.details}) — it holds no
- * reference back to its parent, so the {@code orl_lndscp_assmt_id} FK relationship
- * is strictly one-way (parent → children only).
- *
- * <p><b>Thin table:</b> this row carries only its dimension identity, the analyst
- * overlay ({@code OVRLY_NET_RISK_RTNG}, {@code OVRLY_JSTFKN}), the revised commentary
- * and its status. All computed values (calculated NRR, rating change, control
- * effectiveness, commentary, GRC metrics) live in {@code fact_orl} and are matched at
- * read time by dimension + business date.
+ * Entity for {@code orl_lndscp_assmt_details} — a thin child of {@link OrlLndscpAssmt} (owned via
+ * {@link MappedCollection}, no back-reference). Carries dimension identity, the analyst overlay,
+ * revised commentary and status; other computed values live in {@code fact_orl}, matched at read
+ * time by dimension + business date.
  */
 @Table("orl_lndscp_assmt_details")
 @Getter

@@ -122,7 +122,7 @@ class LandscapeAssmtCalloutControllerTest {
         String body = """
                 {"riskArea":"Conduct Risk","locations":["SG"],"bizUnits":["Ops"],"comment":"New callout","sme":"alice"}
                 """;
-        // Create returns the inserted callout in $.data (task 6).
+        // Create returns the inserted callout in $.data.
         mvc.perform(post(BASE_URL, 200)
                         .header("X-EGRC-UserId", USERNAME)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -311,7 +311,7 @@ class LandscapeAssmtCalloutControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.message").value("Callout updated successfully."))
-                // Response carries the updated callout (task 6): new SME 'carol', prior SME shifted.
+                // Response carries the updated callout: new SME 'carol', prior SME shifted.
                 .andExpect(jsonPath("$.data.id").value(300))
                 .andExpect(jsonPath("$.data.sme").value("carol"))
                 .andExpect(jsonPath("$.data.lastModifiedBy").value("bob"))
@@ -370,7 +370,7 @@ class LandscapeAssmtCalloutControllerTest {
 
     @Test
     void updateCallout_anyRiskArea_isAccepted() throws Exception {
-        // Values are no longer validated against the landscape dimensions, so any non-blank
+        // Callout values are not validated against the landscape dimensions, so any non-blank
         // risk area is accepted and persisted.
         String body = """
                 {"riskArea":"Any Area","locations":["SG"],"bizUnits":["Tech"],"comment":"c","sme":"carol"}

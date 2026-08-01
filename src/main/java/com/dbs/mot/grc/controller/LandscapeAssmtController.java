@@ -178,7 +178,8 @@ public class LandscapeAssmtController {
 
     @Operation(summary = "Get one assessment detail row (drill-down)",
             description = "Returns the full drill-down for a single detail row: current-month, matched "
-                    + "previous-month and live NRR snapshots, commentary and GRC metrics.")
+                    + "previous-month and live NRR snapshots, commentary and GRC metrics. The overall and "
+                    + "per-module risk-rating changes are computed on this call, not read from storage.")
     @ApiResponses(value = {
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "Detail row found"),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "A path id is not a valid number"),
@@ -207,10 +208,10 @@ public class LandscapeAssmtController {
     // ── Detail overlay ───────────────────────────────────────────────────────────
 
     @Operation(summary = "Save an assessment detail overlay",
-            description = "Persists REVISED_COMMENTARY, OVRLY_NET_RISK_RTNG and OVRLY_JSTFKN for a detail "
-                    + "row and stamps UPDATED_BY. Allowed only when the detail is in 'Open' status. When "
-                    + "the overlaid rating changes, RISK_RTNG_CHGE is re-evaluated. Returns the persisted "
-                    + "overlay fields, status and risk-rating change.")
+            description = "Persists OVRLY_NET_RISK_RTNG and OVRLY_JSTFKN for a detail row and stamps "
+                    + "UPDATED_BY. Allowed only when the detail is in 'Open' status. Returns the persisted "
+                    + "overlay fields, status, and the risk-rating change freshly computed from the save "
+                    + "(not stored).")
     @ApiResponses(value = {
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "Overlay saved"),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "Validation failed"),

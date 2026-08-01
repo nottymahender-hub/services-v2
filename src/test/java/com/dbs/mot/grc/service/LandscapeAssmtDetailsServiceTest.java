@@ -123,6 +123,9 @@ class LandscapeAssmtDetailsServiceTest {
         assertThat(item.getCtrlEffRtn()).isEqualTo("Satisfactory to Good");
         // Previous assessment's matched row (400) had OVRLY 'High'.
         assertThat(item.getPrevAssmtFinalNRR()).isEqualTo("High");
+        // riskRatingChange is computed, not stored: previous final 'High' vs. this item's effective
+        // 'Low' (no overlay, so the calculated rating) → less severe → Improved.
+        assertThat(item.getRiskRatingChange()).isEqualTo("Improved");
     }
 
     @Test
@@ -187,10 +190,16 @@ class LandscapeAssmtDetailsServiceTest {
         assertThat(response.getCurrentMonthNRRDetails().getNrrOverlaid()).isEqualTo("N");
         assertThat(response.getCurrentMonthNRRDetails().getCommentry()).isEqualTo("current commentary");
 
+        // Overall change is computed, not stored: previous final 'High' (row 400's overlay) vs.
+        // this row's effective 'Low' (no overlay, so the calculated rating) → less severe → Improved.
+        assertThat(response.getCurrentMonthNRRDetails().getRiskRatingChange()).isEqualTo("Improved");
+
         // Previous month via PREV_ASSMT_NUM → matched row 400 (OVRLY 'High'), prev fact CAL 'Med Low'.
         assertThat(response.getPrevMonthNRRDetails()).isNotNull();
         assertThat(response.getPrevMonthNRRDetails().getNrrCalculated()).isEqualTo("Med Low");
         assertThat(response.getPrevMonthNRRDetails().getNrr()).isEqualTo("High");
+        // Assmt 40 (the previous assessment) has no previous assessment of its own → no baseline → N.A.
+        assertThat(response.getPrevMonthNRRDetails().getRiskRatingChange()).isEqualTo("N.A");
 
         // Live snapshot: latest biz_dt (2024-07-01) equals the assessment's biz_dt, so live reuses
         // the current-month fact/metrics — same values as current.
@@ -305,19 +314,18 @@ class LandscapeAssmtDetailsServiceTest {
         assertThat(resp.getOverlaidNRR()).isEqualTo("Low");
         assertThat(resp.getStatus()).isEqualTo("Open");
         assertThat(resp.getRiskRatingChange()).isEqualTo("Improved");
-        assertThat(column(401, "RISK_RTNG_CHGE")).isEqualTo("Improved");
     }
 
     @Test
-    void saveOverlay_overlayUnchanged_leavesRiskRatingChangeUntouched() {
-        // Seed an existing change; saving with the same (absent) overlay must not recompute it.
-        jdbc.execute("UPDATE orl_lndscp_assmt_details SET RISK_RTNG_CHGE='Deteriorated' WHERE id=401");
-        SaveAssmtDetailOverlayNRRRequest req = new SaveAssmtDetailOverlayNRRRequest();   // overlaidNRR stays null (unchanged)
+    void saveOverlay_noOverlayInRequest_stillComputesFreshRiskRatingChange() {
+        // riskRatingChange is never stored — it is derived on every save. With no overlay in the
+        // request, the effective current rating falls back to the calculated rating (fact CAL 'Low'),
+        // vs. the previous assessment's final rating 'High' (detail 400's overlay) → Improved.
+        SaveAssmtDetailOverlayNRRRequest req = new SaveAssmtDetailOverlayNRRRequest();   // overlaidNRR stays null
 
         OverlayResponse resp = service.saveOverlay(41L, 401L, req, "auditor");
 
-        assertThat(resp.getRiskRatingChange()).isEqualTo("Deteriorated");
-        assertThat(column(401, "RISK_RTNG_CHGE")).isEqualTo("Deteriorated");
+        assertThat(resp.getRiskRatingChange()).isEqualTo("Improved");
     }
 
     // ── saveCommentary ──────────────────────────────────────────────────────────

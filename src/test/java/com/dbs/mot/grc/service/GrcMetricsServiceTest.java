@@ -4,7 +4,6 @@ import com.dbs.mot.grc.dto.DimensionKey;
 import com.dbs.mot.grc.dto.GrcMetric;
 import com.dbs.mot.grc.dto.GrcModuleBlock;
 import com.dbs.mot.grc.entity.ModuleFact;
-import com.dbs.mot.grc.util.ModuleRiskRatingChanges.ModuleChange;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -20,7 +19,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Integration tests for {@link GrcMetricsService} — module assembly (nrr as the stored DB value),
- * always-present fully-populated blocks, supplied vs. computed risk-rating change, and the
+ * always-present fully-populated blocks, the target-vs-baseline change derivation, and the
  * KRI/RCSA percentage derivations, against H2.
  */
 @SpringBootTest
@@ -66,9 +65,9 @@ class GrcMetricsServiceTest {
                 + "','AML Sanctions','CBG','SG','High'," + highProp + "," + lowProp + ")");
     }
 
-    /** Current/previous blocks with no stored changes (all metric/module changes default to N.A). */
-    private Map<String, GrcModuleBlock> storedNoChanges(String bizDt) {
-        return service.forBizDate(LocalDate.parse(bizDt), KEY, Map.of());
+    /** Blocks for a business date with no baseline (every change defaults to N.A). */
+    private Map<String, GrcModuleBlock> blocksWithNoBaseline(String bizDt) {
+        return service.buildBlocks(service.moduleFacts(LocalDate.parse(bizDt), KEY), Map.of());
     }
 
     /** Finds one metric line in a block by name. */
@@ -80,11 +79,11 @@ class GrcMetricsServiceTest {
     }
 
     @Test
-    void forBizDate_alwaysReturnsAllModules_fullyPopulated() {
+    void buildBlocks_alwaysReturnsAllModules_fullyPopulated() {
         insertInc("2026-07-15", "High", 7);
         insertKri("2026-07-15", 4, 2, 1);
 
-        Map<String, GrcModuleBlock> blocks = storedNoChanges("2026-07-15");
+        Map<String, GrcModuleBlock> blocks = blocksWithNoBaseline("2026-07-15");
 
         assertThat(blocks.keySet()).containsExactly(ALL_MODULES);
 
@@ -105,66 +104,51 @@ class GrcMetricsServiceTest {
     }
 
     @Test
-    void forBizDate_usesSuppliedModuleAndMetricChanges() {
-        insertKri("2026-07-15", 4, 2, 1);
-        // Module-level + per-metric changes come from the stored MODULE_RISK_RTNG_CHGE JSON.
-        Map<String, ModuleChange> changes = Map.of(
-                "KRI", new ModuleChange("Stable", Map.of("KRI_RED_CNT", "Increased")));
-
-        GrcModuleBlock kri = service.forBizDate(LocalDate.parse("2026-07-15"), KEY, changes).get("KRI");
-
-        assertThat(kri.nrr()).isEqualTo("High");
-        assertThat(kri.riskRatingChge()).isEqualTo("Stable");
-        assertThat(metric(kri, "KRI_RED_CNT").riskRatingChge()).isEqualTo("Increased");
-        // A metric absent from the stored map defaults to N.A.
-        assertThat(metric(kri, "KRI_GREEN_CNT").riskRatingChge()).isEqualTo("N.A");
-    }
-
-    @Test
-    void liveBlocks_computeModuleChangeAgainstCurrent() {
-        // Live rating 'Low' vs. the current assessment's 'High' → less severe → Improved.
+    void buildBlocks_derivesModuleChangeAgainstBaseline() {
+        // Target rating 'Low' vs. baseline 'High' → less severe → Improved.
         insertKriRating("2026-07-31", "Low");
         insertKriRating("2026-07-15", "High");
-        Map<String, ModuleFact> liveFacts = service.moduleFacts(LocalDate.parse("2026-07-31"), KEY);
-        Map<String, ModuleFact> currentFacts = service.moduleFacts(LocalDate.parse("2026-07-15"), KEY);
+        Map<String, ModuleFact> target = service.moduleFacts(LocalDate.parse("2026-07-31"), KEY);
+        Map<String, ModuleFact> baseline = service.moduleFacts(LocalDate.parse("2026-07-15"), KEY);
 
-        GrcModuleBlock kri = service.liveBlocks(liveFacts, currentFacts).get("KRI");
+        GrcModuleBlock kri = service.buildBlocks(target, baseline).get("KRI");
 
         assertThat(kri.nrr()).isEqualTo("Low");
         assertThat(kri.riskRatingChge()).isEqualTo("Improved");
     }
 
     @Test
-    void liveBlocks_computePerMetricChangeAgainstCurrent() {
-        // Live KRI red count 5 vs. current 2 → Increased; green 1 vs 1 → Stable.
+    void buildBlocks_derivesPerMetricChangeAgainstBaseline() {
+        // Target KRI red count 5 vs. baseline 2 → Increased; green 1 vs 1 → No change (metric-level
+        // equality label — distinct from the module-level "Stable").
         insertKri("2026-07-31", 10, 5, 1);
         insertKri("2026-07-15", 4, 2, 1);
-        Map<String, ModuleFact> liveFacts = service.moduleFacts(LocalDate.parse("2026-07-31"), KEY);
-        Map<String, ModuleFact> currentFacts = service.moduleFacts(LocalDate.parse("2026-07-15"), KEY);
+        Map<String, ModuleFact> target = service.moduleFacts(LocalDate.parse("2026-07-31"), KEY);
+        Map<String, ModuleFact> baseline = service.moduleFacts(LocalDate.parse("2026-07-15"), KEY);
 
-        GrcModuleBlock kri = service.liveBlocks(liveFacts, currentFacts).get("KRI");
+        GrcModuleBlock kri = service.buildBlocks(target, baseline).get("KRI");
 
         assertThat(metric(kri, "KRI_RED_CNT").riskRatingChge()).isEqualTo("Increased");
-        assertThat(metric(kri, "KRI_GREEN_CNT").riskRatingChge()).isEqualTo("Stable");
+        assertThat(metric(kri, "KRI_GREEN_CNT").riskRatingChge()).isEqualTo("No change");
     }
 
     @Test
-    void liveBlocks_noComparisonFact_isNotApplicable() {
-        // Live rating present but no current baseline for the module → N.A.
+    void buildBlocks_noBaselineFact_isNotApplicable() {
+        // Target rating present but no baseline for the module → N.A.
         insertKriRating("2026-07-31", "Low");
-        Map<String, ModuleFact> liveFacts = service.moduleFacts(LocalDate.parse("2026-07-31"), KEY);
+        Map<String, ModuleFact> target = service.moduleFacts(LocalDate.parse("2026-07-31"), KEY);
 
-        GrcModuleBlock kri = service.liveBlocks(liveFacts, Map.of()).get("KRI");
+        GrcModuleBlock kri = service.buildBlocks(target, Map.of()).get("KRI");
 
         assertThat(kri.riskRatingChge()).isEqualTo("N.A");
     }
 
     @Test
-    void liveBlocks_noLiveRow_isFullyDefaulted() {
-        // No live facts at all → every module block present, nrr and all changes N.A, values null.
-        Map<String, ModuleFact> liveFacts = service.moduleFacts(LocalDate.parse("2026-07-31"), KEY);
+    void buildBlocks_noTargetRow_isFullyDefaulted() {
+        // No target facts at all → every module block present, nrr and all changes N.A, values null.
+        Map<String, ModuleFact> target = service.moduleFacts(LocalDate.parse("2026-07-31"), KEY);
 
-        Map<String, GrcModuleBlock> blocks = service.liveBlocks(liveFacts, Map.of());
+        Map<String, GrcModuleBlock> blocks = service.buildBlocks(target, Map.of());
 
         assertThat(blocks.keySet()).containsExactly(ALL_MODULES);
         GrcModuleBlock kri = blocks.get("KRI");
@@ -176,7 +160,7 @@ class GrcMetricsServiceTest {
     @Test
     void kriProportions_areDerivedAsPercentages() {
         insertKri("2026-07-15", 4, 2, 1);
-        GrcModuleBlock kri = storedNoChanges("2026-07-15").get("KRI");
+        GrcModuleBlock kri = blocksWithNoBaseline("2026-07-15").get("KRI");
 
         // 2 of 4 active → 50.00%; 1 of 4 → 25.00% (percentage, 2 decimal places).
         assertThat(new BigDecimal(metric(kri, "KRI_RED_PROP").value().toString())).isEqualByComparingTo("50.00");
@@ -187,7 +171,7 @@ class GrcMetricsServiceTest {
     void rcsaProportions_areReturnedAsPercentages() {
         // Stored fractions 0.543333 / 0.10 → 54.33% / 10.00% (×100, rounded to 2 dp).
         insertRcsa("2026-07-15", "0.543333", "0.10");
-        GrcModuleBlock rcsa = storedNoChanges("2026-07-15").get("RCSA");
+        GrcModuleBlock rcsa = blocksWithNoBaseline("2026-07-15").get("RCSA");
 
         assertThat(new BigDecimal(metric(rcsa, "rcsa_high_risk_proportion").value().toString()))
                 .isEqualByComparingTo("54.33");
@@ -200,15 +184,15 @@ class GrcMetricsServiceTest {
     @Test
     void kriProportions_nullWhenActiveCountZero() {
         insertKri("2026-07-15", 0, 0, 0);
-        GrcModuleBlock kri = storedNoChanges("2026-07-15").get("KRI");
+        GrcModuleBlock kri = blocksWithNoBaseline("2026-07-15").get("KRI");
 
         assertThat(metric(kri, "KRI_RED_PROP").value()).isNull();
         assertThat(metric(kri, "KRI_GREEN_PROP").value()).isNull();
     }
 
     @Test
-    void forBizDate_allModulesDefaultedWhenNoRowsMatch() {
-        Map<String, GrcModuleBlock> blocks = storedNoChanges("2026-07-15");
+    void buildBlocks_allModulesDefaultedWhenNoRowsMatch() {
+        Map<String, GrcModuleBlock> blocks = blocksWithNoBaseline("2026-07-15");
 
         assertThat(blocks.keySet()).containsExactly(ALL_MODULES);
         assertThat(blocks.values()).allSatisfy(b -> {
@@ -219,19 +203,19 @@ class GrcMetricsServiceTest {
     }
 
     @Test
-    void forBizDate_allModulesDefaultedWhenBizDateIsNull() {
-        Map<String, GrcModuleBlock> blocks = service.forBizDate(null, KEY, Map.of());
+    void moduleFacts_allModulesNullWhenBizDateIsNull() {
+        Map<String, ModuleFact> facts = service.moduleFacts(null, KEY);
 
-        assertThat(blocks.keySet()).containsExactly(ALL_MODULES);
-        assertThat(blocks.values()).allSatisfy(b -> assertThat(b.nrr()).isEqualTo("N.A"));
+        assertThat(facts.keySet()).containsExactly(ALL_MODULES);
+        assertThat(facts.values()).allSatisfy(f -> assertThat(f).isNull());
     }
 
     @Test
-    void forBizDate_selectsTheRowOnTheGivenDate() {
+    void buildBlocks_selectsTheRowOnTheGivenDate() {
         insertInc("2026-07-15", "High", 7);
         insertInc("2026-07-31", "Med Low", 9);
 
-        Map<String, GrcModuleBlock> blocks = storedNoChanges("2026-07-31");
+        Map<String, GrcModuleBlock> blocks = blocksWithNoBaseline("2026-07-31");
 
         GrcModuleBlock inc = blocks.get("INC");
         assertThat(inc.nrr()).isEqualTo("Med Low");

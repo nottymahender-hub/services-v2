@@ -43,6 +43,13 @@ public class MonthNRRDetails {
     private final String assmtPeriod;
 
     /**
+     * This dimension's overall risk-rating change for the month: the previous assessment's final
+     * rating for this dimension vs. this row's effective rating (overlay if set, else calculated).
+     * Derived fresh on every read — never stored.
+     */
+    private final String riskRatingChange;
+
+    /**
      * Per-module GRC metrics assembled from the module fact tables. All four module keys
      * ({@code RCSA}, {@code INC}, {@code INA}, {@code KRI}) are always present, and each block is
      * always fully populated — a module with no snapshot row still lists every metric with a

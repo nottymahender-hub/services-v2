@@ -58,7 +58,10 @@ public class LandscapeAssmtDetailItem {
     /** Overlaid (analyst-adjusted) net risk rating — {@code OVRLY_NET_RISK_RTNG}. */
     private final String nrr;
 
-    /** {@code fact_orl.RISK_RTNG_CHGE} (current biz date). */
+    /**
+     * This dimension's overall risk-rating change: the previous assessment's final rating for this
+     * dimension vs. this row's effective rating (overlay if set, else calculated). Derived, not stored.
+     */
     private final String riskRatingChange;
 
     /** {@code fact_orl.CTRL_EFF_RTN} (current biz date). */

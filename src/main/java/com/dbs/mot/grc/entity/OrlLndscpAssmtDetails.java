@@ -3,7 +3,6 @@ package com.dbs.mot.grc.entity;
 import com.dbs.mot.grc.enums.DetailStatus;
 import com.dbs.mot.grc.enums.LevelCategory;
 import com.dbs.mot.grc.enums.NetRiskRating;
-import com.dbs.mot.grc.enums.RiskRatingChange;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -80,25 +79,6 @@ public class OrlLndscpAssmtDetails {
      */
     @Column("COMMENTARY_REVISED_AT")
     private LocalDateTime commentaryRevisedAt;
-
-    /**
-     * Risk-rating change vs. the previous assessment for this dimension. Stored here (not derived
-     * at read time): populated upstream and re-evaluated by the overlay save when the overlaid net
-     * risk rating changes (see {@link com.dbs.mot.grc.util.RiskRatingChanges}).
-     */
-    @Column("RISK_RTNG_CHGE")
-    private RiskRatingChange riskRtngChge;
-
-    /**
-     * Per-module risk-rating change as a JSON document, e.g.
-     * {@code {"RCSA":{"riskRatingChange":"Improved","combined_count_high_risk":"Increased",...},...}}.
-     * Each module carries an NRR-based {@code riskRatingChange} plus a neutral per-metric change
-     * ({@code Increased/Decreased/Stable/N.A}). Written at generation by comparing the current vs.
-     * previous month's module facts; read by the drill-down for each module's {@code riskRatingChge}.
-     * See {@link com.dbs.mot.grc.util.ModuleRiskRatingChanges}.
-     */
-    @Column("MODULE_RISK_RTNG_CHGE")
-    private String moduleRiskRtngChge;
 
     @Column("CREATED_BY")
     private String createdBy;

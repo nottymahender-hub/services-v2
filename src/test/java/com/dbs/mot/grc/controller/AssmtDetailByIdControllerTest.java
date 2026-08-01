@@ -87,14 +87,11 @@ class AssmtDetailByIdControllerTest {
         insertDetailNoBu(302, 11, "SG", "loc", "Open");
         insertDetail(310, 12, "CBG", "SG", "L2", null, null, "Open", null, null);
 
-        // The current/previous blocks read each module's riskRatingChge from the detail's stored
-        // MODULE_RISK_RTNG_CHGE JSON (written at generation), so seed it for the asserted rows.
-        // UPDATE_DT_TM is DB-managed (bumped on any UPDATE); re-assert the seeded value so the
-        // lastModifiedOn assertion stays deterministic.
-        // COMMENTARY_REVISED_* stored UTC (09:00 → SGT 17:00) for the drill-down assertion below.
+        // Commentary-revision audit columns, stored UTC (09:00 → SGT 17:00 for the assertion below).
+        // UPDATE_DT_TM is DB-managed (bumped on any UPDATE); re-assert it so the lastModifiedOn
+        // assertion stays deterministic.
         jdbc.execute("UPDATE orl_lndscp_assmt_details "
-                + "SET MODULE_RISK_RTNG_CHGE='{\"INC\":{\"riskRatingChange\":\"Improved\"}}',"
-                + "    COMMENTARY_REVISED_BY='reviser1',"
+                + "SET COMMENTARY_REVISED_BY='reviser1',"
                 + "    COMMENTARY_REVISED_AT=TIMESTAMP '2026-07-05 09:00:00',"
                 + "    UPDATE_DT_TM=TIMESTAMP '2026-07-05 09:00:00' WHERE id=300");
     }
@@ -238,7 +235,11 @@ class AssmtDetailByIdControllerTest {
            .andExpect(jsonPath("$.data.currentMonthNRRDetails.ctrlEffRtn", is("Good")))
            .andExpect(jsonPath("$.data.currentMonthNRRDetails.assmtPeriod", is("July 2026")))
            .andExpect(jsonPath("$.data.currentMonthNRRDetails.commentry", is("July commentary")))
-           .andExpect(jsonPath("$.data.currentMonthNRRDetails.revisedCommentry", is("Revised July commentary")));
+           .andExpect(jsonPath("$.data.currentMonthNRRDetails.revisedCommentry", is("Revised July commentary")))
+           // Overall change is computed fresh: previous assessment's final rating for this dimension
+           // (detail 200's overlay 'Med High') vs. this row's effective rating (overlay 'High') →
+           // more severe → Deteriorated. Never read from a stored column.
+           .andExpect(jsonPath("$.data.currentMonthNRRDetails.riskRatingChange", is("Deteriorated")));
     }
 
     @Test
@@ -247,12 +248,18 @@ class AssmtDetailByIdControllerTest {
         mvc.perform(get(URL_TPL, 11, 300).header("X-EGRC-UserId", "tester"))
            .andExpect(status().isOk())
            .andExpect(jsonPath(grc).isMap())
-           // INC block: nrr (DB value) + module-level riskRatingChge (from MODULE_RISK_RTNG_CHGE JSON)
+           // INC block: nrr (DB value) + module-level change, both computed by comparing this
+           // month's INC fact (High) against the previous assessment's INC fact (Low) → Deteriorated.
            .andExpect(jsonPath(grc + ".INC.nrr", is("High")))
-           .andExpect(jsonPath(grc + ".INC.riskRatingChge", is("Improved")))
+           .andExpect(jsonPath(grc + ".INC.riskRatingChge", is("Deteriorated")))
            // Metrics are a list of {name,value,riskRatingChge}; look them up by name.
+           // sinp count 7 (this month) vs. 5 (previous month) → Increased.
            .andExpect(jsonPath(grc + ".INC.metrics[?(@.name=='inc_is_sinp_count_l3m_mtd')].value", hasItem(7)))
+           .andExpect(jsonPath(grc + ".INC.metrics[?(@.name=='inc_is_sinp_count_l3m_mtd')].riskRatingChge", hasItem("Increased")))
+           // RCSA/KRI have no previous-month row, so their module change is N.A even though they
+           // have a value this month.
            .andExpect(jsonPath(grc + ".RCSA.metrics[?(@.name=='combined_count_high_risk')].value", hasItem(3)))
+           .andExpect(jsonPath(grc + ".RCSA.riskRatingChge", is("N.A")))
            .andExpect(jsonPath(grc + ".KRI.metrics[?(@.name=='KRI_RED_CNT')].value", hasItem(2)))
            .andExpect(jsonPath(grc + ".KRI.metrics[?(@.name=='KRI_RED_PROP')].name", hasItem("KRI_RED_PROP")))
            .andExpect(jsonPath(grc + ".KRI.metrics[?(@.name=='KRI_GREEN_PROP')].name", hasItem("KRI_GREEN_PROP")));
@@ -272,7 +279,9 @@ class AssmtDetailByIdControllerTest {
            .andExpect(jsonPath("$.data.prevMonthNRRDetails.ctrlEffRtn", is("Attention Needed To Satisfactory")))
            .andExpect(jsonPath("$.data.prevMonthNRRDetails.assmtPeriod", is("June 2026")))
            .andExpect(jsonPath("$.data.prevMonthNRRDetails.commentry", is("June commentary")))
-           .andExpect(jsonPath("$.data.prevMonthNRRDetails.grcMetrics.INC.metrics[?(@.name=='inc_is_sinp_count_l3m_mtd')].value", hasItem(5)));
+           .andExpect(jsonPath("$.data.prevMonthNRRDetails.grcMetrics.INC.metrics[?(@.name=='inc_is_sinp_count_l3m_mtd')].value", hasItem(5)))
+           // Assessment 10 has no PREV_ASSMT_NUM, so there is no baseline for its own change → N.A.
+           .andExpect(jsonPath("$.data.prevMonthNRRDetails.riskRatingChange", is("N.A")));
     }
 
     @Test

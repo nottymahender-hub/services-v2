@@ -7,8 +7,6 @@ import com.dbs.mot.grc.enums.PersistableEnum;
 import com.dbs.mot.grc.enums.RiskRatingChange;
 import com.dbs.mot.grc.exception.ConflictException;
 import com.dbs.mot.grc.exception.NotFoundException;
-import com.dbs.mot.grc.util.ModuleRiskRatingChanges;
-import com.dbs.mot.grc.util.ModuleRiskRatingChanges.ModuleChange;
 import com.dbs.mot.grc.util.RiskAreaParser;
 import com.dbs.mot.grc.util.RiskRatingChanges;
 import com.dbs.mot.grc.util.SgtDateTimes;
@@ -17,7 +15,6 @@ import com.dbs.mot.grc.dto.AssmtDetailResponse;
 import com.dbs.mot.grc.dto.AssmtHeader;
 import com.dbs.mot.grc.dto.CalloutResponse;
 import com.dbs.mot.grc.dto.DimensionKey;
-import com.dbs.mot.grc.dto.GrcModuleBlock;
 import com.dbs.mot.grc.dto.LandscapeAssmtDetailItem;
 import com.dbs.mot.grc.dto.LandscapeAssmtDetailSummary;
 import com.dbs.mot.grc.dto.LandscapeBuDetails;
@@ -62,6 +59,11 @@ import java.util.Set;
  * dimension key ({@code RISK_AREA, ORL_BU_NM_L2..L4, LOCATION}). The list uses a DB-side semi-join
  * ({@code FactOrlRepository.findMatchingByAssmtDetails}) to fetch only the facts it needs; the
  * drill-down fetches each fact by (biz date, dimension key). Enum columns are returned as their DB value.
+ *
+ * <p><b>Risk-rating change is always derived, never stored.</b> An assessment detail row's overall
+ * change and each module's change are computed on every read by comparing two net risk ratings /
+ * module snapshots via {@link RiskRatingChanges#derive}. This keeps the value always accurate (e.g.
+ * if an earlier assessment's overlay is edited later) and needs no write-time bookkeeping.
  */
 @Slf4j
 @Service
@@ -82,7 +84,6 @@ public class LandscapeAssmtDetailsService {
     private final FactOrlRepository               factRepository;
     private final RiskAreaParser                  riskAreaParser;
     private final GrcMetricsService               grcMetricsService;
-    private final ModuleRiskRatingChanges         moduleRiskRatingChanges;
     private final LandscapeAssmtCalloutService    calloutService;
 
     /**
@@ -136,8 +137,25 @@ public class LandscapeAssmtDetailsService {
     }
 
     /**
-     * Returns the drill-down view of one detail row: its current-month, previous-month and
-     * live NRR snapshots, all sourced from {@code fact_orl}.
+     * Returns the drill-down view of one detail row: its current-month, previous-month and live NRR
+     * snapshots. Every risk-rating change (overall and per-module) is computed fresh — nothing is
+     * read from a stored change column.
+     *
+     * <p>The algorithm is a straight sequence of four comparisons, each one a "fetch a snapshot,
+     * compare it against a baseline snapshot, build a result" step:
+     * <ol>
+     *   <li><b>Current</b> — this assessment's own snapshot (business date, fact, module facts).</li>
+     *   <li><b>Previous</b> — one assessment back's snapshot, plus its own detail row for this
+     *       dimension. Comparing <i>current vs. previous</i> builds {@code currentMonthNRRDetails}.</li>
+     *   <li><b>Previous-to-previous</b> — two assessments back's snapshot. Comparing
+     *       <i>previous vs. previous-to-previous</i> builds {@code prevMonthNRRDetails} (the previous
+     *       block's own change, computed the same way one period earlier).</li>
+     *   <li><b>Live</b> — the latest snapshot across {@code fact_orl}. Comparing <i>live vs.
+     *       current</i> builds {@code liveNRRDetails}.</li>
+     * </ol>
+     * Each period's snapshot (fact + module facts) is fetched exactly once and reused everywhere it
+     * is needed — e.g. the previous period's snapshot serves both as the baseline for the current
+     * block and as the target for the previous block, so nothing is fetched twice.
      *
      * @throws NotFoundException if the assessment does not exist, or the detail row does not
      *                           belong to it
@@ -156,42 +174,46 @@ public class LandscapeAssmtDetailsService {
                         "Assessment detail not found for id: " + assmtDetailId));
 
         DimensionKey key = keyOf(row);
-        LocalDate currentBizDt = assmt.bizDt();
-        FactOrl currentFact = factFor(currentBizDt, key).orElse(null);
-        // Fetch this dimension's current module facts once — reused for the current block and as the
-        // live block's comparison baseline (so the live per-metric/NRR changes are computed vs. it).
-        Map<String, ModuleFact> currentModuleFacts = grcMetricsService.moduleFacts(currentBizDt, key);
-        // The current block's module-level and per-metric changes come from this detail's stored
-        // MODULE_RISK_RTNG_CHGE JSON (written at generation), not derived at read time.
-        Map<String, ModuleChange> currentModuleChanges =
-                moduleRiskRatingChanges.parse(row.getModuleRiskRtngChge());
 
-        String currentNrrCalculated =
-                PersistableEnum.dbValue(currentFact != null ? currentFact.getCalNetRiskRtng() : null);
-        MonthNRRDetails current = MonthNRRDetails.builder()
-                .nrrCalculated(currentNrrCalculated)
-                .nrr(resolveNrr(row.getOvrlyNetRiskRtng(), currentNrrCalculated))
-                .nrrOverlaid(row.getOvrlyNetRiskRtng() != null ? OVERLAID_YES : OVERLAID_NO)
-                .overlayJstfkn(row.getOvrlyJstfkn())
-                .ctrlEffRtn(currentFact != null ? currentFact.getCtrlEffRtn() : null)
-                .assmtPeriod(assmt.assmtPeriod())
-                .grcMetrics(grcMetricsService.storedBlocks(currentModuleFacts, currentModuleChanges))
-                .commentry(currentFact != null ? currentFact.getCommentary() : null)
+        // a. Current: this assessment's own business date, fact and module facts.
+        Snapshot current = snapshotAt(assmt.bizDt(), key);
+
+        // b. Previous: one assessment back. Its detail row is needed twice — as the baseline for the
+        //    current block's change, and to build the previous block itself — so it is loaded once
+        //    here and reused both times.
+        AssmtHeader prevAssmt = previousAssmtHeader(assmt);
+        OrlLndscpAssmtDetails prevRow = detailRowFor(prevAssmt, key);
+        Snapshot previous = snapshotAt(bizDtOf(prevAssmt), key);
+
+        // b.i. Compare current against previous → currentMonthNRRDetails.
+        MonthNRRDetails currentDetails = buildMonthDetails(row, current, prevRow, previous, assmt.assmtPeriod())
                 .revisedCommentry(row.getRevisedCommentary())
                 .build();
 
-        MonthNRRDetails previous = previousMonthDetails(assmt, key);
+        // c. Previous-to-previous: two assessments back — the baseline for the previous block's own
+        //    change. Only ever needed once, so it is fetched right where it is used.
+        AssmtHeader prevPrevAssmt = previousAssmtHeader(prevAssmt);
+        OrlLndscpAssmtDetails prevPrevRow = detailRowFor(prevPrevAssmt, key);
+        Snapshot prevPrevious = snapshotAt(bizDtOf(prevPrevAssmt), key);
 
-        // The "live" snapshot is the fact row on the latest business date across fact_orl, matched
-        // to this dimension. That MAX(biz_dt) is read once and reused for the response's top-level
-        // lastRefreshed; when it equals the assessment's own biz_dt the current fact_orl row is
-        // reused. The live GRC block's changes are computed against the current module facts.
+        // c.i. Compare previous against previous-to-previous → prevMonthNRRDetails.
+        //      null when there is no previous assessment, or it has no row for this dimension.
+        MonthNRRDetails previousDetails = prevRow == null ? null
+                : buildMonthDetails(prevRow, previous, prevPrevRow, prevPrevious, prevAssmt.assmtPeriod())
+                        .id(prevRow.getId())
+                        .build();
+
+        // d. Live: the latest business date across fact_orl. Reuse the current snapshot when they
+        //    coincide (the common case) instead of fetching it again.
         LocalDate maxBizDt = factRepository.findMaxBizDt();
-        LiveNRRDetails live = resolveLive(maxBizDt, currentBizDt, key, currentFact, currentModuleFacts);
+        Snapshot live = Objects.equals(maxBizDt, current.bizDt()) ? current : snapshotAt(maxBizDt, key);
+
+        // d.i. Compare live against current → liveNRRDetails.
+        LiveNRRDetails liveDetails = buildLiveDetails(live, current);
 
         log.info("Returning detail id={} of assessment id={} (prev {}, live {})",
                 assmtDetailId, lndscpAssmtId,
-                previous != null ? "found" : "absent", live != null ? "found" : "absent");
+                previousDetails != null ? "found" : "absent", liveDetails != null ? "found" : "absent");
 
         return AssmtDetailResponse.builder()
                 .id(row.getId())
@@ -204,9 +226,9 @@ public class LandscapeAssmtDetailsService {
                 .lastModifiedOn(SgtDateTimes.toSgt(row.getUpdateDtTm() != null ? row.getUpdateDtTm() : row.getCreateDtTm()))
                 .lastModifiedBy(row.getUpdatedBy() != null ? row.getUpdatedBy() : row.getCreatedBy())
                 .lastRefreshed(maxBizDt)
-                .currentMonthNRRDetails(current)
-                .prevMonthNRRDetails(previous)
-                .liveNRRDetails(live)
+                .currentMonthNRRDetails(currentDetails)
+                .prevMonthNRRDetails(previousDetails)
+                .liveNRRDetails(liveDetails)
                 .category(PersistableEnum.dbValue(row.getCategory()))
                 .commentaryRevisedBy(row.getCommentaryRevisedBy())
                 .commentaryRevisedAt(SgtDateTimes.toSgt(row.getCommentaryRevisedAt()))
@@ -215,11 +237,10 @@ public class LandscapeAssmtDetailsService {
 
     /**
      * Saves the analyst overlay (overlaid net risk rating and its justification) onto an assessment
-     * detail row and stamps the auditor, returning the persisted overlay fields. Revised commentary
-     * is <strong>not</strong> handled here — it is saved solely via the {@code /commentry} API. When
-     * the <em>overlaid net risk rating changes</em>, the detail's
-     * {@code RISK_RTNG_CHGE} is re-evaluated (previous assessment's final NRR vs. this detail's
-     * effective NRR) via {@link RiskRatingChanges}. {@code UPDATE_DT_TM} is DB-managed.
+     * detail row and stamps the auditor. Revised commentary is <strong>not</strong> handled here — it
+     * is saved solely via the {@code /commentry} API. The returned risk-rating change is freshly
+     * derived (previous assessment's final NRR for this dimension vs. this detail's effective NRR
+     * after the save) — it is not persisted.
      *
      * @throws NotFoundException if the assessment or the detail does not exist
      * @throws ConflictException if the detail is not in {@code Open} status
@@ -230,7 +251,7 @@ public class LandscapeAssmtDetailsService {
         log.debug("Saving overlay for detail id={} of assessment id={} by '{}'",
                 assmtDetailId, lndscpAssmtId, username);
 
-        // Header projection: existence (404) + biz_dt / PREV_ASSMT_NUM used by the change re-eval.
+        // Header projection: existence (404) + biz_dt / PREV_ASSMT_NUM used by the change derivation.
         AssmtHeader assmt = assmtRepository.findHeaderById(lndscpAssmtId)
                 .orElseThrow(() -> new NotFoundException(
                         "Landscape assessment not found for id: " + lndscpAssmtId));
@@ -239,31 +260,28 @@ public class LandscapeAssmtDetailsService {
 
         String overlaidNrr = blankToNull(request.getOverlaidNRR());
         NetRiskRating newOverlay = overlaidNrr != null ? NetRiskRating.fromDbValue(overlaidNrr) : null;
-
-        // Re-evaluate the risk-rating change only when the overlaid rating actually changes.
-        RiskRatingChange riskRtngChge = detail.getRiskRtngChge();
         boolean overlayChanged = !Objects.equals(newOverlay, detail.getOvrlyNetRiskRtng());
-        if (overlayChanged) {
-            DimensionKey key = keyOf(detail);
-            NetRiskRating previousFinal = previousFinalRatingForKey(assmt, key);
-            // Effective current rating = the new overlay when set, else this month's calculated rating.
-            NetRiskRating currentEffective = newOverlay != null
-                    ? newOverlay
-                    : factFor(assmt.bizDt(), key).map(FactOrl::getCalNetRiskRtng).orElse(null);
-            riskRtngChge = RiskRatingChanges.derive(previousFinal, currentEffective);
-            log.debug("Re-evaluated RISK_RTNG_CHGE for detail id={}: previous={}, current={} -> {}",
-                    assmtDetailId, previousFinal, currentEffective, riskRtngChge);
-        }
 
         OrlLndscpAssmtDetails saved = detailsRepository.save(detail.toBuilder()
                 .ovrlyNetRiskRtng(newOverlay)
                 .ovrlyJstfkn(blankToNull(request.getOverlayJstfkn()))
-                .riskRtngChge(riskRtngChge)
                 .updatedBy(username)
                 .build());
 
-        log.info("Saved overlay for detail id={} of assessment id={} by '{}' (overlayChanged={})",
-                assmtDetailId, lndscpAssmtId, username, overlayChanged);
+        // Derive the change fresh from the just-saved overlay — never persisted. This endpoint has no
+        // use for module facts, so it fetches only the previous rating (not a full Snapshot).
+        DimensionKey key = keyOf(saved);
+        NetRiskRating previousFinal = finalRatingForDimension(previousAssmtHeader(assmt), key);
+        // The calculated rating is only needed as a fallback when no overlay is set — skip the
+        // fact_orl lookup entirely when the overlay itself is the effective rating.
+        NetRiskRating currentCalculated = newOverlay == null
+                ? factFor(assmt.bizDt(), key).map(FactOrl::getCalNetRiskRtng).orElse(null)
+                : null;
+        NetRiskRating currentEffective = effectiveNrr(newOverlay, currentCalculated);
+        RiskRatingChange riskRtngChge = RiskRatingChanges.derive(previousFinal, currentEffective);
+
+        log.info("Saved overlay for detail id={} of assessment id={} by '{}' (overlayChanged={}) -> {}",
+                assmtDetailId, lndscpAssmtId, username, overlayChanged, riskRtngChge);
 
         return OverlayResponse.builder()
                 .lndscpAssmtId(lndscpAssmtId)
@@ -271,7 +289,7 @@ public class LandscapeAssmtDetailsService {
                 .overlaidNRR(PersistableEnum.dbValue(saved.getOvrlyNetRiskRtng()))
                 .overlayJstfkn(saved.getOvrlyJstfkn())
                 .status(PersistableEnum.dbValue(saved.getStatus()))
-                .riskRatingChange(PersistableEnum.dbValue(saved.getRiskRtngChge()))
+                .riskRatingChange(PersistableEnum.dbValue(riskRtngChge))
                 .build();
     }
 
@@ -328,33 +346,168 @@ public class LandscapeAssmtDetailsService {
         return detail;
     }
 
-    /**
-     * The previous assessment's final net risk rating for one dimension key: the prior detail row's
-     * overlay when set, else the prior month's calculated rating. {@code null} when there is no
-     * previous assessment or no matching prior data. Targeted single-row reads (no aggregate load).
-     */
-    private NetRiskRating previousFinalRatingForKey(AssmtHeader assmt, DimensionKey key) {
-        Long prevId = assmt.prevAssmtNum();
-        if (prevId == null) {
-            return null;
-        }
-        AssmtHeader prev = assmtRepository.findHeaderById(prevId).orElse(null);
-        if (prev == null) {
-            log.warn("PREV_ASSMT_NUM={} of assessment id={} points to a missing assessment",
-                    prevId, assmt.id());
-            return null;
-        }
-        NetRiskRating overlay = detailsRepository.findByAssmtAndDimension(prevId,
-                        key.riskArea(), key.orlBuNmL2(), key.orlBuNmL3(), key.orlBuNmL4(), key.location())
-                .map(OrlLndscpAssmtDetails::getOvrlyNetRiskRtng).orElse(null);
-        if (overlay != null) {
-            return overlay;
-        }
-        return factFor(prev.bizDt(), key).map(FactOrl::getCalNetRiskRtng).orElse(null);
-    }
-
     private String blankToNull(String value) {
         return StringUtils.hasText(value) ? value : null;
+    }
+
+    // ── Drill-down: one business date's snapshot + its comparisons ─────────────────────────────
+
+    /**
+     * One business date's snapshot for a dimension: its {@code fact_orl} row and its module facts.
+     * Every period in the drill-down (current/previous/previous-to-previous/live) is exactly one of
+     * these, fetched once and compared against another {@code Snapshot} as the baseline.
+     */
+    private record Snapshot(LocalDate bizDt, FactOrl fact, Map<String, ModuleFact> moduleFacts) {
+    }
+
+    /**
+     * Loads the snapshot for a business date + dimension. Safe to call with a {@code null} date (e.g.
+     * "no previous assessment") — returns an empty snapshot with no database access at all.
+     */
+    private Snapshot snapshotAt(LocalDate bizDt, DimensionKey key) {
+        FactOrl fact = factFor(bizDt, key).orElse(null);
+        Map<String, ModuleFact> moduleFacts = grcMetricsService.moduleFacts(bizDt, key);
+        return new Snapshot(bizDt, fact, moduleFacts);
+    }
+
+    /**
+     * The detail row for one dimension within a given assessment, or {@code null} when the assessment
+     * is {@code null} or has no matching row.
+     */
+    private OrlLndscpAssmtDetails detailRowFor(AssmtHeader assmt, DimensionKey key) {
+        if (assmt == null) {
+            return null;
+        }
+        return detailsRepository.findByAssmtAndDimension(assmt.id(),
+                key.riskArea(), key.orlBuNmL2(), key.orlBuNmL3(), key.orlBuNmL4(), key.location())
+                .orElse(null);
+    }
+
+    /**
+     * Builds one month's block (used for both the current and previous drill-down blocks) by
+     * comparing {@code row}'s period ({@code target}) against the baseline period
+     * ({@code baselineRow}/{@code baseline}). Returns a builder — rather than the built object — so
+     * each call site can still set its own block-specific field ({@code id} for the previous block,
+     * {@code revisedCommentry} for the current block) before calling {@code .build()}.
+     *
+     * @param row         the detail row whose overlay/status apply to this block
+     * @param target      this block's own snapshot (fact + module facts)
+     * @param baselineRow the earlier assessment's matching detail row (for the baseline final rating)
+     * @param baseline    the earlier assessment's snapshot (the comparison baseline)
+     * @param assmtPeriod the reported period label for this block
+     */
+    private MonthNRRDetails.MonthNRRDetailsBuilder buildMonthDetails(
+            OrlLndscpAssmtDetails row, Snapshot target,
+            OrlLndscpAssmtDetails baselineRow, Snapshot baseline, String assmtPeriod) {
+
+        NetRiskRating calculated = target.fact() != null ? target.fact().getCalNetRiskRtng() : null;
+        NetRiskRating effective = effectiveNrr(row.getOvrlyNetRiskRtng(), calculated);
+        NetRiskRating baselineFinal = finalRatingFrom(baselineRow, baseline);
+        RiskRatingChange change = RiskRatingChanges.derive(baselineFinal, effective);
+
+        String nrrCalculated = PersistableEnum.dbValue(calculated);
+        return MonthNRRDetails.builder()
+                .nrrCalculated(nrrCalculated)
+                .nrr(resolveNrr(row.getOvrlyNetRiskRtng(), nrrCalculated))
+                .nrrOverlaid(row.getOvrlyNetRiskRtng() != null ? OVERLAID_YES : OVERLAID_NO)
+                .overlayJstfkn(row.getOvrlyJstfkn())
+                .ctrlEffRtn(target.fact() != null ? target.fact().getCtrlEffRtn() : null)
+                .assmtPeriod(assmtPeriod)
+                .riskRatingChange(PersistableEnum.dbValue(change))
+                .grcMetrics(grcMetricsService.buildBlocks(target.moduleFacts(), baseline.moduleFacts()))
+                .commentry(target.fact() != null ? target.fact().getCommentary() : null);
+    }
+
+    /**
+     * Builds the live block by comparing the live snapshot against the current assessment's snapshot
+     * as the baseline. {@code null} when there is no live fact for this dimension.
+     */
+    private LiveNRRDetails buildLiveDetails(Snapshot live, Snapshot current) {
+        if (live.fact() == null) {
+            log.debug("No live fact_orl row for this dimension on biz_dt={}", live.bizDt());
+            return null;
+        }
+        return LiveNRRDetails.builder()
+                .nrr(PersistableEnum.dbValue(live.fact().getCalNetRiskRtng()))
+                .nrrOverlaid(OVERLAID_NO)
+                .overlayJstfkn(null)
+                .lastRefreshed(live.bizDt())
+                .ctrlEffRtn(live.fact().getCtrlEffRtn())
+                .grcMetrics(grcMetricsService.buildBlocks(live.moduleFacts(), current.moduleFacts()))
+                .commentry(live.fact().getCommentary())
+                .build();
+    }
+
+    // ── Risk-rating-change derivation (shared by list, drill-down and overlay save) ──────────────
+
+    /**
+     * The effective net risk rating for a dimension: the analyst overlay when set, otherwise the
+     * calculated rating. This is the enum counterpart of {@link #resolveNrr} (which formats the same
+     * choice as a display string) — used wherever a rating needs to be *compared*, not displayed.
+     */
+    private NetRiskRating effectiveNrr(NetRiskRating overlay, NetRiskRating calculated) {
+        return overlay != null ? overlay : calculated;
+    }
+
+    /**
+     * The final net risk rating for a dimension, computed from an <em>already-loaded</em> detail row
+     * and its snapshot (no database access): the row's overlay when set, else the snapshot fact's
+     * calculated rating. {@code null} when the row itself is {@code null} (no matching detail row).
+     *
+     * <p>Used by the drill-down, which always loads a full {@link Snapshot} per period anyway (for
+     * the GRC metric blocks) — so deriving the final rating from it is free. Contrast with
+     * {@link #finalRatingForDimension}, used where no snapshot is otherwise needed.
+     */
+    private NetRiskRating finalRatingFrom(OrlLndscpAssmtDetails detail, Snapshot snapshot) {
+        if (detail == null) {
+            return null;
+        }
+        NetRiskRating calculated = snapshot.fact() != null ? snapshot.fact().getCalNetRiskRtng() : null;
+        return effectiveNrr(detail.getOvrlyNetRiskRtng(), calculated);
+    }
+
+    /**
+     * The final net risk rating for one dimension within a given assessment, fetching its own detail
+     * row and (only if needed) its {@code fact_orl} row. Used by the overlay save, which has no other
+     * use for a full module-fact {@link Snapshot} and would otherwise pay for one needlessly.
+     *
+     * @return {@code null} when the assessment is {@code null} or has no matching detail row
+     */
+    private NetRiskRating finalRatingForDimension(AssmtHeader assmt, DimensionKey key) {
+        if (assmt == null) {
+            return null;
+        }
+        OrlLndscpAssmtDetails detail = detailRowFor(assmt, key);
+        if (detail == null) {
+            return null;
+        }
+        if (detail.getOvrlyNetRiskRtng() != null) {
+            return detail.getOvrlyNetRiskRtng();
+        }
+        return factFor(assmt.bizDt(), key).map(FactOrl::getCalNetRiskRtng).orElse(null);
+    }
+
+    /**
+     * Loads the header of the assessment that {@code referencing} points to via {@code PREV_ASSMT_NUM},
+     * or {@code null} when {@code referencing} is {@code null}, has no previous assessment, or the
+     * reference is dangling (logged as a warning; treated as "no such assessment" rather than failing
+     * the request). Composable: calling it again on the result walks one period further back.
+     */
+    private AssmtHeader previousAssmtHeader(AssmtHeader referencing) {
+        if (referencing == null || referencing.prevAssmtNum() == null) {
+            return null;
+        }
+        AssmtHeader header = assmtRepository.findHeaderById(referencing.prevAssmtNum()).orElse(null);
+        if (header == null) {
+            log.warn("PREV_ASSMT_NUM={} referenced by assessment id={} points to a missing assessment",
+                    referencing.prevAssmtNum(), referencing.id());
+        }
+        return header;
+    }
+
+    /** The business date of an assessment header, or {@code null} when the header itself is {@code null}. */
+    private LocalDate bizDtOf(AssmtHeader assmt) {
+        return assmt != null ? assmt.bizDt() : null;
     }
 
     /**
@@ -399,49 +552,6 @@ public class LandscapeAssmtDetailsService {
         }
         return factRepository.findByBizDtAndRiskAreaAndOrlBuNmL2AndOrlBuNmL3AndOrlBuNmL4AndLocation(
                 bizDt, key.riskArea(), key.orlBuNmL2(), key.orlBuNmL3(), key.orlBuNmL4(), key.location());
-    }
-
-    /**
-     * Resolves the live snapshot: the {@code fact_orl} row on {@code maxBizDt} (the latest business
-     * date) matching the dimension, plus the live GRC blocks whose changes are computed on the fly
-     * against the current assessment's module facts ({@code currentModuleFacts}). When
-     * {@code maxBizDt} equals the assessment's own {@code biz_dt} the already-fetched current
-     * {@code fact_orl}/module rows are reused (no duplicate reads).
-     *
-     * @return {@code null} when there is no fact data, or the dimension has no row on {@code maxBizDt}
-     */
-    private LiveNRRDetails resolveLive(LocalDate maxBizDt, LocalDate currentBizDt, DimensionKey key,
-                                       FactOrl currentFact, Map<String, ModuleFact> currentModuleFacts) {
-        if (maxBizDt == null) {
-            return null;
-        }
-        boolean liveIsCurrent = maxBizDt.equals(currentBizDt);
-        FactOrl liveFact = liveIsCurrent
-                ? currentFact                              // live == current: reuse the fact row
-                : factFor(maxBizDt, key).orElse(null);
-        if (liveFact == null) {
-            log.debug("No live fact_orl row for key {} on biz_dt={}", key, maxBizDt);
-            return null;
-        }
-        // Live changes are computed on the fly (live vs. current module facts); reuse the current
-        // module facts when live and current share the same business date.
-        Map<String, ModuleFact> liveModuleFacts =
-                liveIsCurrent ? currentModuleFacts : grcMetricsService.moduleFacts(maxBizDt, key);
-        Map<String, GrcModuleBlock> liveBlocks = grcMetricsService.liveBlocks(liveModuleFacts, currentModuleFacts);
-        return liveFrom(liveFact, maxBizDt, liveBlocks);
-    }
-
-    /** Builds a {@link LiveNRRDetails} from an already-loaded fact row and its GRC metrics. */
-    private LiveNRRDetails liveFrom(FactOrl fact, LocalDate maxBizDt, Map<String, GrcModuleBlock> grcMetrics) {
-        return LiveNRRDetails.builder()
-                .nrr(PersistableEnum.dbValue(fact.getCalNetRiskRtng()))
-                .nrrOverlaid(OVERLAID_NO)
-                .overlayJstfkn(null)
-                .lastRefreshed(maxBizDt)
-                .ctrlEffRtn(fact.getCtrlEffRtn())
-                .grcMetrics(grcMetrics)
-                .commentry(fact.getCommentary())
-                .build();
     }
 
     // ── Derivation helpers ───────────────────────────────────────────────────
@@ -515,51 +625,6 @@ public class LandscapeAssmtDetailsService {
     }
 
     /**
-     * The previous month's NRR snapshot for the row matching the given dimension key, or
-     * {@code null} when there is no previous assessment or no matching prior detail row. Uses the
-     * header projection + a single keyed detail read — the previous assessment's whole detail
-     * collection is never loaded.
-     */
-    private MonthNRRDetails previousMonthDetails(AssmtHeader assmt, DimensionKey key) {
-        Long prevId = assmt.prevAssmtNum();
-        if (prevId == null) {
-            return null;
-        }
-        AssmtHeader prev = assmtRepository.findHeaderById(prevId).orElse(null);
-        if (prev == null) {
-            log.warn("PREV_ASSMT_NUM={} of assessment id={} points to a missing assessment",
-                    prevId, assmt.id());
-            return null;
-        }
-        OrlLndscpAssmtDetails d = detailsRepository.findByAssmtAndDimension(prevId,
-                key.riskArea(), key.orlBuNmL2(), key.orlBuNmL3(), key.orlBuNmL4(), key.location())
-                .orElse(null);
-        if (d == null) {
-            log.debug("No row in previous assessment id={} matches key {}", prevId, key);
-            return null;
-        }
-        LocalDate prevBizDt = prev.bizDt();
-        FactOrl prevFact = factFor(prevBizDt, key).orElse(null);
-        String prevNrrCalculated =
-                PersistableEnum.dbValue(prevFact != null ? prevFact.getCalNetRiskRtng() : null);
-        // Previous block's module-level and per-metric changes come from the previous detail's own
-        // stored MODULE_RISK_RTNG_CHGE JSON.
-        Map<String, ModuleChange> prevModuleChanges =
-                moduleRiskRatingChanges.parse(d.getModuleRiskRtngChge());
-        return MonthNRRDetails.builder()
-                .id(d.getId())
-                .nrrCalculated(prevNrrCalculated)
-                .nrr(resolveNrr(d.getOvrlyNetRiskRtng(), prevNrrCalculated))
-                .nrrOverlaid(d.getOvrlyNetRiskRtng() != null ? OVERLAID_YES : OVERLAID_NO)
-                .overlayJstfkn(d.getOvrlyJstfkn())
-                .ctrlEffRtn(prevFact != null ? prevFact.getCtrlEffRtn() : null)
-                .assmtPeriod(prev.assmtPeriod())
-                .grcMetrics(grcMetricsService.forBizDate(prevBizDt, key, prevModuleChanges))
-                .commentry(prevFact != null ? prevFact.getCommentary() : null)
-                .build();
-    }
-
-    /**
      * Resolves the BU name from the row's own category (drill-down rule):
      * {@code L2/grp_l2 → ORL_BU_NM_L2}, {@code L3/grp_l3 → ORL_BU_NM_L3},
      * {@code L4/grp_l4 → ORL_BU_NM_L4}, {@code loc → "Group"}.
@@ -617,8 +682,10 @@ public class LandscapeAssmtDetailsService {
             log.debug("Risk area '{}' of detail row id={} not found in the landscape config — "
                     + "groupName/riskClusters left empty", row.getRiskArea(), row.getId());
         }
-        String nrrCalculated =
-                PersistableEnum.dbValue(currentFact != null ? currentFact.getCalNetRiskRtng() : null);
+        NetRiskRating currentCalculated = currentFact != null ? currentFact.getCalNetRiskRtng() : null;
+        String nrrCalculated = PersistableEnum.dbValue(currentCalculated);
+        NetRiskRating currentEffective = effectiveNrr(row.getOvrlyNetRiskRtng(), currentCalculated);
+        RiskRatingChange riskRatingChange = RiskRatingChanges.derive(prevAssmtFinalNRR, currentEffective);
         return LandscapeAssmtDetailItem.builder()
                 .id(row.getId())
                 .riskArea(row.getRiskArea())
@@ -629,8 +696,7 @@ public class LandscapeAssmtDetailsService {
                 .status(PersistableEnum.dbValue(row.getStatus()))
                 .nrrCalculated(nrrCalculated)
                 .nrr(resolveNrr(row.getOvrlyNetRiskRtng(), nrrCalculated))
-                // Risk-rating change is read from the detail row.
-                .riskRatingChange(PersistableEnum.dbValue(row.getRiskRtngChge()))
+                .riskRatingChange(PersistableEnum.dbValue(riskRatingChange))
                 .ctrlEffRtn(currentFact != null ? currentFact.getCtrlEffRtn() : null)
                 .commentry(StringUtils.hasText(row.getRevisedCommentary()) ? row.getRevisedCommentary() : currentFact != null ? currentFact.getCommentary() : null)
                 .category(PersistableEnum.dbValue(row.getCategory()))

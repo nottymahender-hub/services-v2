@@ -404,13 +404,12 @@ class LandscapeAssmtDetailsControllerTest {
     }
 
     @Test
-    void riskRatingChangeAndCommentry_arePassedThrough() throws Exception {
-        // riskRatingChange is read from the detail row.
-        jdbc.execute("UPDATE orl_lndscp_assmt_details SET RISK_RTNG_CHGE='Improved' WHERE id=101");
-
+    void riskRatingChangeAndCommentry_areComputedAndPassedThrough() throws Exception {
+        // riskRatingChange is computed, not stored: id 101's previous-assessment match (row 90) has
+        // OVRLY 'High'; id 101 itself also has OVRLY 'High' → same severity → Stable.
         mvc.perform(get(URL_TPL, 5).header("X-EGRC-UserId", "tester"))
            .andExpect(status().isOk())
-           .andExpect(jsonPath("$.data.assessments[?(@.id==101)].riskRatingChange", hasItem("Improved")))
+           .andExpect(jsonPath("$.data.assessments[?(@.id==101)].riskRatingChange", hasItem("Stable")))
            .andExpect(jsonPath("$.data.assessments[?(@.id==101)].commentry", hasItem("Commentary for 101")));
     }
 

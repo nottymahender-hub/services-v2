@@ -172,10 +172,6 @@ CREATE TABLE IF NOT EXISTS `orl_lndscp_assmt_details` (
     `REVISED_COMMENTARY` LONGTEXT NULL DEFAULT NULL,
     `OVRLY_NET_RISK_RTNG` ENUM('Low','Med Low','Med High','High') NULL DEFAULT NULL,
     `OVRLY_JSTFKN` VARCHAR(4000) NULL DEFAULT NULL,
-    -- Risk-rating change vs. the previous assessment for this dimension; re-evaluated on overlay change.
-    `RISK_RTNG_CHGE` ENUM('Improved','Deteriorated','Stable','N.A') NULL DEFAULT NULL,
-    -- Per-module risk-rating change as JSON (module riskRatingChange + neutral per-metric changes).
-    `MODULE_RISK_RTNG_CHGE` LONGTEXT NULL DEFAULT NULL,
     `STATUS` ENUM('Open','Locked','Pending unlock','Completed') NOT NULL DEFAULT 'Open',
     -- Who last revised the commentary and when (set only by the /commentry API, in UTC).
     `COMMENTARY_REVISED_BY` VARCHAR(50) NULL DEFAULT NULL,
@@ -239,8 +235,8 @@ CREATE TABLE IF NOT EXISTS `orl_static_data_maintianance_csv_upload_audit` (
 
 -- ============================================================
 -- fact_orl — the snapshot table holding all computed assessment data
--- (CAL_NET_RISK_RTNG, RISK_RTNG_CHGE, CTRL_EFF_RTN, COMMENTARY, GRC_METRICS,
--- INHERENT_RISK). Each row is keyed on the shared dimension columns
+-- (CAL_NET_RISK_RTNG, CTRL_EFF_RTN, COMMENTARY, INHERENT_RISK). Each row is
+-- keyed on the shared dimension columns
 -- (biz_dt, RISK_AREA, ORL_BU_NM_L2/L3/L4, LOCATION). The assessment read APIs
 -- match assessment detail rows against this table by dimension + business date.
 -- ============================================================

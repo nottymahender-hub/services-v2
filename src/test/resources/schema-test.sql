@@ -200,9 +200,9 @@ CREATE TABLE orl_lndscp_callout_comment_hist (
 );
 
 -- ── orl_lndscp_assmt_details ─────────────────────────────────────────────────
--- Thin table: dimensions + overlay + status only. The computed values
--- (CAL_NET_RISK_RTNG, RISK_RTNG_CHGE, CTRL_EFF_RTN, COMMENTARY, GRC_METRICS) now
--- live in fact_orl and are matched at read time by dimension + business date.
+-- Thin table: dimensions + overlay + status only. Computed values (calculated NRR,
+-- risk-rating change, control effectiveness, commentary, GRC metrics) live in
+-- fact_orl / module fact tables and are derived at read time.
 CREATE TABLE orl_lndscp_assmt_details (
     id                       INT           NOT NULL AUTO_INCREMENT,
     lndscp_assmt_id          INT           NOT NULL,
@@ -215,8 +215,6 @@ CREATE TABLE orl_lndscp_assmt_details (
     REVISED_COMMENTARY       CLOB          NULL,
     OVRLY_NET_RISK_RTNG      VARCHAR(20)   NULL,
     OVRLY_JSTFKN             VARCHAR(4000) NULL,
-    RISK_RTNG_CHGE           VARCHAR(20)   NULL,
-    MODULE_RISK_RTNG_CHGE    CLOB          NULL,
     STATUS                   VARCHAR(30)   NOT NULL DEFAULT 'Open',
     COMMENTARY_REVISED_BY    VARCHAR(50)   NULL,
     COMMENTARY_REVISED_AT    TIMESTAMP     NULL,

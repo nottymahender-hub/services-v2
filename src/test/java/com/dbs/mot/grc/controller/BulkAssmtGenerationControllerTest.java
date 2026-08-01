@@ -56,7 +56,7 @@ class BulkAssmtGenerationControllerTest {
         jdbc.execute("DELETE FROM orl_lndscp_assmt");
         jdbc.execute("DELETE FROM orl_lndscp_dim");
         jdbc.execute("DELETE FROM orl_biz_unit");
-        // Generation derives RISK_RTNG_CHGE from fact_orl; clear it for deterministic runs.
+        // Some tests insert their own fact_orl rows; clear it so each run starts isolated.
         jdbc.execute("DELETE FROM fact_orl");
 
         jdbc.execute("""
@@ -305,73 +305,20 @@ class BulkAssmtGenerationControllerTest {
         assert prev == null;
     }
 
-    // ── RISK_RTNG_CHGE derived at generation ──────────────────────────────────────
+    // ── biz_dt param drives the reported period ─────────────────────────────────
 
     @Test
-    void generation_derivesRiskRatingChange_forGeneratedRows() throws Exception {
-        // Current month (M-1) fact for Alpha's (Market Abuse, Technology, SG) dimension: CAL 'Low'.
-        String curBizDt = YearMonth.now().minusMonths(1).atEndOfMonth().toString();
-        String prevBizDt = YearMonth.now().minusMonths(2).atEndOfMonth().toString();
-        jdbc.execute("INSERT INTO fact_orl (biz_dt,RISK_AREA,ORL_BU_NM_L2,ORL_BU_NM_L3,ORL_BU_NM_L4,LOCATION,category,CAL_NET_RISK_RTNG) "
-                + "VALUES(DATE '" + curBizDt + "','Market Abuse','Technology','','','SG','L2','Low')");
-        // Previous (M-2) assessment for Alpha with a matching detail overlaid 'High' → prev final 'High'.
-        jdbc.update("INSERT INTO orl_lndscp_assmt(id,LNDSCP_NUM,ASSEMT_PERIOD,biz_dt,status,CREATED_BY) "
-                + "VALUES(500,1,?,DATE '" + prevBizDt + "','Open','seed')", priorPeriod);
-        jdbc.execute("INSERT INTO orl_lndscp_assmt_details "
-                + "(id,lndscp_assmt_id,RISK_AREA,ORL_BU_NM_L2,ORL_BU_NM_L3,ORL_BU_NM_L4,LOCATION,category,OVRLY_NET_RISK_RTNG,STATUS,CREATED_BY) "
-                + "VALUES(900,500,'Market Abuse','Technology','','','SG','L2','High','Completed','seed')");
-
-        mvc.perform(post(URL).param("bizDt", TODAY).header("X-EGRC-UserId", "tester")).andExpect(status().isOk());
-
-        // Generated Alpha L2 row: derive(previous 'High', current 'Low') → Improved.
-        String change = jdbc.queryForObject(
-                "SELECT d.RISK_RTNG_CHGE FROM orl_lndscp_assmt_details d JOIN orl_lndscp_assmt a ON d.lndscp_assmt_id=a.id "
-                + "WHERE a.LNDSCP_NUM=1 AND a.ASSEMT_PERIOD=? AND d.category='L2' "
-                + "AND d.RISK_AREA='Market Abuse' AND d.ORL_BU_NM_L2='Technology' AND d.LOCATION='SG'",
-                String.class, assessmentPeriod);
-        assert "Improved".equals(change) : "expected Improved, got " + change;
-
-        // A generated row with neither a current fact nor a previous rating → N.A.
-        String naChange = jdbc.queryForObject(
-                "SELECT d.RISK_RTNG_CHGE FROM orl_lndscp_assmt_details d JOIN orl_lndscp_assmt a ON d.lndscp_assmt_id=a.id "
-                + "WHERE a.LNDSCP_NUM=1 AND a.ASSEMT_PERIOD=? AND d.category='loc' AND d.LOCATION='CN' "
-                + "AND d.RISK_AREA='AML, CFT and Sanctions'",
-                String.class, assessmentPeriod);
-        assert "N.A".equals(naChange) : "expected N.A, got " + naChange;
-    }
-
-    // ── biz_dt param drives the reported period + MODULE_RISK_RTNG_CHGE ────────────
-
-    @Test
-    void generation_withBizDt_setsReportedPeriod_andWritesModuleRiskRatingChange() throws Exception {
-        // As-of 2026-02-20 → reports January 2026 (previous = December 2025).
-        // Current INC module fact (Jan 2026 month-end) NRR 'Low'; previous (Dec 2025) NRR 'High'
-        // → module NRR less severe → Improved.
-        jdbc.execute("INSERT INTO inc_fact_orl (biz_dt,RISK_AREA,ORL_BU_NM_L2,ORL_BU_NM_L3,ORL_BU_NM_L4,LOCATION,NET_RISK_RATING,inc_is_sinp_count_l3m_mtd) "
-                + "VALUES(DATE '2026-01-31','Market Abuse','Technology','','','SG','Low',3)");
-        jdbc.execute("INSERT INTO inc_fact_orl (biz_dt,RISK_AREA,ORL_BU_NM_L2,ORL_BU_NM_L3,ORL_BU_NM_L4,LOCATION,NET_RISK_RATING,inc_is_sinp_count_l3m_mtd) "
-                + "VALUES(DATE '2025-12-31','Market Abuse','Technology','','','SG','High',5)");
-        // A previous (December 2025) assessment so the generation resolves prevBizDt = 2025-12-31.
-        jdbc.update("INSERT INTO orl_lndscp_assmt(id,LNDSCP_NUM,ASSEMT_PERIOD,biz_dt,status,CREATED_BY) "
-                + "VALUES(600,1,'December 2025',DATE '2025-12-31','Open','seed')");
-
+    void generation_withBizDt_setsReportedPeriodToMonthBeforeAsOfDate() throws Exception {
+        // As-of 2026-02-20 → reports January 2026 (the month before the as-of date's month).
+        // Risk-rating change is no longer computed or stored at generation — it is derived by the
+        // read APIs (see AssmtDetailByIdControllerTest / LandscapeAssmtDetailsServiceTest).
         mvc.perform(post(URL).param("bizDt", "2026-02-20").header("X-EGRC-UserId", "tester"))
            .andExpect(status().isOk());
 
-        // The reported period is the month before the as-of date's month.
         Long assmtId = jdbc.queryForObject(
                 "SELECT id FROM orl_lndscp_assmt WHERE LNDSCP_NUM=1 AND ASSEMT_PERIOD='January 2026'",
                 Long.class);
         assert assmtId != null : "expected a January 2026 assessment for landscape 1";
-
-        // The generated L2 row's MODULE_RISK_RTNG_CHGE JSON carries the INC module change.
-        String json = jdbc.queryForObject(
-                "SELECT MODULE_RISK_RTNG_CHGE FROM orl_lndscp_assmt_details "
-                + "WHERE lndscp_assmt_id=" + assmtId + " AND category='L2' AND RISK_AREA='Market Abuse' "
-                + "AND ORL_BU_NM_L2='Technology' AND LOCATION='SG'", String.class);
-        assert json != null && json.contains("\"INC\"")
-                && json.contains("\"riskRatingChange\":\"Improved\"")
-                : "expected INC improved in MODULE_RISK_RTNG_CHGE, got " + json;
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────────

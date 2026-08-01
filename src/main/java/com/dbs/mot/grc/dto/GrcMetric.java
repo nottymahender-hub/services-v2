@@ -13,7 +13,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
  * @param value          the metric value (counts as integers, proportions as percentages), or
  *                       {@code null} when there is no snapshot value
  * @param riskRatingChge the metric's neutral change vs. the comparison month
- *                       ({@code Increased/Decreased/Stable/N.A})
+ *                       ({@code Increased/Decreased/No change/N.A})
  */
 @Schema(description = "One metric of a module GRC block: its name, value and neutral change.")
 public record GrcMetric(
@@ -24,6 +24,6 @@ public record GrcMetric(
         Object value,
 
         @Schema(description = "Neutral metric change vs. the comparison month",
-                example = "Increased", allowableValues = {"Increased", "Decreased", "Stable", "N.A"})
+                example = "Increased", allowableValues = {"Increased", "Decreased", "No change", "N.A"})
         String riskRatingChge) {
 }

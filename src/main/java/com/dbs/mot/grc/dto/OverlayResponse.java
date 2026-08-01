@@ -7,8 +7,9 @@ import lombok.Getter;
  * Response for the overlay-save endpoint
  * ({@code POST /landscape/assessment/{lndscpAssmtId}/assessmentDetail/{assmtDetailId}/overlay}).
  *
- * <p>Echoes the persisted overlay fields plus the (possibly re-evaluated) risk-rating change, with
- * the assessment and detail ids for correlation. Ratings are the stored DB values.
+ * <p>Echoes the persisted overlay fields, with the assessment and detail ids for correlation.
+ * Ratings are the stored DB values. {@code riskRatingChange} is derived fresh from the just-saved
+ * overlay — it is not a stored column.
  */
 @Getter
 @Builder
@@ -30,8 +31,8 @@ public class OverlayResponse {
     private final String status;
 
     /**
-     * {@code RISK_RTNG_CHGE} db value after the save. Re-evaluated (previous assessment's final NRR
-     * vs. this detail's effective NRR) when the overlaid rating changed; otherwise unchanged.
+     * The dimension's risk-rating change after the save, derived (not stored): previous assessment's
+     * final NRR for this dimension vs. this detail's effective NRR (overlay if set, else calculated).
      */
     private final String riskRatingChange;
 }

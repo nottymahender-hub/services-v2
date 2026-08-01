@@ -3,16 +3,9 @@ package com.dbs.mot.grc.service;
 import com.dbs.mot.grc.enums.AssmtStatus;
 import com.dbs.mot.grc.enums.DetailStatus;
 import com.dbs.mot.grc.enums.LevelCategory;
-import com.dbs.mot.grc.enums.NetRiskRating;
-import com.dbs.mot.grc.enums.RiskRatingChange;
 import com.dbs.mot.grc.exception.ConflictException;
-import com.dbs.mot.grc.util.ModuleRiskRatingChanges;
 import com.dbs.mot.grc.util.RiskAreaParser;
-import com.dbs.mot.grc.util.RiskRatingChanges;
 import com.dbs.mot.grc.dto.AssmtGenerationResponse;
-import com.dbs.mot.grc.dto.DimensionKey;
-import com.dbs.mot.grc.entity.FactOrl;
-import com.dbs.mot.grc.entity.ModuleFact;
 import com.dbs.mot.grc.entity.OrlBizUnit;
 import com.dbs.mot.grc.entity.OrlLndscpAssmt;
 import com.dbs.mot.grc.entity.OrlLndscpAssmtDetails;
@@ -32,14 +25,12 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.function.Function;
 
 /**
@@ -49,9 +40,10 @@ import java.util.function.Function;
  * within it), and it links to the M-2 assessment. Rows expand {@code RISK_AREA × business units × locations}
  * into {@code L{lvl}}/{@code grp_l{lvl}}/{@code loc} category rows; the aggregate is saved in one transaction.
  *
- * <p>Detail rows carry only dimensions, category, status, audit columns and the two risk-rating-change
- * columns ({@code RISK_RTNG_CHGE}, {@code MODULE_RISK_RTNG_CHGE}); other computed values live in
- * {@code fact_orl}/module tables. Entry point: {@link #generateForDim(OrlLndscpDim, LocalDate, String)}.
+ * <p>Detail rows carry only dimensions, category, status and audit columns — <b>no computed values</b>.
+ * Calculated ratings, risk-rating change and GRC metrics all live in {@code fact_orl}/module tables and
+ * are derived at read time by the assessment read APIs, never at generation. Entry point:
+ * {@link #generateForDim(OrlLndscpDim, LocalDate, String)}.
  */
 @Slf4j
 @Service
@@ -65,8 +57,6 @@ public class LandscapeAssmtGenerationService {
     private final OrlBizUnitRepository bizUnitRepository;
     private final RiskAreaParser riskAreaParser;
     private final FactOrlRepository factRepository;
-    private final GrcMetricsService grcMetricsService;
-    private final ModuleRiskRatingChanges moduleRiskRatingChanges;
 
     /**
      * Generates the assessment for an already-resolved config row. Called per landscape by
@@ -114,17 +104,10 @@ public class LandscapeAssmtGenerationService {
         log.debug("Previous assessment for lndscpNum={} period='{}': {}",
                 lndscpNum, priorPeriod, prevAssmtId.map(String::valueOf).orElse("none"));
 
-        // Load the previous assessment aggregate once — it drives both the baseline final ratings
-        // (for RISK_RTNG_CHGE) and the previous month's biz_dt (for the MODULE_RISK_RTNG_CHGE
-        // comparison). Empty/absent when there is no prior assessment.
-        OrlLndscpAssmt prevAssmt = prevAssmtId.flatMap(assmtRepository::findById).orElse(null);
-        Map<String, NetRiskRating> prevFinalByKey = loadPreviousFinalRatings(prevAssmt);
-        LocalDate prevBizDt = prevAssmt != null ? prevAssmt.getBizDt() : null;
-
         // ── Build the (thin) detail rows ─────────────────────────────────────────
         List<OrlLndscpAssmtDetails> details = new ArrayList<>();
         for (RowSpec spec : expand(riskAreas, bizUnits, locations, lvl)) {
-            details.add(buildDetail(spec, lvl, buByName, bizDt, prevBizDt, prevFinalByKey, userId));
+            details.add(buildDetail(spec, lvl, buByName, userId));
         }
         log.debug("Expanded {} detail row(s) for lndscpNum={}", details.size(), lndscpNum);
 
@@ -199,12 +182,13 @@ public class LandscapeAssmtGenerationService {
 
     // ── Per-row build ──────────────────────────────────────────────────────────
 
+    /**
+     * Builds one thin detail row from its expanded spec: dimension identity, category and status
+     * only. Computed values (calculated NRR, risk-rating change, GRC metrics) are never written here
+     * — they are derived at read time from {@code fact_orl}/module tables.
+     */
     private OrlLndscpAssmtDetails buildDetail(RowSpec spec, Integer lvl,
-                                              Map<String, OrlBizUnit> buByName,
-                                              LocalDate bizDt,
-                                              LocalDate prevBizDt,
-                                              Map<String, NetRiskRating> prevFinalByKey,
-                                              String userId) {
+                                              Map<String, OrlBizUnit> buByName, String userId) {
         // Resolve the BU hierarchy columns (null for 'loc' rows which carry no BU).
         String l2 = null;
         String l3 = null;
@@ -226,93 +210,18 @@ public class LandscapeAssmtGenerationService {
             }
         }
 
-        String riskArea = spec.riskArea();
-        String l2n = emptyIfNull(l2);
-        String l3n = emptyIfNull(l3);
-        String l4n = emptyIfNull(l4);
-        String locn = emptyIfNull(spec.location());
-
-        // Pre-fill RISK_RTNG_CHGE: previous assessment's final rating (baseline) vs. this month's
-        // calculated rating (this fresh row has no overlay yet). Isolated rule in RiskRatingChanges.
-        NetRiskRating currentCalc = currentCalculatedRating(bizDt, riskArea, l2n, l3n, l4n, locn);
-        NetRiskRating prevFinal = prevFinalByKey.get(dimKey(riskArea, l2n, l3n, l4n, locn));
-        RiskRatingChange riskRtngChge = RiskRatingChanges.derive(prevFinal, currentCalc);
-
-        // MODULE_RISK_RTNG_CHGE: per-module change JSON comparing this month's module facts against
-        // the previous assessment month's, built once here so the drill-down reads it back verbatim.
-        DimensionKey key = new DimensionKey(riskArea, l2n, l3n, l4n, locn);
-        Map<String, ModuleFact> currentModuleFacts = grcMetricsService.moduleFacts(bizDt, key);
-        Map<String, ModuleFact> prevModuleFacts = grcMetricsService.moduleFacts(prevBizDt, key);
-        String moduleRiskRtngChge = moduleRiskRatingChanges.build(currentModuleFacts, prevModuleFacts);
-
-        // Thin row — other computed values are matched from fact_orl at read time.
         // Empty dimension columns are stored as '' (never null) so the unique index
         // on (assessment, risk area, BU path, location) actually enforces uniqueness.
         return OrlLndscpAssmtDetails.builder()
-                .riskArea(riskArea)
-                .orlBuNmL2(l2n)
-                .orlBuNmL3(l3n)
-                .orlBuNmL4(l4n)
-                .location(locn)
+                .riskArea(spec.riskArea())
+                .orlBuNmL2(emptyIfNull(l2))
+                .orlBuNmL3(emptyIfNull(l3))
+                .orlBuNmL4(emptyIfNull(l4))
+                .location(emptyIfNull(spec.location()))
                 .category(spec.category())
-                .riskRtngChge(riskRtngChge)
-                .moduleRiskRtngChge(moduleRiskRtngChge)
                 .status(DetailStatus.OPEN)
                 .createdBy(userId)
                 .build();
-    }
-
-    // ── Risk-rating-change derivation for generated rows ─────────────────────────
-
-    /** The calculated net risk rating from {@code fact_orl} for the generated row's dimension. */
-    private NetRiskRating currentCalculatedRating(LocalDate bizDt, String riskArea,
-                                                  String l2, String l3, String l4, String location) {
-        if (bizDt == null) {
-            return null;
-        }
-        return factRepository
-                .findByBizDtAndRiskAreaAndOrlBuNmL2AndOrlBuNmL3AndOrlBuNmL4AndLocation(
-                        bizDt, riskArea, l2, l3, l4, location)
-                .map(FactOrl::getCalNetRiskRtng)
-                .orElse(null);
-    }
-
-    /**
-     * Previous assessment's final rating per dimension key: the prior detail row's overlay when set,
-     * else the prior month's calculated rating. Empty when there is no previous assessment. Derived
-     * from the already-loaded previous aggregate plus one targeted fact semi-join.
-     */
-    private Map<String, NetRiskRating> loadPreviousFinalRatings(OrlLndscpAssmt prev) {
-        if (prev == null) {
-            return Collections.emptyMap();
-        }
-        Long prevAssmtId = prev.getId();
-        LocalDate prevBizDt = prev.getBizDt();
-        Map<String, NetRiskRating> prevFactCal = new HashMap<>();
-        if (prevBizDt != null) {
-            for (FactOrl f : factRepository.findMatchingByAssmtDetails(prevAssmtId, prevBizDt)) {
-                prevFactCal.putIfAbsent(
-                        dimKey(f.getRiskArea(), f.getOrlBuNmL2(), f.getOrlBuNmL3(), f.getOrlBuNmL4(), f.getLocation()),
-                        f.getCalNetRiskRtng());
-            }
-        }
-        Set<OrlLndscpAssmtDetails> prevDetails = prev.getDetails() != null ? prev.getDetails() : Set.of();
-        Map<String, NetRiskRating> finals = new HashMap<>();
-        for (OrlLndscpAssmtDetails d : prevDetails) {
-            String key = dimKey(d.getRiskArea(), d.getOrlBuNmL2(), d.getOrlBuNmL3(), d.getOrlBuNmL4(), d.getLocation());
-            NetRiskRating rating = d.getOvrlyNetRiskRtng();
-            if (rating == null) {
-                rating = prevFactCal.get(key);
-            }
-            finals.put(key, rating);
-        }
-        return finals;
-    }
-
-    /** Stable string key for a dimension (empty columns normalised to ''). */
-    private String dimKey(String riskArea, String l2, String l3, String l4, String location) {
-        return emptyIfNull(riskArea) + '|' + emptyIfNull(l2) + '|' + emptyIfNull(l3)
-                + '|' + emptyIfNull(l4) + '|' + emptyIfNull(location);
     }
 
     /** Empty dimension columns are persisted as '' (never null) to keep the unique index effective. */

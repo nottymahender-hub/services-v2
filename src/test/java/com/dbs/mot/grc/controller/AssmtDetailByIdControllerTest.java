@@ -236,6 +236,9 @@ class AssmtDetailByIdControllerTest {
            .andExpect(jsonPath("$.data.currentMonthNRRDetails.assmtPeriod", is("July 2026")))
            .andExpect(jsonPath("$.data.currentMonthNRRDetails.commentry", is("July commentary")))
            .andExpect(jsonPath("$.data.currentMonthNRRDetails.revisedCommentry", is("Revised July commentary")))
+           // Commentary-revision audit for this month's own row (seeded in setUp for detail 300).
+           .andExpect(jsonPath("$.data.currentMonthNRRDetails.commentaryRevisedBy", is("reviser1")))
+           .andExpect(jsonPath("$.data.currentMonthNRRDetails.commentaryRevisedAt", startsWith("2026-07-05T17:00:00")))
            // Overall change is computed fresh: previous assessment's final rating for this dimension
            // (detail 200's overlay 'Med High') vs. this row's effective rating (overlay 'High') →
            // more severe → Deteriorated. Never read from a stored column.
@@ -280,6 +283,9 @@ class AssmtDetailByIdControllerTest {
            .andExpect(jsonPath("$.data.prevMonthNRRDetails.assmtPeriod", is("June 2026")))
            .andExpect(jsonPath("$.data.prevMonthNRRDetails.commentry", is("June commentary")))
            .andExpect(jsonPath("$.data.prevMonthNRRDetails.grcMetrics.INC.metrics[?(@.name=='inc_is_sinp_count_l3m_mtd')].value", hasItem(5)))
+           // Detail 200 (previous row) has no commentary-revision stamp seeded → both null.
+           .andExpect(jsonPath("$.data.prevMonthNRRDetails.commentaryRevisedBy").value(nullValue()))
+           .andExpect(jsonPath("$.data.prevMonthNRRDetails.commentaryRevisedAt").value(nullValue()))
            // Assessment 10 has no PREV_ASSMT_NUM, so there is no baseline for its own change → N.A.
            .andExpect(jsonPath("$.data.prevMonthNRRDetails.riskRatingChange", is("N.A")));
     }

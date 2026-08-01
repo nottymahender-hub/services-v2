@@ -12,6 +12,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -78,6 +79,11 @@ class AssmtDetailSaveControllerTest {
         return "{" + field("overlaidNRR", nrr) + "," + field("overlayJstfkn", jstfkn) + "}";
     }
 
+    private String body(String nrr, String jstfkn, String revisedCommentry) {
+        return "{" + field("overlaidNRR", nrr) + "," + field("overlayJstfkn", jstfkn) + ","
+                + field("revisedCommentry", revisedCommentry) + "}";
+    }
+
     private String field(String name, String value) {
         return "\"" + name + "\":" + (value == null ? "null" : "\"" + value + "\"");
     }
@@ -98,6 +104,9 @@ class AssmtDetailSaveControllerTest {
            .andExpect(jsonPath("$.data.overlaidNRR", is("Low")))
            .andExpect(jsonPath("$.data.overlayJstfkn", is("Overlay reason")))
            .andExpect(jsonPath("$.data.status", is("Open")))
+           .andExpect(jsonPath("$.data.nrrOverlaid", is("Y")))
+           // No fact_orl row seeded in this test → ctrlEffRtn stays null.
+           .andExpect(jsonPath("$.data.ctrlEffRtn").value(nullValue()))
            // No previous assessment/fact seeded here → derived change is N.A.
            .andExpect(jsonPath("$.data.riskRatingChange", is("N.A")));
 
@@ -108,6 +117,39 @@ class AssmtDetailSaveControllerTest {
                 "SELECT COUNT(*) FROM orl_lndscp_assmt_details WHERE id=300 AND UPDATE_DT_TM IS NOT NULL",
                 Integer.class);
         assert stamped != null && stamped == 1;
+    }
+
+    // ── Commentary merged into overlay save ────────────────────────────────────────
+
+    @Test
+    void save_withRevisedCommentary_persistsAndStampsRevision() throws Exception {
+        mvc.perform(post(URL, 11, 300).header("X-EGRC-UserId", USER)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body("Low", "Overlay reason", "Analyst note")))
+           .andExpect(status().isOk())
+           .andExpect(jsonPath("$.data.revisedCommentry", is("Analyst note")))
+           .andExpect(jsonPath("$.data.commentaryRevisedBy", is(USER)))
+           .andExpect(jsonPath("$.data.commentaryRevisedAt").exists());
+
+        assertColumn(300, "REVISED_COMMENTARY", "Analyst note");
+        assertColumn(300, "COMMENTARY_REVISED_BY", USER);
+    }
+
+    @Test
+    void save_sameRevisedCommentary_doesNotRestampRevision() throws Exception {
+        jdbc.execute("UPDATE orl_lndscp_assmt_details SET REVISED_COMMENTARY='existing note', "
+                + "COMMENTARY_REVISED_BY='reviser0', COMMENTARY_REVISED_AT=TIMESTAMP '2024-01-01 00:00:00' "
+                + "WHERE id=300");
+
+        mvc.perform(post(URL, 11, 300).header("X-EGRC-UserId", USER)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body("Low", "Overlay reason", "existing note")))
+           .andExpect(status().isOk())
+           .andExpect(jsonPath("$.data.revisedCommentry", is("existing note")))
+           // Unchanged commentary → the original reviser/timestamp stand, not overwritten by USER.
+           .andExpect(jsonPath("$.data.commentaryRevisedBy", is("reviser0")));
+
+        assertColumn(300, "COMMENTARY_REVISED_BY", "reviser0");
     }
 
     @Test

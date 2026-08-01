@@ -76,7 +76,7 @@ public class AssmtDetailResponse {
     /** {@code category}. */
     private final String category;
 
-    /** {@code COMMENTARY_REVISED_BY} — the user who last revised the commentary (via {@code /commentry}). */
+    /** {@code COMMENTARY_REVISED_BY} — the user who last revised the commentary (via the overlay save). */
     @io.swagger.v3.oas.annotations.media.Schema(description = "User who last revised the commentary")
     private final String commentaryRevisedBy;
 

@@ -1,7 +1,6 @@
 package com.dbs.mot.grc.controller;
 
 import com.dbs.mot.grc.dto.ApiResponse;
-import com.dbs.mot.grc.dto.AssmtDetailCommentaryResponse;
 import com.dbs.mot.grc.dto.AssmtDetailResponse;
 import com.dbs.mot.grc.dto.BulkAssmtGenerationResponse;
 import com.dbs.mot.grc.dto.CalloutRequest;
@@ -10,7 +9,6 @@ import com.dbs.mot.grc.dto.LandscapeAssmtDetailSummary;
 import com.dbs.mot.grc.dto.LandscapeAssmtSummary;
 import com.dbs.mot.grc.dto.OverlayResponse;
 import com.dbs.mot.grc.dto.SaveAssmtDetailOverlayNRRRequest;
-import com.dbs.mot.grc.dto.SaveCommentaryRequest;
 import com.dbs.mot.grc.exception.BadRequestException;
 import com.dbs.mot.grc.exception.UnauthorizedException;
 import com.dbs.mot.grc.service.BulkAssmtGenerationService;
@@ -52,7 +50,6 @@ import java.util.List;
  *   GET    /landscape/assessments/{lndscpAssmtId}
  *   GET    /landscape/assessment/{lndscpAssmtId}/assessmentDetail/{assmtDetailId}
  *   POST   /landscape/assessment/{lndscpAssmtId}/assessmentDetail/{assmtDetailId}/overlay
- *   POST   /landscape/assessment/{lndscpAssmtId}/assessmentDetail/{assmtDetailId}/commentry
  *   POST   /landscape/assessment/{lndscpAssmtId}/callouts
  *   PUT    /landscape/assessment/{lndscpAssmtId}/callouts/{calloutId}
  *   DELETE /landscape/assessment/{lndscpAssmtId}/callouts/{calloutId}
@@ -208,10 +205,12 @@ public class LandscapeAssmtController {
     // ── Detail overlay ───────────────────────────────────────────────────────────
 
     @Operation(summary = "Save an assessment detail overlay",
-            description = "Persists OVRLY_NET_RISK_RTNG and OVRLY_JSTFKN for a detail row and stamps "
-                    + "UPDATED_BY. Allowed only when the detail is in 'Open' status. Returns the persisted "
-                    + "overlay fields, status, and the risk-rating change freshly computed from the save "
-                    + "(not stored).")
+            description = "Persists OVRLY_NET_RISK_RTNG, OVRLY_JSTFKN and REVISED_COMMENTARY for a detail "
+                    + "row and stamps UPDATED_BY. COMMENTARY_REVISED_BY/COMMENTARY_REVISED_AT are stamped "
+                    + "only when the incoming commentary differs from what is stored; a blank/absent "
+                    + "commentary clears it, so resend the current value to leave it untouched. Allowed "
+                    + "only when the detail is in 'Open' status. Returns the persisted fields, status, and "
+                    + "the risk-rating change freshly computed from the save (not stored).")
     @ApiResponses(value = {
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "Overlay saved"),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "Validation failed"),
@@ -237,39 +236,6 @@ public class LandscapeAssmtController {
         OverlayResponse saved = detailsService.saveOverlay(lndscpAssmtId, assmtDetailId, request, user);
         return ResponseEntity.ok(ApiResponse.successWithData(
                 "Assessment detail " + assmtDetailId + " saved successfully.", saved));
-    }
-
-    // ── Detail commentary ──────────────────────────────────────────────────────────
-
-    @Operation(summary = "Save an assessment detail's revised commentary",
-            description = "Updates only REVISED_COMMENTARY on a detail row and stamps UPDATED_BY. Allowed "
-                    + "only when the detail is in 'Open' status. Returns the saved commentary with the "
-                    + "assessment and detail ids.")
-    @ApiResponses(value = {
-            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "Commentary saved"),
-            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "Missing or blank X-EGRC-UserId header"),
-            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "Assessment or detail not found"),
-            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "409", description = "Detail is not in 'Open' status"),
-            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "500", description = "Unexpected server error")
-    })
-    @PostMapping("/assessment/{lndscpAssmtId}/assessmentDetail/{assmtDetailId}/commentry")
-    public ResponseEntity<ApiResponse<AssmtDetailCommentaryResponse>> saveAssessmentDetailCommentary(
-            @Parameter(description = "orl_lndscp_assmt.id", required = true)
-            @PathVariable Long lndscpAssmtId,
-            @Parameter(description = "orl_lndscp_assmt_details.id", required = true)
-            @PathVariable Long assmtDetailId,
-            @Valid @RequestBody SaveCommentaryRequest request,
-            @Parameter(description = "Operator identity", required = true)
-            @RequestHeader(value = USER_HEADER, required = false) String username) {
-
-        String user = requireUser(username);
-        log.debug("POST /landscape/assessment/{}/assessmentDetail/{}/commentry requested by '{}'",
-                lndscpAssmtId, assmtDetailId, user);
-
-        AssmtDetailCommentaryResponse saved =
-                detailsService.saveCommentary(lndscpAssmtId, assmtDetailId, request, user);
-        return ResponseEntity.ok(ApiResponse.successWithData(
-                "Assessment detail " + assmtDetailId + " commentary saved successfully.", saved));
     }
 
     // ── Callouts ─────────────────────────────────────────────────────────────────

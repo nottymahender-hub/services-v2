@@ -1,12 +1,10 @@
 package com.dbs.mot.grc.service;
 
-import com.dbs.mot.grc.dto.AssmtDetailCommentaryResponse;
 import com.dbs.mot.grc.dto.AssmtDetailResponse;
 import com.dbs.mot.grc.dto.LandscapeAssmtDetailItem;
 import com.dbs.mot.grc.dto.LandscapeAssmtDetailSummary;
 import com.dbs.mot.grc.dto.OverlayResponse;
 import com.dbs.mot.grc.dto.SaveAssmtDetailOverlayNRRRequest;
-import com.dbs.mot.grc.dto.SaveCommentaryRequest;
 import com.dbs.mot.grc.exception.ConflictException;
 import com.dbs.mot.grc.exception.NotFoundException;
 import org.junit.jupiter.api.BeforeEach;
@@ -235,6 +233,21 @@ class LandscapeAssmtDetailsServiceTest {
     }
 
     @Test
+    void fetchDetailById_surfacesCommentaryRevisionStamp_onCurrentAndPreviousBlocks() {
+        // Row 401 (current) has its own revision stamp; row 400 (previous) has none — each block
+        // must reflect its own row's stamp, not the other's.
+        jdbc.execute("UPDATE orl_lndscp_assmt_details SET COMMENTARY_REVISED_BY='reviser1', "
+                + "COMMENTARY_REVISED_AT=TIMESTAMP '2024-07-01 01:00:00' WHERE id=401");
+
+        AssmtDetailResponse response = service.fetchDetailById(41L, 401L);
+
+        assertThat(response.getCurrentMonthNRRDetails().getCommentaryRevisedBy()).isEqualTo("reviser1");
+        assertThat(response.getCurrentMonthNRRDetails().getCommentaryRevisedAt()).isNotNull();
+        assertThat(response.getPrevMonthNRRDetails().getCommentaryRevisedBy()).isNull();
+        assertThat(response.getPrevMonthNRRDetails().getCommentaryRevisedAt()).isNull();
+    }
+
+    @Test
     void fetchDetailById_unknownDetail_throwsNotFound() {
         assertThatThrownBy(() -> service.fetchDetailById(41L, 8888L))
                 .isInstanceOf(NotFoundException.class)
@@ -244,20 +257,18 @@ class LandscapeAssmtDetailsServiceTest {
     // ── saveOverlay ─────────────────────────────────────────────────────────────
 
     @Test
-    void saveOverlay_persistsOverlay_stampsUpdatedBy_andLeavesCommentaryUntouched() {
-        // Seed an existing revised commentary; the overlay save must not touch it.
-        jdbc.execute("UPDATE orl_lndscp_assmt_details SET REVISED_COMMENTARY='pre-existing' WHERE id=401");
+    void saveOverlay_persistsOverlayAndCommentary_stampsUpdatedBy() {
         SaveAssmtDetailOverlayNRRRequest req = new SaveAssmtDetailOverlayNRRRequest();
         req.setOverlaidNRR("Low");
         req.setOverlayJstfkn("overlay reason");
+        req.setRevisedCommentry("Analyst note");
 
         service.saveOverlay(41L, 401L, req, "auditor");
 
         assertThat(column(401, "OVRLY_NET_RISK_RTNG")).isEqualTo("Low");
         assertThat(column(401, "OVRLY_JSTFKN")).isEqualTo("overlay reason");
         assertThat(column(401, "UPDATED_BY")).isEqualTo("auditor");
-        // Overlay does not save commentary; the pre-existing value is preserved.
-        assertThat(column(401, "REVISED_COMMENTARY")).isEqualTo("pre-existing");
+        assertThat(column(401, "REVISED_COMMENTARY")).isEqualTo("Analyst note");
         // UPDATE_DT_TM is DB-managed (ON UPDATE CURRENT_TIMESTAMP).
         Integer stamped = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM orl_lndscp_assmt_details WHERE id=401 AND UPDATE_DT_TM IS NOT NULL",
@@ -275,6 +286,57 @@ class LandscapeAssmtDetailsServiceTest {
 
         assertThat(column(401, "OVRLY_NET_RISK_RTNG")).isNull();
         assertThat(column(401, "OVRLY_JSTFKN")).isNull();
+    }
+
+    @Test
+    void saveOverlay_commentaryChanged_stampsReviserAndTimestamp() {
+        // Detail 401 starts with no revised commentary (null); sending a new value is a change.
+        SaveAssmtDetailOverlayNRRRequest req = new SaveAssmtDetailOverlayNRRRequest();
+        req.setRevisedCommentry("New commentary");
+
+        OverlayResponse resp = service.saveOverlay(41L, 401L, req, "auditor");
+
+        assertThat(resp.getRevisedCommentry()).isEqualTo("New commentary");
+        assertThat(resp.getCommentaryRevisedBy()).isEqualTo("auditor");
+        assertThat(resp.getCommentaryRevisedAt()).isNotNull();
+        assertThat(column(401, "COMMENTARY_REVISED_BY")).isEqualTo("auditor");
+        Integer atSet = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM orl_lndscp_assmt_details WHERE id=401 AND COMMENTARY_REVISED_AT IS NOT NULL",
+                Integer.class);
+        assertThat(atSet).isEqualTo(1);
+    }
+
+    @Test
+    void saveOverlay_commentaryUnchanged_leavesRevisionStampUntouched() {
+        // Seed an existing commentary already revised by someone else at an earlier time.
+        jdbc.execute("UPDATE orl_lndscp_assmt_details SET REVISED_COMMENTARY='existing note', "
+                + "COMMENTARY_REVISED_BY='reviser0', COMMENTARY_REVISED_AT=TIMESTAMP '2024-01-01 00:00:00' "
+                + "WHERE id=401");
+        SaveAssmtDetailOverlayNRRRequest req = new SaveAssmtDetailOverlayNRRRequest();
+        req.setOverlaidNRR("Low");
+        req.setOverlayJstfkn("overlay reason");
+        req.setRevisedCommentry("existing note"); // resent unchanged
+
+        OverlayResponse resp = service.saveOverlay(41L, 401L, req, "auditor");
+
+        // Commentary text is unchanged, so the revision audit trail is not restamped.
+        assertThat(resp.getRevisedCommentry()).isEqualTo("existing note");
+        assertThat(resp.getCommentaryRevisedBy()).isEqualTo("reviser0");
+        assertThat(column(401, "COMMENTARY_REVISED_AT")).isNotNull();
+        assertThat(column(401, "COMMENTARY_REVISED_BY")).isEqualTo("reviser0");
+    }
+
+    @Test
+    void saveOverlay_response_includesCtrlEffRtnAndNrrOverlaidFlag() {
+        SaveAssmtDetailOverlayNRRRequest req = new SaveAssmtDetailOverlayNRRRequest();
+        req.setOverlaidNRR("Low");
+        req.setOverlayJstfkn("overlay reason");
+
+        OverlayResponse resp = service.saveOverlay(41L, 401L, req, "auditor");
+
+        // fact_orl for (OR, Tech, SG) on 2024-07-01 (assmt 41's biz_dt) has CTRL_EFF_RTN 'Satisfactory to Good'.
+        assertThat(resp.getCtrlEffRtn()).isEqualTo("Satisfactory to Good");
+        assertThat(resp.getNrrOverlaid()).isEqualTo("Y");
     }
 
     @Test
@@ -326,43 +388,6 @@ class LandscapeAssmtDetailsServiceTest {
         OverlayResponse resp = service.saveOverlay(41L, 401L, req, "auditor");
 
         assertThat(resp.getRiskRatingChange()).isEqualTo("Improved");
-    }
-
-    // ── saveCommentary ──────────────────────────────────────────────────────────
-
-    @Test
-    void saveCommentary_updatesCommentary_stampsReviserAndTimestamp_andReturnsThem() {
-        SaveCommentaryRequest req = new SaveCommentaryRequest();
-        req.setRevisedCommentry("Analyst note");
-
-        AssmtDetailCommentaryResponse resp = service.saveCommentary(41L, 401L, req, "auditor");
-
-        assertThat(resp.getLndscpAssmtId()).isEqualTo(41L);
-        assertThat(resp.getAssmtDetailId()).isEqualTo(401L);
-        assertThat(resp.getRevisedCommentary()).isEqualTo("Analyst note");
-        assertThat(resp.getCommentaryRevisedBy()).isEqualTo("auditor");
-        assertThat(resp.getCommentaryRevisedAt()).isNotNull();   // stamped (surfaced in SGT)
-        assertThat(column(401, "REVISED_COMMENTARY")).isEqualTo("Analyst note");
-        assertThat(column(401, "COMMENTARY_REVISED_BY")).isEqualTo("auditor");
-        assertThat(column(401, "UPDATED_BY")).isEqualTo("auditor");
-        Integer atSet = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM orl_lndscp_assmt_details WHERE id=401 AND COMMENTARY_REVISED_AT IS NOT NULL",
-                Integer.class);
-        assertThat(atSet).isEqualTo(1);
-    }
-
-    @Test
-    void saveCommentary_detailNotOpen_throwsConflict() {
-        assertThatThrownBy(() -> service.saveCommentary(40L, 402L, new SaveCommentaryRequest(), "auditor"))
-                .isInstanceOf(ConflictException.class)
-                .hasMessageContaining("Open");
-    }
-
-    @Test
-    void saveCommentary_unknownAssessment_throwsNotFound() {
-        assertThatThrownBy(() -> service.saveCommentary(9999L, 401L, new SaveCommentaryRequest(), "auditor"))
-                .isInstanceOf(NotFoundException.class)
-                .hasMessageContaining("9999");
     }
 
     private String column(long id, String col) {

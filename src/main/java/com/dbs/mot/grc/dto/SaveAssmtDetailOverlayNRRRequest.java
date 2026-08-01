@@ -14,11 +14,13 @@ import org.springframework.util.StringUtils;
 /**
  * Request body for the overlay endpoint
  * {@code POST /landscape/assessment/{lndscpAssmtId}/assessmentDetail/{assmtDetailId}/overlay}.
- * Persists the analyst overlay onto an assessment detail row: the overlaid net risk rating and its
- * justification. (Revised commentary is saved separately via the {@code /commentry} API.)
+ * Persists the analyst overlay onto an assessment detail row: the overlaid net risk rating, its
+ * justification, and the revised commentary — all three in one save.
  *
- * <p>Both fields are optional, but when {@code overlaidNRR} is provided {@code overlayJstfkn} is
- * required — and vice versa (enforced by {@link #isOverlayPairConsistent()}).
+ * <p>{@code overlaidNRR}/{@code overlayJstfkn} are optional but must be supplied together (enforced
+ * by {@link #isOverlayPairConsistent()}). {@code revisedCommentry} is independent of that pair: a
+ * blank/absent value clears the stored commentary, so a caller that wants to keep the existing
+ * commentary unchanged must resend its current value.
  */
 @Getter
 @Setter
@@ -34,6 +36,11 @@ public class SaveAssmtDetailOverlayNRRRequest {
     @Schema(description = "Justification for the overlay (max 4000 chars).")
     @Size(max = 4000, message = "overlayJstfkn must not exceed 4000 characters")
     private String overlayJstfkn;
+
+    @Schema(description = "Analyst-revised commentary stored in REVISED_COMMENTARY. Blank/absent clears it.",
+            example = "Reviewed with the BU; risk accepted for this cycle.")
+    @Size(max = 4000, message = "revisedCommentry must not exceed 4000 characters")
+    private String revisedCommentry;
 
     /** Overlay rating and justification must be supplied together (both present or both absent). */
     @JsonIgnore

@@ -3,6 +3,7 @@ package com.dbs.mot.grc.dto;
 import lombok.Builder;
 import lombok.Getter;
 
+import java.time.LocalDateTime;
 import java.util.Map;
 
 /**
@@ -62,4 +63,10 @@ public class MonthNRRDetails {
 
     /** Current-month block only: {@code orl_lndscp_assmt_details.REVISED_COMMENTARY}. */
     private final String revisedCommentry;
+
+    /** {@code orl_lndscp_assmt_details.COMMENTARY_REVISED_BY} for this month's row. */
+    private final String commentaryRevisedBy;
+
+    /** {@code orl_lndscp_assmt_details.COMMENTARY_REVISED_AT} for this month's row, in Singapore time. */
+    private final LocalDateTime commentaryRevisedAt;
 }

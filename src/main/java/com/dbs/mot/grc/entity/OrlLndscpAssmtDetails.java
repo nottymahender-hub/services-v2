@@ -67,14 +67,14 @@ public class OrlLndscpAssmtDetails {
     private DetailStatus status;
 
     /**
-     * User (from the request header) who last revised the commentary via the {@code /commentry} API.
-     * Distinct from the generic {@code UPDATED_BY}; set only when the commentary is saved.
+     * User (from the request header) who last revised the commentary via the overlay-save API.
+     * Distinct from the generic {@code UPDATED_BY}; set only when the commentary text actually changes.
      */
     @Column("COMMENTARY_REVISED_BY")
     private String commentaryRevisedBy;
 
     /**
-     * When the commentary was last revised, stored in UTC (app-written by the {@code /commentry} API,
+     * When the commentary was last revised, stored in UTC (app-written by the overlay-save API,
      * so it is a normal — not {@code @ReadOnlyProperty} — column). Surfaced in Singapore time.
      */
     @Column("COMMENTARY_REVISED_AT")

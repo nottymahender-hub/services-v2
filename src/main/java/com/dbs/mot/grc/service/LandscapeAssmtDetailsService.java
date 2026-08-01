@@ -10,7 +10,6 @@ import com.dbs.mot.grc.exception.NotFoundException;
 import com.dbs.mot.grc.util.RiskAreaParser;
 import com.dbs.mot.grc.util.RiskRatingChanges;
 import com.dbs.mot.grc.util.SgtDateTimes;
-import com.dbs.mot.grc.dto.AssmtDetailCommentaryResponse;
 import com.dbs.mot.grc.dto.AssmtDetailResponse;
 import com.dbs.mot.grc.dto.AssmtHeader;
 import com.dbs.mot.grc.dto.CalloutResponse;
@@ -24,7 +23,6 @@ import com.dbs.mot.grc.dto.MonthNRRDetails;
 import com.dbs.mot.grc.dto.OverlayResponse;
 import com.dbs.mot.grc.dto.RiskAreaGroup;
 import com.dbs.mot.grc.dto.SaveAssmtDetailOverlayNRRRequest;
-import com.dbs.mot.grc.dto.SaveCommentaryRequest;
 import com.dbs.mot.grc.entity.FactOrl;
 import com.dbs.mot.grc.entity.ModuleFact;
 import com.dbs.mot.grc.entity.OrlLndscpAssmt;
@@ -236,11 +234,15 @@ public class LandscapeAssmtDetailsService {
     }
 
     /**
-     * Saves the analyst overlay (overlaid net risk rating and its justification) onto an assessment
-     * detail row and stamps the auditor. Revised commentary is <strong>not</strong> handled here — it
-     * is saved solely via the {@code /commentry} API. The returned risk-rating change is freshly
-     * derived (previous assessment's final NRR for this dimension vs. this detail's effective NRR
-     * after the save) — it is not persisted.
+     * Saves the analyst overlay (overlaid net risk rating, its justification, and the revised
+     * commentary) onto an assessment detail row in one call, and stamps the auditor.
+     *
+     * <p>{@code COMMENTARY_REVISED_BY}/{@code COMMENTARY_REVISED_AT} are stamped only when the
+     * incoming commentary actually differs from what is already stored — an overlay-only save that
+     * resends the same commentary text leaves the revision audit trail untouched.
+     *
+     * <p>The returned risk-rating change is freshly derived (previous assessment's final NRR for
+     * this dimension vs. this detail's effective NRR after the save) — it is not persisted.
      *
      * @throws NotFoundException if the assessment or the detail does not exist
      * @throws ConflictException if the detail is not in {@code Open} status
@@ -257,79 +259,52 @@ public class LandscapeAssmtDetailsService {
                         "Landscape assessment not found for id: " + lndscpAssmtId));
 
         OrlLndscpAssmtDetails detail = requireOpenDetail(assmtDetailId);
+        DimensionKey key = keyOf(detail);
 
         String overlaidNrr = blankToNull(request.getOverlaidNRR());
         NetRiskRating newOverlay = overlaidNrr != null ? NetRiskRating.fromDbValue(overlaidNrr) : null;
         boolean overlayChanged = !Objects.equals(newOverlay, detail.getOvrlyNetRiskRtng());
 
-        OrlLndscpAssmtDetails saved = detailsRepository.save(detail.toBuilder()
+        String newCommentary = blankToNull(request.getRevisedCommentry());
+        boolean commentaryChanged = !Objects.equals(newCommentary, detail.getRevisedCommentary());
+
+        // The fact for this dimension on the assessment's own business date is needed either way
+        // now: as the calculated-rating fallback (when no overlay is set) and for CTRL_EFF_RTN in
+        // the response — so it is fetched once, unconditionally, and reused for both.
+        Optional<FactOrl> fact = factFor(assmt.bizDt(), key);
+
+        OrlLndscpAssmtDetails.OrlLndscpAssmtDetailsBuilder toSave = detail.toBuilder()
                 .ovrlyNetRiskRtng(newOverlay)
                 .ovrlyJstfkn(blankToNull(request.getOverlayJstfkn()))
-                .updatedBy(username)
-                .build());
+                .revisedCommentary(newCommentary)
+                .updatedBy(username);
+        if (commentaryChanged) {
+            toSave.commentaryRevisedBy(username).commentaryRevisedAt(LocalDateTime.now(ZoneOffset.UTC));
+        }
+        OrlLndscpAssmtDetails saved = detailsRepository.save(toSave.build());
 
-        // Derive the change fresh from the just-saved overlay — never persisted. This endpoint has no
-        // use for module facts, so it fetches only the previous rating (not a full Snapshot).
-        DimensionKey key = keyOf(saved);
+        // Derive the change fresh from the just-saved overlay — never persisted.
         NetRiskRating previousFinal = finalRatingForDimension(previousAssmtHeader(assmt), key);
-        // The calculated rating is only needed as a fallback when no overlay is set — skip the
-        // fact_orl lookup entirely when the overlay itself is the effective rating.
-        NetRiskRating currentCalculated = newOverlay == null
-                ? factFor(assmt.bizDt(), key).map(FactOrl::getCalNetRiskRtng).orElse(null)
-                : null;
+        NetRiskRating currentCalculated = fact.map(FactOrl::getCalNetRiskRtng).orElse(null);
         NetRiskRating currentEffective = effectiveNrr(newOverlay, currentCalculated);
         RiskRatingChange riskRtngChge = RiskRatingChanges.derive(previousFinal, currentEffective);
 
-        log.info("Saved overlay for detail id={} of assessment id={} by '{}' (overlayChanged={}) -> {}",
-                assmtDetailId, lndscpAssmtId, username, overlayChanged, riskRtngChge);
+        log.info("Saved overlay for detail id={} of assessment id={} by '{}' "
+                        + "(overlayChanged={}, commentaryChanged={}) -> {}",
+                assmtDetailId, lndscpAssmtId, username, overlayChanged, commentaryChanged, riskRtngChge);
 
         return OverlayResponse.builder()
                 .lndscpAssmtId(lndscpAssmtId)
                 .assmtDetailId(assmtDetailId)
                 .overlaidNRR(PersistableEnum.dbValue(saved.getOvrlyNetRiskRtng()))
                 .overlayJstfkn(saved.getOvrlyJstfkn())
+                .nrrOverlaid(saved.getOvrlyNetRiskRtng() != null ? OVERLAID_YES : OVERLAID_NO)
+                .ctrlEffRtn(fact.map(FactOrl::getCtrlEffRtn).orElse(null))
                 .status(PersistableEnum.dbValue(saved.getStatus()))
-                .riskRatingChange(PersistableEnum.dbValue(riskRtngChge))
-                .build();
-    }
-
-    /**
-     * Saves only the analyst-revised commentary ({@code REVISED_COMMENTARY}) of a detail row and
-     * stamps who revised it and when ({@code COMMENTARY_REVISED_BY}/{@code COMMENTARY_REVISED_AT},
-     * the latter in UTC), returning the saved values. Same guards as the overlay save.
-     *
-     * @throws NotFoundException if the assessment or the detail does not exist
-     * @throws ConflictException if the detail is not in {@code Open} status
-     */
-    @Transactional
-    public AssmtDetailCommentaryResponse saveCommentary(Long lndscpAssmtId, Long assmtDetailId,
-                                                        SaveCommentaryRequest request, String username) {
-        log.debug("Saving commentary for detail id={} of assessment id={} by '{}'",
-                assmtDetailId, lndscpAssmtId, username);
-
-        if (!assmtRepository.existsById(lndscpAssmtId)) {
-            throw new NotFoundException("Landscape assessment not found for id: " + lndscpAssmtId);
-        }
-        OrlLndscpAssmtDetails detail = requireOpenDetail(assmtDetailId);
-
-        // Record the revision author + timestamp (UTC; surfaced in SGT on read) with the commentary.
-        LocalDateTime revisedAt = LocalDateTime.now(ZoneOffset.UTC);
-        OrlLndscpAssmtDetails saved = detailsRepository.save(detail.toBuilder()
-                .revisedCommentary(blankToNull(request.getRevisedCommentry()))
-                .commentaryRevisedBy(username)
-                .commentaryRevisedAt(revisedAt)
-                .updatedBy(username)
-                .build());
-
-        log.info("Saved commentary for detail id={} of assessment id={} by '{}' at {} (UTC)",
-                assmtDetailId, lndscpAssmtId, username, revisedAt);
-
-        return AssmtDetailCommentaryResponse.builder()
-                .lndscpAssmtId(lndscpAssmtId)
-                .assmtDetailId(assmtDetailId)
-                .revisedCommentary(saved.getRevisedCommentary())
+                .revisedCommentry(saved.getRevisedCommentary())
                 .commentaryRevisedBy(saved.getCommentaryRevisedBy())
                 .commentaryRevisedAt(SgtDateTimes.toSgt(saved.getCommentaryRevisedAt()))
+                .riskRatingChange(PersistableEnum.dbValue(riskRtngChge))
                 .build();
     }
 
@@ -415,7 +390,9 @@ public class LandscapeAssmtDetailsService {
                 .assmtPeriod(assmtPeriod)
                 .riskRatingChange(PersistableEnum.dbValue(change))
                 .grcMetrics(grcMetricsService.buildBlocks(target.moduleFacts(), baseline.moduleFacts()))
-                .commentry(target.fact() != null ? target.fact().getCommentary() : null);
+                .commentry(target.fact() != null ? target.fact().getCommentary() : null)
+                .commentaryRevisedBy(row.getCommentaryRevisedBy())
+                .commentaryRevisedAt(SgtDateTimes.toSgt(row.getCommentaryRevisedAt()));
     }
 
     /**
@@ -605,10 +582,14 @@ public class LandscapeAssmtDetailsService {
                     prevId, assmt.getId());
             return Collections.emptyMap();
         }
-        // Match only the previous month's own facts (targeted semi-join, not a whole-date scan).
-        Map<DimensionKey, FactOrl> prevFacts = factsForAssmt(prevId, prev.getBizDt());
         Set<OrlLndscpAssmtDetails> prevDetails =
                 prev.getDetails() != null ? prev.getDetails() : Set.of();
+
+        // The fact fallback is only ever used for a row with no overlay — skip the semi-join
+        // fetch entirely when every previous-month row already carries an overlay.
+        boolean anyRowNeedsFact = prevDetails.stream().anyMatch(d -> d.getOvrlyNetRiskRtng() == null);
+        Map<DimensionKey, FactOrl> prevFacts =
+                anyRowNeedsFact ? factsForAssmt(prevId, prev.getBizDt()) : Collections.emptyMap();
         Map<DimensionKey, NetRiskRating> ratings = new LinkedHashMap<>();
         for (OrlLndscpAssmtDetails d : prevDetails) {
             DimensionKey key = keyOf(d);

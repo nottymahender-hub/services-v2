@@ -2,9 +2,10 @@ package com.dbs.mot.grc.exception;
 
 /**
  * Thrown when assessment generation finds no {@code fact_orl} data for the reported period, so the
- * assessment cannot be generated. Handled by {@link GlobalExceptionHandler} → HTTP 409, though in
- * practice it is always caught by {@code BulkAssmtGenerationService} and reported as a per-landscape
- * skip rather than reaching the controller.
+ * assessment cannot be generated. Purely an internal control-flow signal: {@code generateForDim}'s
+ * only caller, {@code BulkAssmtGenerationService.generateOne}, always catches it and reports a
+ * per-landscape {@code SKIPPED_NO_DATA} outcome — it is not registered in {@link GlobalExceptionHandler}
+ * and must never reach an HTTP boundary.
  */
 public class NoFactDataException extends RuntimeException {
 

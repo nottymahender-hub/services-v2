@@ -110,17 +110,6 @@ public class GlobalExceptionHandler {
     }
 
     /**
-     * HTTP 409 — assessment generation found no {@code fact_orl} data for the reported period. In
-     * practice always caught by {@code BulkAssmtGenerationService} and reported as a per-landscape
-     * skip; this handler exists only as a defensive fallback.
-     */
-    @ExceptionHandler(NoFactDataException.class)
-    public ResponseEntity<ApiResponse<Void>> handleNoFactData(NoFactDataException ex) {
-        log.warn("No fact data for generation: {}", ex.getMessage());
-        return ResponseEntity.status(HttpStatus.CONFLICT).body(ApiResponse.failure(ex.getMessage()));
-    }
-
-    /**
      * HTTP 401 — the {@code X-EGRC-UserId} header is missing from the request.
      * Spring throws {@link MissingRequestHeaderException} for any required
      * header annotated with {@code @RequestHeader} that is absent.

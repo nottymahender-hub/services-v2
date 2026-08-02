@@ -32,9 +32,6 @@ public class OverlayResponse {
     /** {@code "Y"} when {@code overlaidNRR} is set for this row, else {@code "N"}. */
     private final String nrrOverlaid;
 
-    /** {@code fact_orl.CTRL_EFF_RTN} for this dimension on the assessment's own business date. */
-    private final String ctrlEffRtn;
-
     /** {@code STATUS} db value of the detail row after the save. */
     private final String status;
 

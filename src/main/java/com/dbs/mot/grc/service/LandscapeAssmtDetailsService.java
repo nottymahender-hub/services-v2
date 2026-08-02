@@ -301,7 +301,6 @@ public class LandscapeAssmtDetailsService {
                 .overlaidNRR(PersistableEnum.dbValue(saved.getOvrlyNetRiskRtng()))
                 .overlayJstfkn(saved.getOvrlyJstfkn())
                 .nrrOverlaid(saved.getOvrlyNetRiskRtng() != null ? OVERLAID_YES : OVERLAID_NO)
-                .ctrlEffRtn(fact.map(FactOrl::getCtrlEffRtn).orElse(null))
                 .status(PersistableEnum.dbValue(saved.getStatus()))
                 .revisedCommentary(saved.getRevisedCommentary())
                 .commentaryRevisedBy(saved.getCommentaryRevisedBy())

@@ -333,9 +333,6 @@ class LandscapeAssmtDetailsServiceTest {
         req.setOverlayJstfkn("overlay reason");
 
         OverlayResponse resp = service.saveOverlay(41L, 401L, req, "auditor");
-
-        // fact_orl for (OR, Tech, SG) on 2024-07-01 (assmt 41's biz_dt) has CTRL_EFF_RTN 'Satisfactory to Good'.
-        assertThat(resp.getCtrlEffRtn()).isEqualTo("Satisfactory to Good");
         assertThat(resp.getNrrOverlaid()).isEqualTo("Y");
     }
 

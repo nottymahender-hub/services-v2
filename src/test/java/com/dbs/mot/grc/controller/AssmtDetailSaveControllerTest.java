@@ -105,8 +105,6 @@ class AssmtDetailSaveControllerTest {
            .andExpect(jsonPath("$.data.overlayJstfkn", is("Overlay reason")))
            .andExpect(jsonPath("$.data.status", is("Open")))
            .andExpect(jsonPath("$.data.nrrOverlaid", is("Y")))
-           // No fact_orl row seeded in this test → ctrlEffRtn stays null.
-           .andExpect(jsonPath("$.data.ctrlEffRtn").value(nullValue()))
            // No previous assessment/fact seeded here → derived change is N.A.
            .andExpect(jsonPath("$.data.riskRatingChange", is("N.A")));
 

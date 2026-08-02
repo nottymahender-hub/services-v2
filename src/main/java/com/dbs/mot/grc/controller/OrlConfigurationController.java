@@ -1,9 +1,9 @@
 package com.dbs.mot.grc.controller;
 
-import com.dbs.mot.grc.csv.OrlConfigImporter;
+import com.dbs.mot.grc.csv.ConfigExporter;
+import com.dbs.mot.grc.csv.ConfigUploader;
 import com.dbs.mot.grc.csv.OrlConfigImporterRegistry;
 import com.dbs.mot.grc.dto.ApiResponse;
-import com.dbs.mot.grc.exception.UnauthorizedException;
 import com.dbs.mot.grc.service.BuLocationHeadcountConfigImportService;
 import com.dbs.mot.grc.service.BusinessUnitConfigImportService;
 import com.dbs.mot.grc.service.EntityMasterConfigImportService;
@@ -13,6 +13,7 @@ import com.dbs.mot.grc.service.NetRiskBandConfigImportService;
 import com.dbs.mot.grc.service.OrlConfigurationService;
 import com.dbs.mot.grc.service.RiskTypeRiskAreaMapConfigImportService;
 import com.dbs.mot.grc.service.TrainStatsConfigImportService;
+import com.dbs.mot.grc.util.OperatorHeader;
 import com.opencsv.CSVWriter;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -45,7 +46,7 @@ import java.nio.charset.StandardCharsets;
  * endpoint ({@code GET /{configName}/download}) that resolves the target table through
  * {@link OrlConfigImporterRegistry}. The upload payload is CSV, but each table is an ORL
  * <em>configuration</em>; the per-table work lives in a {@code *ConfigImportService}
- * (implementing {@link OrlConfigImporter}) and the import+audit transaction in
+ * (implementing {@link com.dbs.mot.grc.csv.OrlConfigImporter}) and the import+audit transaction in
  * {@link OrlConfigurationService}.
  *
  * <p><b>Authentication:</b> uploads require the {@code X-EGRC-UserId} header (stored as
@@ -57,8 +58,6 @@ import java.nio.charset.StandardCharsets;
 @RequiredArgsConstructor
 @Tag(name = "ORL Configurations", description = "Upload and download of the ORL configuration tables.")
 public class OrlConfigurationController {
-
-    private static final String UPLOAD_HEADER = "X-EGRC-UserId";
 
     private final OrlConfigurationService configurationService;
     /** Resolves a config name to its importer for the single download endpoint. */
@@ -85,7 +84,7 @@ public class OrlConfigurationController {
     })
     @PostMapping(value = "/biz-units/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<ApiResponse<Void>> uploadBusinessUnits(
-            @RequestHeader(value = UPLOAD_HEADER, required = false) String username,
+            @RequestHeader(value = OperatorHeader.NAME, required = false) String username,
             @RequestParam("file") MultipartFile file) {
         return upload(businessUnitService, username, file);
     }
@@ -102,7 +101,7 @@ public class OrlConfigurationController {
     })
     @PostMapping(value = "/entity-mstr/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<ApiResponse<Void>> uploadEntityMaster(
-            @RequestHeader(value = UPLOAD_HEADER, required = false) String username,
+            @RequestHeader(value = OperatorHeader.NAME, required = false) String username,
             @RequestParam("file") MultipartFile file) {
         return upload(entityMasterService, username, file);
     }
@@ -119,7 +118,7 @@ public class OrlConfigurationController {
     })
     @PostMapping(value = "/bu-loctn-headcount/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<ApiResponse<Void>> uploadBuLocationHeadcount(
-            @RequestHeader(value = UPLOAD_HEADER, required = false) String username,
+            @RequestHeader(value = OperatorHeader.NAME, required = false) String username,
             @RequestParam("file") MultipartFile file) {
         return upload(buLocationHeadcountService, username, file);
     }
@@ -136,7 +135,7 @@ public class OrlConfigurationController {
     })
     @PostMapping(value = "/risk-type-risk-area-maps/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<ApiResponse<Void>> uploadRiskTypeRiskAreaMaps(
-            @RequestHeader(value = UPLOAD_HEADER, required = false) String username,
+            @RequestHeader(value = OperatorHeader.NAME, required = false) String username,
             @RequestParam("file") MultipartFile file) {
         return upload(riskTypeRiskAreaMapService, username, file);
     }
@@ -153,7 +152,7 @@ public class OrlConfigurationController {
     })
     @PostMapping(value = "/feature-score-band/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<ApiResponse<Void>> uploadFeatureScoreBand(
-            @RequestHeader(value = UPLOAD_HEADER, required = false) String username,
+            @RequestHeader(value = OperatorHeader.NAME, required = false) String username,
             @RequestParam("file") MultipartFile file) {
         return upload(featureScoreBandService, username, file);
     }
@@ -170,7 +169,7 @@ public class OrlConfigurationController {
     })
     @PostMapping(value = "/net-risk-band/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<ApiResponse<Void>> uploadNetRiskBand(
-            @RequestHeader(value = UPLOAD_HEADER, required = false) String username,
+            @RequestHeader(value = OperatorHeader.NAME, required = false) String username,
             @RequestParam("file") MultipartFile file) {
         return upload(netRiskBandService, username, file);
     }
@@ -187,7 +186,7 @@ public class OrlConfigurationController {
     })
     @PostMapping(value = "/train-stats/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<ApiResponse<Void>> uploadTrainStats(
-            @RequestHeader(value = UPLOAD_HEADER, required = false) String username,
+            @RequestHeader(value = OperatorHeader.NAME, required = false) String username,
             @RequestParam("file") MultipartFile file) {
         return upload(trainStatsService, username, file);
     }
@@ -204,7 +203,7 @@ public class OrlConfigurationController {
     })
     @PostMapping(value = "/lndscp-dim/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<ApiResponse<Void>> uploadLandscapeDimensions(
-            @RequestHeader(value = UPLOAD_HEADER, required = false) String username,
+            @RequestHeader(value = OperatorHeader.NAME, required = false) String username,
             @RequestParam("file") MultipartFile file) {
         return upload(landscapeDimensionService, username, file);
     }
@@ -233,9 +232,9 @@ public class OrlConfigurationController {
     // ── Shared helpers ────────────────────────────────────────────────────────
 
     /** Validates the operator header, runs the import+audit transaction, returns HTTP 201. */
-    private ResponseEntity<ApiResponse<Void>> upload(OrlConfigImporter importer,
+    private ResponseEntity<ApiResponse<Void>> upload(ConfigUploader importer,
                                                      String username, MultipartFile file) {
-        String user = requireUser(username);
+        String user = OperatorHeader.require(username);
         log.info("Upload of '{}' configuration requested by '{}'", importer.configName(), user);
         int count = configurationService.importConfig(importer, file, user, file.getOriginalFilename());
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(
@@ -243,7 +242,7 @@ public class OrlConfigurationController {
     }
 
     /** Streams the configuration table as a CSV download. */
-    private void download(OrlConfigImporter importer, HttpServletResponse response) throws IOException {
+    private void download(ConfigExporter importer, HttpServletResponse response) throws IOException {
         log.info("Download of '{}' configuration requested", importer.configName());
         response.setContentType("text/csv");
         response.setHeader("Content-Disposition",
@@ -253,13 +252,5 @@ public class OrlConfigurationController {
             writer.writeNext(importer.getDownloadHeaders());
             importer.writeDataRows(writer);
         }
-    }
-
-    /** Returns the trimmed operator id, or throws {@link UnauthorizedException} when missing/blank. */
-    private String requireUser(String username) {
-        if (username == null || username.isBlank()) {
-            throw new UnauthorizedException("X-EGRC-UserId header is required and must not be blank.");
-        }
-        return username.trim();
     }
 }

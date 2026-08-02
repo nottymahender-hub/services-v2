@@ -7,6 +7,7 @@ import com.dbs.mot.grc.csv.validator.BuLctnHeadcountCsvRowValidator;
 import com.dbs.mot.grc.dto.BuLctnHeadcountCsvRow;
 import com.dbs.mot.grc.entity.OrlBuLctnHeadcount;
 import com.dbs.mot.grc.repository.OrlBuLctnHeadcountRepository;
+import com.dbs.mot.grc.util.CsvFormatters;
 import com.opencsv.CSVWriter;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -15,8 +16,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -47,7 +46,6 @@ public class BuLocationHeadcountConfigImportService implements OrlConfigImporter
             "id", "ORL_BU_NM_L2", "ORL_BU_NM_L3", "ORL_BU_NM_L4",
             "location", "headcount", "uploadedBy", "uploadedAt"
     };
-    private static final DateTimeFormatter DT_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     private static final String KEY_DELIM = "\u0001";
 
     private final CsvImportProcessor csvImportProcessor;
@@ -127,10 +125,10 @@ public class BuLocationHeadcountConfigImportService implements OrlConfigImporter
         log.debug("Writing {} rows for download", CONFIG_NAME);
         StreamSupport.stream(repository.findAll().spliterator(), false).forEach(r ->
                 writer.writeNext(new String[]{
-                        s(r.getId()), r.getOrlBuNmL2(), s(r.getOrlBuNmL3()), s(r.getOrlBuNmL4()),
-                        r.getLocation(), s(r.getHeadcount()),
+                        CsvFormatters.cell(r.getId()), r.getOrlBuNmL2(), CsvFormatters.cell(r.getOrlBuNmL3()), CsvFormatters.cell(r.getOrlBuNmL4()),
+                        r.getLocation(), CsvFormatters.cell(r.getHeadcount()),
                         StringUtils.isBlank(r.getUpdatedBy()) ? r.getCreatedBy() : r.getUpdatedBy(),
-                        fmt(Objects.isNull(r.getUpdateDtTm()) ? r.getCreateDtTm() : r.getUpdateDtTm())
+                        CsvFormatters.cell(Objects.isNull(r.getUpdateDtTm()) ? r.getCreateDtTm() : r.getUpdateDtTm())
                 }));
     }
 
@@ -141,13 +139,5 @@ public class BuLocationHeadcountConfigImportService implements OrlConfigImporter
                 l3 == null ? "" : l3,
                 l4 == null ? "" : l4,
                 location == null ? "" : location);
-    }
-
-    private String s(Object v) {
-        return v == null ? "" : v.toString();
-    }
-
-    private String fmt(LocalDateTime dt) {
-        return dt == null ? "" : dt.format(DT_FMT);
     }
 }

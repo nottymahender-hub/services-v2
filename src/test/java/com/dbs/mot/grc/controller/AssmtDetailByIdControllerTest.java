@@ -235,7 +235,7 @@ class AssmtDetailByIdControllerTest {
            .andExpect(jsonPath("$.data.currentMonthNRRDetails.ctrlEffRtn", is("Good")))
            .andExpect(jsonPath("$.data.currentMonthNRRDetails.assmtPeriod", is("July 2026")))
            .andExpect(jsonPath("$.data.currentMonthNRRDetails.commentry", is("July commentary")))
-           .andExpect(jsonPath("$.data.currentMonthNRRDetails.revisedCommentry", is("Revised July commentary")))
+           .andExpect(jsonPath("$.data.currentMonthNRRDetails.revisedCommentary", is("Revised July commentary")))
            // Commentary-revision audit for this month's own row (seeded in setUp for detail 300).
            .andExpect(jsonPath("$.data.currentMonthNRRDetails.commentaryRevisedBy", is("reviser1")))
            .andExpect(jsonPath("$.data.currentMonthNRRDetails.commentaryRevisedAt", startsWith("2026-07-05T17:00:00")))

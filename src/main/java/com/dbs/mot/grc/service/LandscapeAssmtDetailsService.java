@@ -108,9 +108,9 @@ public class LandscapeAssmtDetailsService {
                 riskAreaParser.lookupByRiskArea(riskAreaGroups);
 
         List<LandscapeAssmtDetailItem> items = rows.stream()
-                .map(row -> toItem(row, dim.getBizUnitLvl(),
+                .map(row -> toItem(row, dim.getBizUnitLvl(), new RowEnrichment(
                         currentFacts.get(keyOf(row)), prevFinalRatings.get(keyOf(row)),
-                        riskAreaLookup.get(row.getRiskArea())))
+                        riskAreaLookup.get(row.getRiskArea()))))
                 .toList();
 
         // Dimensions are built from the already-loaded config; callouts are one additional read.
@@ -184,8 +184,9 @@ public class LandscapeAssmtDetailsService {
         Snapshot previous = snapshotAt(bizDtOf(prevAssmt), key);
 
         // b.i. Compare current against previous → currentMonthNRRDetails.
-        MonthNRRDetails currentDetails = buildMonthDetails(row, current, prevRow, previous, assmt.assmtPeriod())
-                .revisedCommentry(row.getRevisedCommentary())
+        MonthNRRDetails currentDetails = buildMonthDetails(
+                new PeriodView(row, current), new PeriodView(prevRow, previous), assmt.assmtPeriod())
+                .revisedCommentary(row.getRevisedCommentary())
                 .build();
 
         // c. Previous-to-previous: two assessments back — the baseline for the previous block's own
@@ -197,7 +198,8 @@ public class LandscapeAssmtDetailsService {
         // c.i. Compare previous against previous-to-previous → prevMonthNRRDetails.
         //      null when there is no previous assessment, or it has no row for this dimension.
         MonthNRRDetails previousDetails = prevRow == null ? null
-                : buildMonthDetails(prevRow, previous, prevPrevRow, prevPrevious, prevAssmt.assmtPeriod())
+                : buildMonthDetails(
+                        new PeriodView(prevRow, previous), new PeriodView(prevPrevRow, prevPrevious), prevAssmt.assmtPeriod())
                         .id(prevRow.getId())
                         .build();
 
@@ -265,7 +267,7 @@ public class LandscapeAssmtDetailsService {
         NetRiskRating newOverlay = overlaidNrr != null ? NetRiskRating.fromDbValue(overlaidNrr) : null;
         boolean overlayChanged = !Objects.equals(newOverlay, detail.getOvrlyNetRiskRtng());
 
-        String newCommentary = blankToNull(request.getRevisedCommentry());
+        String newCommentary = blankToNull(request.getRevisedCommentary());
         boolean commentaryChanged = !Objects.equals(newCommentary, detail.getRevisedCommentary());
 
         // The fact for this dimension on the assessment's own business date is needed either way
@@ -301,7 +303,7 @@ public class LandscapeAssmtDetailsService {
                 .nrrOverlaid(saved.getOvrlyNetRiskRtng() != null ? OVERLAID_YES : OVERLAID_NO)
                 .ctrlEffRtn(fact.map(FactOrl::getCtrlEffRtn).orElse(null))
                 .status(PersistableEnum.dbValue(saved.getStatus()))
-                .revisedCommentry(saved.getRevisedCommentary())
+                .revisedCommentary(saved.getRevisedCommentary())
                 .commentaryRevisedBy(saved.getCommentaryRevisedBy())
                 .commentaryRevisedAt(SgtDateTimes.toSgt(saved.getCommentaryRevisedAt()))
                 .riskRatingChange(PersistableEnum.dbValue(riskRtngChge))
@@ -359,25 +361,30 @@ public class LandscapeAssmtDetailsService {
     }
 
     /**
+     * One period's detail row together with its {@link Snapshot} — every drill-down comparison
+     * needs both as a unit (the row for its overlay/status, the snapshot for its fact/module data),
+     * so they travel together instead of as separate parameters.
+     */
+    private record PeriodView(OrlLndscpAssmtDetails row, Snapshot snapshot) {}
+
+    /**
      * Builds one month's block (used for both the current and previous drill-down blocks) by
-     * comparing {@code row}'s period ({@code target}) against the baseline period
-     * ({@code baselineRow}/{@code baseline}). Returns a builder — rather than the built object — so
-     * each call site can still set its own block-specific field ({@code id} for the previous block,
-     * {@code revisedCommentry} for the current block) before calling {@code .build()}.
+     * comparing {@code target}'s period against the {@code baseline} period. Returns a builder —
+     * rather than the built object — so each call site can still set its own block-specific field
+     * ({@code id} for the previous block, {@code revisedCommentary} for the current block) before
+     * calling {@code .build()}.
      *
-     * @param row         the detail row whose overlay/status apply to this block
-     * @param target      this block's own snapshot (fact + module facts)
-     * @param baselineRow the earlier assessment's matching detail row (for the baseline final rating)
-     * @param baseline    the earlier assessment's snapshot (the comparison baseline)
+     * @param target      this block's own detail row + snapshot
+     * @param baseline    the earlier assessment's matching detail row + snapshot (the comparison baseline)
      * @param assmtPeriod the reported period label for this block
      */
     private MonthNRRDetails.MonthNRRDetailsBuilder buildMonthDetails(
-            OrlLndscpAssmtDetails row, Snapshot target,
-            OrlLndscpAssmtDetails baselineRow, Snapshot baseline, String assmtPeriod) {
+            PeriodView target, PeriodView baseline, String assmtPeriod) {
 
-        NetRiskRating calculated = target.fact() != null ? target.fact().getCalNetRiskRtng() : null;
+        OrlLndscpAssmtDetails row = target.row();
+        NetRiskRating calculated = target.snapshot().fact() != null ? target.snapshot().fact().getCalNetRiskRtng() : null;
         NetRiskRating effective = effectiveNrr(row.getOvrlyNetRiskRtng(), calculated);
-        NetRiskRating baselineFinal = finalRatingFrom(baselineRow, baseline);
+        NetRiskRating baselineFinal = finalRatingFrom(baseline.row(), baseline.snapshot());
         RiskRatingChange change = RiskRatingChanges.derive(baselineFinal, effective);
 
         String nrrCalculated = PersistableEnum.dbValue(calculated);
@@ -386,11 +393,11 @@ public class LandscapeAssmtDetailsService {
                 .nrr(resolveNrr(row.getOvrlyNetRiskRtng(), nrrCalculated))
                 .nrrOverlaid(row.getOvrlyNetRiskRtng() != null ? OVERLAID_YES : OVERLAID_NO)
                 .overlayJstfkn(row.getOvrlyJstfkn())
-                .ctrlEffRtn(target.fact() != null ? target.fact().getCtrlEffRtn() : null)
+                .ctrlEffRtn(target.snapshot().fact() != null ? target.snapshot().fact().getCtrlEffRtn() : null)
                 .assmtPeriod(assmtPeriod)
                 .riskRatingChange(PersistableEnum.dbValue(change))
-                .grcMetrics(grcMetricsService.buildBlocks(target.moduleFacts(), baseline.moduleFacts()))
-                .commentry(target.fact() != null ? target.fact().getCommentary() : null)
+                .grcMetrics(grcMetricsService.buildBlocks(target.snapshot().moduleFacts(), baseline.snapshot().moduleFacts()))
+                .commentry(target.snapshot().fact() != null ? target.snapshot().fact().getCommentary() : null)
                 .commentaryRevisedBy(row.getCommentaryRevisedBy())
                 .commentaryRevisedAt(SgtDateTimes.toSgt(row.getCommentaryRevisedAt()));
     }
@@ -656,9 +663,18 @@ public class LandscapeAssmtDetailsService {
                 .build();
     }
 
-    private LandscapeAssmtDetailItem toItem(OrlLndscpAssmtDetails row, Integer bizUnitLvl,
-                                            FactOrl currentFact, NetRiskRating prevAssmtFinalNRR,
-                                            RiskAreaParser.AreaLookup areaLookup) {
+    /**
+     * A row's per-dimension enrichment, looked up once per row before building its item: the
+     * current fact, the previous assessment's final rating for this dimension, and the risk-area
+     * group/cluster lookup. Bundled together since all three are always looked up as a unit.
+     */
+    private record RowEnrichment(
+            FactOrl currentFact, NetRiskRating prevAssmtFinalNRR, RiskAreaParser.AreaLookup areaLookup) {}
+
+    private LandscapeAssmtDetailItem toItem(OrlLndscpAssmtDetails row, Integer bizUnitLvl, RowEnrichment enrichment) {
+        FactOrl currentFact = enrichment.currentFact();
+        NetRiskRating prevAssmtFinalNRR = enrichment.prevAssmtFinalNRR();
+        RiskAreaParser.AreaLookup areaLookup = enrichment.areaLookup();
         if (areaLookup == null) {
             log.debug("Risk area '{}' of detail row id={} not found in the landscape config — "
                     + "groupName/riskClusters left empty", row.getRiskArea(), row.getId());

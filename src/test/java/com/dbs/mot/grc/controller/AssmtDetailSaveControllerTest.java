@@ -79,9 +79,9 @@ class AssmtDetailSaveControllerTest {
         return "{" + field("overlaidNRR", nrr) + "," + field("overlayJstfkn", jstfkn) + "}";
     }
 
-    private String body(String nrr, String jstfkn, String revisedCommentry) {
+    private String body(String nrr, String jstfkn, String revisedCommentary) {
         return "{" + field("overlaidNRR", nrr) + "," + field("overlayJstfkn", jstfkn) + ","
-                + field("revisedCommentry", revisedCommentry) + "}";
+                + field("revisedCommentary", revisedCommentary) + "}";
     }
 
     private String field(String name, String value) {
@@ -127,7 +127,7 @@ class AssmtDetailSaveControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body("Low", "Overlay reason", "Analyst note")))
            .andExpect(status().isOk())
-           .andExpect(jsonPath("$.data.revisedCommentry", is("Analyst note")))
+           .andExpect(jsonPath("$.data.revisedCommentary", is("Analyst note")))
            .andExpect(jsonPath("$.data.commentaryRevisedBy", is(USER)))
            .andExpect(jsonPath("$.data.commentaryRevisedAt").exists());
 
@@ -145,7 +145,7 @@ class AssmtDetailSaveControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body("Low", "Overlay reason", "existing note")))
            .andExpect(status().isOk())
-           .andExpect(jsonPath("$.data.revisedCommentry", is("existing note")))
+           .andExpect(jsonPath("$.data.revisedCommentary", is("existing note")))
            // Unchanged commentary → the original reviser/timestamp stand, not overwritten by USER.
            .andExpect(jsonPath("$.data.commentaryRevisedBy", is("reviser0")));
 

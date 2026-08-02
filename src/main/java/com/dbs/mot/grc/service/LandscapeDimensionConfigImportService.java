@@ -8,6 +8,7 @@ import com.dbs.mot.grc.dto.OrlLndscpDimCsvRow;
 import com.dbs.mot.grc.enums.DimStatus;
 import com.dbs.mot.grc.entity.OrlLndscpDim;
 import com.dbs.mot.grc.repository.OrlLndscpDimRepository;
+import com.dbs.mot.grc.util.CsvFormatters;
 import com.dbs.mot.grc.util.RiskAreaParser;
 import com.opencsv.CSVWriter;
 import lombok.RequiredArgsConstructor;
@@ -16,8 +17,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.stream.StreamSupport;
 
@@ -43,7 +42,6 @@ public class LandscapeDimensionConfigImportService implements OrlConfigImporter 
             "VERSION", "STATUS", "RISK_AREA", "BIZ_UNITS", "BIZ_UNIT_LVL",
             "LOCATIONS", "CREATED_BY", "CREATE_DT_TM"
     };
-    private static final DateTimeFormatter DT_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     private final CsvImportProcessor csvImportProcessor;
     private final OrlLndscpDimCsvRowMapper rowMapper;
@@ -108,11 +106,11 @@ public class LandscapeDimensionConfigImportService implements OrlConfigImporter 
         log.debug("Writing {} rows for download", CONFIG_NAME);
         StreamSupport.stream(repository.findAll().spliterator(), false).forEach(r ->
                 writer.writeNext(new String[]{
-                        s(r.getId()), r.getConfigId(), r.getLndscpNm(),
-                        s(r.getEffectStartDt()), s(r.getEffectEndDt()),
-                        s(r.getVersion()), r.getStatus().getDbValue(),
-                        r.getRiskArea(), s(r.getBizUnits()), s(r.getBizUnitLvl()),
-                        r.getLocations(), r.getCreatedBy(), fmt(r.getCreateDtTm())
+                        CsvFormatters.cell(r.getId()), r.getConfigId(), r.getLndscpNm(),
+                        CsvFormatters.cell(r.getEffectStartDt()), CsvFormatters.cell(r.getEffectEndDt()),
+                        CsvFormatters.cell(r.getVersion()), r.getStatus().getDbValue(),
+                        r.getRiskArea(), CsvFormatters.cell(r.getBizUnits()), CsvFormatters.cell(r.getBizUnitLvl()),
+                        r.getLocations(), r.getCreatedBy(), CsvFormatters.cell(r.getCreateDtTm())
                 }));
     }
 
@@ -129,13 +127,5 @@ public class LandscapeDimensionConfigImportService implements OrlConfigImporter 
         log.debug("Version resolution over {} config id(s): maxExisting={} resolved={}",
                 configIds.size(), maxVersion, resolved);
         return resolved;
-    }
-
-    private String s(Object v) {
-        return v == null ? "" : v.toString();
-    }
-
-    private String fmt(LocalDateTime dt) {
-        return dt == null ? "" : dt.format(DT_FMT);
     }
 }

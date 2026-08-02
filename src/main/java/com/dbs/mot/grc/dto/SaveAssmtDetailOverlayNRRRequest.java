@@ -18,7 +18,7 @@ import org.springframework.util.StringUtils;
  * justification, and the revised commentary — all three in one save.
  *
  * <p>{@code overlaidNRR}/{@code overlayJstfkn} are optional but must be supplied together (enforced
- * by {@link #isOverlayPairConsistent()}). {@code revisedCommentry} is independent of that pair: a
+ * by {@link #isOverlayPairConsistent()}). {@code revisedCommentary} is independent of that pair: a
  * blank/absent value clears the stored commentary, so a caller that wants to keep the existing
  * commentary unchanged must resend its current value.
  */
@@ -39,8 +39,8 @@ public class SaveAssmtDetailOverlayNRRRequest {
 
     @Schema(description = "Analyst-revised commentary stored in REVISED_COMMENTARY. Blank/absent clears it.",
             example = "Reviewed with the BU; risk accepted for this cycle.")
-    @Size(max = 4000, message = "revisedCommentry must not exceed 4000 characters")
-    private String revisedCommentry;
+    @Size(max = 4000, message = "revisedCommentary must not exceed 4000 characters")
+    private String revisedCommentary;
 
     /** Overlay rating and justification must be supplied together (both present or both absent). */
     @JsonIgnore

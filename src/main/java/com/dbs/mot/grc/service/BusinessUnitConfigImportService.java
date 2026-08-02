@@ -7,6 +7,7 @@ import com.dbs.mot.grc.csv.validator.BizUnitCsvRowValidator;
 import com.dbs.mot.grc.dto.BizUnitCsvRow;
 import com.dbs.mot.grc.entity.OrlBizUnit;
 import com.dbs.mot.grc.repository.OrlBizUnitRepository;
+import com.dbs.mot.grc.util.CsvFormatters;
 import com.opencsv.CSVWriter;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -15,8 +16,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -46,7 +45,6 @@ public class BusinessUnitConfigImportService implements OrlConfigImporter {
             "BU_NUM", "BU_NM", "LVL_OF_HIER", "ORL_BU_NM_L2", "ORL_BU_NM_L3",
             "ORL_BU_NM_L4", "BU_FULL_PATH", "uploadedBy", "uploadedAt"
     };
-    private static final DateTimeFormatter DT_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     private final CsvImportProcessor csvImportProcessor;
     private final BizUnitCsvRowMapper rowMapper;
@@ -120,18 +118,10 @@ public class BusinessUnitConfigImportService implements OrlConfigImporter {
     public void writeDataRows(CSVWriter writer) {
         StreamSupport.stream(repository.findAll().spliterator(), false).forEach(r ->
                 writer.writeNext(new String[]{
-                        s(r.getBuNum()), r.getBuNm(), s(r.getLvlOfHier()),
+                        CsvFormatters.cell(r.getBuNum()), r.getBuNm(), CsvFormatters.cell(r.getLvlOfHier()),
                         r.getOrlBuNmL2(), r.getOrlBuNmL3(), r.getOrlBuNmL4(), r.getBuFullPath(),
                         StringUtils.isBlank(r.getUpdatedBy()) ? r.getCreatedBy() : r.getUpdatedBy(),
-                        fmt(Objects.isNull(r.getUpdateDtTm()) ? r.getCreateDtTm() : r.getUpdateDtTm())
+                        CsvFormatters.cell(Objects.isNull(r.getUpdateDtTm()) ? r.getCreateDtTm() : r.getUpdateDtTm())
                 }));
-    }
-
-    private String s(Object v) {
-        return v == null ? "" : v.toString();
-    }
-
-    private String fmt(LocalDateTime dt) {
-        return dt == null ? "" : dt.format(DT_FMT);
     }
 }

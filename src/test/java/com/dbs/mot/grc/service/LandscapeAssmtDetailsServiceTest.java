@@ -261,7 +261,7 @@ class LandscapeAssmtDetailsServiceTest {
         SaveAssmtDetailOverlayNRRRequest req = new SaveAssmtDetailOverlayNRRRequest();
         req.setOverlaidNRR("Low");
         req.setOverlayJstfkn("overlay reason");
-        req.setRevisedCommentry("Analyst note");
+        req.setRevisedCommentary("Analyst note");
 
         service.saveOverlay(41L, 401L, req, "auditor");
 
@@ -292,11 +292,11 @@ class LandscapeAssmtDetailsServiceTest {
     void saveOverlay_commentaryChanged_stampsReviserAndTimestamp() {
         // Detail 401 starts with no revised commentary (null); sending a new value is a change.
         SaveAssmtDetailOverlayNRRRequest req = new SaveAssmtDetailOverlayNRRRequest();
-        req.setRevisedCommentry("New commentary");
+        req.setRevisedCommentary("New commentary");
 
         OverlayResponse resp = service.saveOverlay(41L, 401L, req, "auditor");
 
-        assertThat(resp.getRevisedCommentry()).isEqualTo("New commentary");
+        assertThat(resp.getRevisedCommentary()).isEqualTo("New commentary");
         assertThat(resp.getCommentaryRevisedBy()).isEqualTo("auditor");
         assertThat(resp.getCommentaryRevisedAt()).isNotNull();
         assertThat(column(401, "COMMENTARY_REVISED_BY")).isEqualTo("auditor");
@@ -315,12 +315,12 @@ class LandscapeAssmtDetailsServiceTest {
         SaveAssmtDetailOverlayNRRRequest req = new SaveAssmtDetailOverlayNRRRequest();
         req.setOverlaidNRR("Low");
         req.setOverlayJstfkn("overlay reason");
-        req.setRevisedCommentry("existing note"); // resent unchanged
+        req.setRevisedCommentary("existing note"); // resent unchanged
 
         OverlayResponse resp = service.saveOverlay(41L, 401L, req, "auditor");
 
         // Commentary text is unchanged, so the revision audit trail is not restamped.
-        assertThat(resp.getRevisedCommentry()).isEqualTo("existing note");
+        assertThat(resp.getRevisedCommentary()).isEqualTo("existing note");
         assertThat(resp.getCommentaryRevisedBy()).isEqualTo("reviser0");
         assertThat(column(401, "COMMENTARY_REVISED_AT")).isNotNull();
         assertThat(column(401, "COMMENTARY_REVISED_BY")).isEqualTo("reviser0");

@@ -7,6 +7,7 @@ import com.dbs.mot.grc.csv.validator.RiskTypeRiskAreaMapCsvRowValidator;
 import com.dbs.mot.grc.dto.RiskTypeRiskAreaMapCsvRow;
 import com.dbs.mot.grc.entity.OrlRiskTypeRiskAreaMap;
 import com.dbs.mot.grc.repository.OrlRiskTypeRiskAreaMapRepository;
+import com.dbs.mot.grc.util.CsvFormatters;
 import com.opencsv.CSVWriter;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -14,8 +15,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.stream.StreamSupport;
 
@@ -36,7 +35,6 @@ public class RiskTypeRiskAreaMapConfigImportService implements OrlConfigImporter
             "ID", "RISK_AREA", "RISK_TYPE_L4_NUM", "RISK_TYPE_L4_NM",
             "IS_OR_FA", "RISK_CLUSTER", "CREATED_BY", "CREATED_DT_TM"
     };
-    private static final DateTimeFormatter DT_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     private final CsvImportProcessor csvImportProcessor;
     private final RiskTypeRiskAreaMapCsvRowMapper rowMapper;
@@ -88,17 +86,9 @@ public class RiskTypeRiskAreaMapConfigImportService implements OrlConfigImporter
         log.debug("Writing {} rows for download", CONFIG_NAME);
         StreamSupport.stream(repository.findAll().spliterator(), false).forEach(r ->
                 writer.writeNext(new String[]{
-                        s(r.getId()), r.getRiskArea(), s(r.getRiskTypeL4Num()),
+                        CsvFormatters.cell(r.getId()), r.getRiskArea(), CsvFormatters.cell(r.getRiskTypeL4Num()),
                         r.getRiskTypeL4Nm(), r.getIsOrFa(), r.getRiskCluster(),
-                        r.getCreatedBy(), fmt(r.getCreateDtTm())
+                        r.getCreatedBy(), CsvFormatters.cell(r.getCreateDtTm())
                 }));
-    }
-
-    private String s(Object v) {
-        return v == null ? "" : v.toString();
-    }
-
-    private String fmt(LocalDateTime dt) {
-        return dt == null ? "" : dt.format(DT_FMT);
     }
 }

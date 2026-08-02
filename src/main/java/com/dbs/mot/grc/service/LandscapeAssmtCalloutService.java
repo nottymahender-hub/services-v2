@@ -10,7 +10,7 @@ import com.dbs.mot.grc.repository.OrlLndscpAssmtRepository;
 import com.dbs.mot.grc.repository.OrlLndscpCalloutCommentHistRepository;
 import com.dbs.mot.grc.repository.OrlLndscpCalloutRepository;
 import com.dbs.mot.grc.util.SgtDateTimes;
-import com.fasterxml.jackson.core.JsonParser;
+import com.dbs.mot.grc.util.StrictJsonMapper;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -47,8 +47,8 @@ import java.util.List;
 @RequiredArgsConstructor
 public class LandscapeAssmtCalloutService {
 
-    private static final ObjectMapper MAPPER = new ObjectMapper()
-            .enable(JsonParser.Feature.STRICT_DUPLICATE_DETECTION);
+    /** Shared strict-duplicate-key {@code ObjectMapper} (see {@link StrictJsonMapper}). */
+    private static final ObjectMapper MAPPER = StrictJsonMapper.INSTANCE;
 
     private final OrlLndscpCalloutRepository            calloutRepository;
     private final OrlLndscpCalloutCommentHistRepository commentHistRepository;

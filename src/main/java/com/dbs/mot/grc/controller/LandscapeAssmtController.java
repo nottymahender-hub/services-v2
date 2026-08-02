@@ -10,11 +10,11 @@ import com.dbs.mot.grc.dto.LandscapeAssmtSummary;
 import com.dbs.mot.grc.dto.OverlayResponse;
 import com.dbs.mot.grc.dto.SaveAssmtDetailOverlayNRRRequest;
 import com.dbs.mot.grc.exception.BadRequestException;
-import com.dbs.mot.grc.exception.UnauthorizedException;
 import com.dbs.mot.grc.service.BulkAssmtGenerationService;
 import com.dbs.mot.grc.service.LandscapeAssmtCalloutService;
 import com.dbs.mot.grc.service.LandscapeAssmtDetailsService;
 import com.dbs.mot.grc.service.LandscapeAssmtService;
+import com.dbs.mot.grc.util.OperatorHeader;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
@@ -67,8 +67,6 @@ import java.util.List;
         description = "Listing, generation, details, overlay and callouts for landscape assessments.")
 public class LandscapeAssmtController {
 
-    private static final String USER_HEADER = "X-EGRC-UserId";
-
     private final LandscapeAssmtService assmtService;
     private final LandscapeAssmtDetailsService detailsService;
     private final LandscapeAssmtCalloutService calloutService;
@@ -86,9 +84,9 @@ public class LandscapeAssmtController {
     @GetMapping("/assessments")
     public ResponseEntity<ApiResponse<List<LandscapeAssmtSummary>>> getAllAssessments(
             @Parameter(description = "Operator identity", required = true)
-            @RequestHeader(value = USER_HEADER, required = false) String username) {
+            @RequestHeader(value = OperatorHeader.NAME, required = false) String username) {
 
-        String user = requireUser(username);
+        String user = OperatorHeader.require(username);
         log.debug("GET /landscape/assessments requested by '{}'", user);
 
         List<LandscapeAssmtSummary> summaries = assmtService.fetchAll();
@@ -119,9 +117,9 @@ public class LandscapeAssmtController {
             @RequestParam("bizDt")
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate bizDt,
             @Parameter(description = "Operator identity", required = true)
-            @RequestHeader(value = USER_HEADER, required = false) String username) {
+            @RequestHeader(value = OperatorHeader.NAME, required = false) String username) {
 
-        String user = requireUser(username);
+        String user = OperatorHeader.require(username);
         requireNotFuture(bizDt);
         log.debug("POST /landscape/assessments/generate requested by '{}' bizDt={}", user, bizDt);
 
@@ -158,9 +156,9 @@ public class LandscapeAssmtController {
             @Parameter(description = "orl_lndscp_assmt.id", required = true)
             @PathVariable Long lndscpAssmtId,
             @Parameter(description = "Operator identity", required = true)
-            @RequestHeader(value = USER_HEADER, required = false) String username) {
+            @RequestHeader(value = OperatorHeader.NAME, required = false) String username) {
 
-        String user = requireUser(username);
+        String user = OperatorHeader.require(username);
         log.debug("GET /landscape/assessments/{} requested by '{}'", lndscpAssmtId, user);
 
         LandscapeAssmtDetailSummary summary = detailsService.fetchByAssmtId(lndscpAssmtId);
@@ -191,9 +189,9 @@ public class LandscapeAssmtController {
             @Parameter(description = "orl_lndscp_assmt_details.id", required = true)
             @PathVariable Long assmtDetailId,
             @Parameter(description = "Operator identity", required = true)
-            @RequestHeader(value = USER_HEADER, required = false) String username) {
+            @RequestHeader(value = OperatorHeader.NAME, required = false) String username) {
 
-        String user = requireUser(username);
+        String user = OperatorHeader.require(username);
         log.debug("GET /landscape/assessment/{}/assessmentDetail/{} requested by '{}'",
                 lndscpAssmtId, assmtDetailId, user);
 
@@ -227,9 +225,9 @@ public class LandscapeAssmtController {
             @PathVariable Long assmtDetailId,
             @Valid @RequestBody SaveAssmtDetailOverlayNRRRequest request,
             @Parameter(description = "Operator identity", required = true)
-            @RequestHeader(value = USER_HEADER, required = false) String username) {
+            @RequestHeader(value = OperatorHeader.NAME, required = false) String username) {
 
-        String user = requireUser(username);
+        String user = OperatorHeader.require(username);
         log.debug("POST /landscape/assessment/{}/assessmentDetail/{}/overlay requested by '{}'",
                 lndscpAssmtId, assmtDetailId, user);
 
@@ -255,9 +253,9 @@ public class LandscapeAssmtController {
             @PathVariable Long lndscpAssmtId,
             @Valid @RequestBody CalloutRequest request,
             @Parameter(description = "Operator identity", required = true)
-            @RequestHeader(value = USER_HEADER, required = false) String username) {
+            @RequestHeader(value = OperatorHeader.NAME, required = false) String username) {
 
-        String user = requireUser(username);
+        String user = OperatorHeader.require(username);
         log.debug("POST /landscape/assessment/{}/callouts requested by '{}'", lndscpAssmtId, user);
 
         CalloutResponse created = calloutService.createCallout(lndscpAssmtId, request, user);
@@ -282,9 +280,9 @@ public class LandscapeAssmtController {
             @PathVariable Long calloutId,
             @Valid @RequestBody CalloutRequest request,
             @Parameter(description = "Operator identity", required = true)
-            @RequestHeader(value = USER_HEADER, required = false) String username) {
+            @RequestHeader(value = OperatorHeader.NAME, required = false) String username) {
 
-        String user = requireUser(username);
+        String user = OperatorHeader.require(username);
         log.debug("PUT /landscape/assessment/{}/callouts/{} requested by '{}'",
                 lndscpAssmtId, calloutId, user);
 
@@ -307,23 +305,13 @@ public class LandscapeAssmtController {
             @Parameter(description = "orl_lndscp_callout.id", required = true)
             @PathVariable Long calloutId,
             @Parameter(description = "Operator identity", required = true)
-            @RequestHeader(value = USER_HEADER, required = false) String username) {
+            @RequestHeader(value = OperatorHeader.NAME, required = false) String username) {
 
-        String user = requireUser(username);
+        String user = OperatorHeader.require(username);
         log.debug("DELETE /landscape/assessment/{}/callouts/{} requested by '{}'",
                 lndscpAssmtId, calloutId, user);
 
         calloutService.deleteCallout(lndscpAssmtId, calloutId);
         return ResponseEntity.ok(ApiResponse.success("Callout deleted successfully."));
-    }
-
-    // ── Helper ───────────────────────────────────────────────────────────────────
-
-    /** Returns the trimmed operator id, or throws {@link UnauthorizedException} when missing/blank. */
-    private String requireUser(String username) {
-        if (username == null || username.isBlank()) {
-            throw new UnauthorizedException("X-EGRC-UserId header is required and must not be blank.");
-        }
-        return username.trim();
     }
 }

@@ -3,7 +3,6 @@ package com.dbs.mot.grc.util;
 import com.dbs.mot.grc.exception.RiskAreaParseException;
 import com.dbs.mot.grc.dto.RiskAreaEntry;
 import com.dbs.mot.grc.dto.RiskAreaGroup;
-import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -48,9 +47,8 @@ public class RiskAreaParser {
     private static final TypeReference<List<RiskAreaGroup>> GROUP_LIST_TYPE =
             new TypeReference<>() {};
 
-    /** Strict duplicate-key detection rejects documents with repeated JSON keys. */
-    private final ObjectMapper mapper = new ObjectMapper()
-            .enable(JsonParser.Feature.STRICT_DUPLICATE_DETECTION);
+    /** Shared strict-duplicate-key {@code ObjectMapper} (see {@link StrictJsonMapper}). */
+    private final ObjectMapper strictJsonMapper = StrictJsonMapper.INSTANCE;
 
     /**
      * Parses the RISK_AREA document, throwing on any problem.
@@ -64,7 +62,7 @@ public class RiskAreaParser {
             throw new RiskAreaParseException("RISK_AREA must not be blank.", null);
         }
         try {
-            List<RiskAreaGroup> groups = mapper.readValue(json, GROUP_LIST_TYPE);
+            List<RiskAreaGroup> groups = strictJsonMapper.readValue(json, GROUP_LIST_TYPE);
             log.debug("Parsed RISK_AREA document into {} group(s)", groups.size());
             return groups;
         } catch (JsonProcessingException e) {
@@ -197,7 +195,7 @@ public class RiskAreaParser {
     public String normalizeCompact(String json) {
         List<RiskAreaGroup> groups = parseStrict(json);
         try {
-            return mapper.writeValueAsString(groups);
+            return strictJsonMapper.writeValueAsString(groups);
         } catch (JsonProcessingException e) {
             throw new RiskAreaParseException("Could not normalise RISK_AREA JSON: " + e.getOriginalMessage(), e);
         }

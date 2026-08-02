@@ -12,7 +12,7 @@ import java.util.Map;
  * {@code GET /landscape/{lndscpAssmtId}/{assmtDetailId}}.
  *
  * <p>All fields are always serialized (null included). {@code id} is only meaningful in
- * the previous-month block and {@code revisedCommentry} only in the current-month block.
+ * the previous-month block and {@code revisedCommentary} only in the current-month block.
  * The calculated rating/control/commentary come from the matching {@code fact_orl} row for
  * that month's business date; {@code nrr}/{@code nrrOverlaid}/{@code overlayJstfkn} come from
  * the assessment detail row's overlay; {@code grcMetrics} is assembled from the per-module
@@ -62,7 +62,7 @@ public class MonthNRRDetails {
     private final String commentry;
 
     /** Current-month block only: {@code orl_lndscp_assmt_details.REVISED_COMMENTARY}. */
-    private final String revisedCommentry;
+    private final String revisedCommentary;
 
     /** {@code orl_lndscp_assmt_details.COMMENTARY_REVISED_BY} for this month's row. */
     private final String commentaryRevisedBy;

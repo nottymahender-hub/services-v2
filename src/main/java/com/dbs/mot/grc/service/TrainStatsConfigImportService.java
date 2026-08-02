@@ -11,6 +11,7 @@ import com.dbs.mot.grc.entity.TrainStats;
 import com.dbs.mot.grc.repository.TrainStatsRepository;
 import com.dbs.mot.grc.util.ConfigVersionResolver;
 import com.dbs.mot.grc.util.ConfigVersionResolver.GroupMax;
+import com.dbs.mot.grc.util.CsvFormatters;
 import com.opencsv.CSVWriter;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -18,8 +19,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -41,7 +40,6 @@ public class TrainStatsConfigImportService implements OrlConfigImporter {
     private static final String[] DOWNLOAD_HEADERS = {
             "id", "config_version", "lvl", "train_mean", "train_var", "module", "CREATED_BY", "CREATE_DT_TM"
     };
-    private static final DateTimeFormatter DT_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     private final CsvImportProcessor csvImportProcessor;
     private final TrainStatsCsvRowMapper rowMapper;
@@ -101,9 +99,9 @@ public class TrainStatsConfigImportService implements OrlConfigImporter {
     public void writeDataRows(CSVWriter writer) {
         latestPerGroup().forEach(r ->
                 writer.writeNext(new String[]{
-                        s(r.getId()), s(r.getConfigVersion()), r.getLvl().getDbValue(),
-                        s(r.getTrainMean()), s(r.getTrainVar()),
-                        r.getModule().getDbValue(), r.getCreatedBy(), fmt(r.getCreateDtTm())
+                        CsvFormatters.cell(r.getId()), CsvFormatters.cell(r.getConfigVersion()), r.getLvl().getDbValue(),
+                        CsvFormatters.cell(r.getTrainMean()), CsvFormatters.cell(r.getTrainVar()),
+                        r.getModule().getDbValue(), r.getCreatedBy(), CsvFormatters.cell(r.getCreateDtTm())
                 }));
     }
 
@@ -117,13 +115,5 @@ public class TrainStatsConfigImportService implements OrlConfigImporter {
                             ? candidate : existing);
         }
         return latestByGroup.values();
-    }
-
-    private String s(Object v) {
-        return v == null ? "" : v.toString();
-    }
-
-    private String fmt(LocalDateTime dt) {
-        return dt == null ? "" : dt.format(DT_FMT);
     }
 }

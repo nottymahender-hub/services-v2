@@ -10,6 +10,7 @@ import com.dbs.mot.grc.entity.FeatureScoreBand;
 import com.dbs.mot.grc.repository.FeatureScoreBandRepository;
 import com.dbs.mot.grc.util.ConfigVersionResolver;
 import com.dbs.mot.grc.util.ConfigVersionResolver.GroupMax;
+import com.dbs.mot.grc.util.CsvFormatters;
 import com.opencsv.CSVWriter;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -17,8 +18,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -46,7 +45,6 @@ public class FeatureScoreBandConfigImportService implements OrlConfigImporter {
             "id", "config_version", "feature_bin", "feature_name",
             "range_low", "range_high", "score", "module", "CREATED_BY", "CREATE_DT_TM"
     };
-    private static final DateTimeFormatter DT_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     private final CsvImportProcessor csvImportProcessor;
     private final FeatureScoreBandCsvRowMapper rowMapper;
@@ -111,9 +109,9 @@ public class FeatureScoreBandConfigImportService implements OrlConfigImporter {
     public void writeDataRows(CSVWriter writer) {
         latestPerGroup().forEach(r ->
                 writer.writeNext(new String[]{
-                        s(r.getId()), s(r.getConfigVersion()), s(r.getFeatureBin()),
-                        r.getFeatureName(), s(r.getRangeLow()), s(r.getRangeHigh()),
-                        s(r.getScore()), r.getModule().getDbValue(), r.getCreatedBy(), fmt(r.getCreateDtTm())
+                        CsvFormatters.cell(r.getId()), CsvFormatters.cell(r.getConfigVersion()), CsvFormatters.cell(r.getFeatureBin()),
+                        r.getFeatureName(), CsvFormatters.cell(r.getRangeLow()), CsvFormatters.cell(r.getRangeHigh()),
+                        CsvFormatters.cell(r.getScore()), r.getModule().getDbValue(), r.getCreatedBy(), CsvFormatters.cell(r.getCreateDtTm())
                 }));
     }
 
@@ -132,13 +130,5 @@ public class FeatureScoreBandConfigImportService implements OrlConfigImporter {
 
     private List<String> groupKey(String featureName, int featureBin, String module) {
         return List.of(featureName, String.valueOf(featureBin), module);
-    }
-
-    private String s(Object v) {
-        return v == null ? "" : v.toString();
-    }
-
-    private String fmt(LocalDateTime dt) {
-        return dt == null ? "" : dt.format(DT_FMT);
     }
 }

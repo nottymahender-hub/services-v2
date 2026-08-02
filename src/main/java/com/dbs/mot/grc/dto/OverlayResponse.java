@@ -39,7 +39,7 @@ public class OverlayResponse {
     private final String status;
 
     /** {@code REVISED_COMMENTARY} after the save, or {@code null} when cleared. */
-    private final String revisedCommentry;
+    private final String revisedCommentary;
 
     /** {@code COMMENTARY_REVISED_BY} — set only when this save actually changed the commentary. */
     private final String commentaryRevisedBy;

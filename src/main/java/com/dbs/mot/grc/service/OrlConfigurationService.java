@@ -1,7 +1,7 @@
 package com.dbs.mot.grc.service;
 
+import com.dbs.mot.grc.csv.ConfigUploader;
 import com.dbs.mot.grc.csv.CsvUploadAuditService;
-import com.dbs.mot.grc.csv.OrlConfigImporter;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -25,14 +25,14 @@ public class OrlConfigurationService {
     /**
      * Imports one configuration file and records the audit row atomically.
      *
-     * @param importer         the table-specific importer
+     * @param importer         the table-specific uploader
      * @param file             the uploaded CSV
      * @param username         operator identity (already validated/trimmed)
      * @param originalFilename the uploaded file's original name (for the audit row)
      * @return number of rows imported
      */
     @Transactional
-    public int importConfig(OrlConfigImporter importer, MultipartFile file,
+    public int importConfig(ConfigUploader importer, MultipartFile file,
                             String username, String originalFilename) {
         int count = importer.processAndImport(file, username);
         auditService.recordUpload(importer.configName(), originalFilename, username, count);

@@ -174,14 +174,14 @@ public class LandscapeAssmtDetailsService {
         DimensionKey key = keyOf(row);
 
         // a. Current: this assessment's own business date, fact and module facts.
-        Snapshot current = snapshotAt(assmt.bizDt(), key);
+        FactSnapshot current = snapshotAt(assmt.bizDt(), key);
 
         // b. Previous: one assessment back. Its detail row is needed twice — as the baseline for the
         //    current block's change, and to build the previous block itself — so it is loaded once
         //    here and reused both times.
         AssmtHeader prevAssmt = previousAssmtHeader(assmt);
         OrlLndscpAssmtDetails prevRow = detailRowFor(prevAssmt, key);
-        Snapshot previous = snapshotAt(bizDtOf(prevAssmt), key);
+        FactSnapshot previous = snapshotAt(bizDtOf(prevAssmt), key);
 
         // b.i. Compare current against previous → currentMonthNRRDetails.
         MonthNRRDetails currentDetails = buildMonthDetails(
@@ -193,7 +193,7 @@ public class LandscapeAssmtDetailsService {
         //    change. Only ever needed once, so it is fetched right where it is used.
         AssmtHeader prevPrevAssmt = previousAssmtHeader(prevAssmt);
         OrlLndscpAssmtDetails prevPrevRow = detailRowFor(prevPrevAssmt, key);
-        Snapshot prevPrevious = snapshotAt(bizDtOf(prevPrevAssmt), key);
+        FactSnapshot prevPrevious = snapshotAt(bizDtOf(prevPrevAssmt), key);
 
         // c.i. Compare previous against previous-to-previous → prevMonthNRRDetails.
         //      null when there is no previous assessment, or it has no row for this dimension.
@@ -206,7 +206,7 @@ public class LandscapeAssmtDetailsService {
         // d. Live: the latest business date across fact_orl. Reuse the current snapshot when they
         //    coincide (the common case) instead of fetching it again.
         LocalDate maxBizDt = factRepository.findMaxBizDt();
-        Snapshot live = Objects.equals(maxBizDt, current.bizDt()) ? current : snapshotAt(maxBizDt, key);
+        FactSnapshot live = Objects.equals(maxBizDt, current.bizDt()) ? current : snapshotAt(maxBizDt, key);
 
         // d.i. Compare live against current → liveNRRDetails.
         LiveNRRDetails liveDetails = buildLiveDetails(live, current);
@@ -332,19 +332,19 @@ public class LandscapeAssmtDetailsService {
     /**
      * One business date's snapshot for a dimension: its {@code fact_orl} row and its module facts.
      * Every period in the drill-down (current/previous/previous-to-previous/live) is exactly one of
-     * these, fetched once and compared against another {@code Snapshot} as the baseline.
+     * these, fetched once and compared against another {@code FactSnapshot} as the baseline.
      */
-    private record Snapshot(LocalDate bizDt, FactOrl fact, Map<String, ModuleFact> moduleFacts) {
+    private record FactSnapshot(LocalDate bizDt, FactOrl fact, Map<String, ModuleFact> moduleFacts) {
     }
 
     /**
      * Loads the snapshot for a business date + dimension. Safe to call with a {@code null} date (e.g.
      * "no previous assessment") — returns an empty snapshot with no database access at all.
      */
-    private Snapshot snapshotAt(LocalDate bizDt, DimensionKey key) {
+    private FactSnapshot snapshotAt(LocalDate bizDt, DimensionKey key) {
         FactOrl fact = factFor(bizDt, key).orElse(null);
         Map<String, ModuleFact> moduleFacts = grcMetricsService.moduleFacts(bizDt, key);
-        return new Snapshot(bizDt, fact, moduleFacts);
+        return new FactSnapshot(bizDt, fact, moduleFacts);
     }
 
     /**
@@ -361,11 +361,11 @@ public class LandscapeAssmtDetailsService {
     }
 
     /**
-     * One period's detail row together with its {@link Snapshot} — every drill-down comparison
+     * One period's detail row together with its {@link FactSnapshot} — every drill-down comparison
      * needs both as a unit (the row for its overlay/status, the snapshot for its fact/module data),
      * so they travel together instead of as separate parameters.
      */
-    private record PeriodView(OrlLndscpAssmtDetails row, Snapshot snapshot) {}
+    private record PeriodView(OrlLndscpAssmtDetails row, FactSnapshot snapshot) {}
 
     /**
      * Builds one month's block (used for both the current and previous drill-down blocks) by
@@ -406,7 +406,7 @@ public class LandscapeAssmtDetailsService {
      * Builds the live block by comparing the live snapshot against the current assessment's snapshot
      * as the baseline. {@code null} when there is no live fact for this dimension.
      */
-    private LiveNRRDetails buildLiveDetails(Snapshot live, Snapshot current) {
+    private LiveNRRDetails buildLiveDetails(FactSnapshot live, FactSnapshot current) {
         if (live.fact() == null) {
             log.debug("No live fact_orl row for this dimension on biz_dt={}", live.bizDt());
             return null;
@@ -438,11 +438,11 @@ public class LandscapeAssmtDetailsService {
      * and its snapshot (no database access): the row's overlay when set, else the snapshot fact's
      * calculated rating. {@code null} when the row itself is {@code null} (no matching detail row).
      *
-     * <p>Used by the drill-down, which always loads a full {@link Snapshot} per period anyway (for
+     * <p>Used by the drill-down, which always loads a full {@link FactSnapshot} per period anyway (for
      * the GRC metric blocks) — so deriving the final rating from it is free. Contrast with
      * {@link #finalRatingForDimension}, used where no snapshot is otherwise needed.
      */
-    private NetRiskRating finalRatingFrom(OrlLndscpAssmtDetails detail, Snapshot snapshot) {
+    private NetRiskRating finalRatingFrom(OrlLndscpAssmtDetails detail, FactSnapshot snapshot) {
         if (detail == null) {
             return null;
         }
@@ -453,7 +453,7 @@ public class LandscapeAssmtDetailsService {
     /**
      * The final net risk rating for one dimension within a given assessment, fetching its own detail
      * row and (only if needed) its {@code fact_orl} row. Used by the overlay save, which has no other
-     * use for a full module-fact {@link Snapshot} and would otherwise pay for one needlessly.
+     * use for a full module-fact {@link FactSnapshot} and would otherwise pay for one needlessly.
      *
      * @return {@code null} when the assessment is {@code null} or has no matching detail row
      */

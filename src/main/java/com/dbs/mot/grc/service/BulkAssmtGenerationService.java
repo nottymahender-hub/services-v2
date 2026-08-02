@@ -1,6 +1,7 @@
 package com.dbs.mot.grc.service;
 
 import com.dbs.mot.grc.exception.ConflictException;
+import com.dbs.mot.grc.exception.NoFactDataException;
 import com.dbs.mot.grc.dto.AssmtGenerationResponse;
 import com.dbs.mot.grc.dto.AssmtGenerationResult;
 import com.dbs.mot.grc.dto.AssmtGenerationStatus;
@@ -31,7 +32,8 @@ import java.util.stream.StreamSupport;
  *   <li>Group the qualifying rows by landscape name.</li>
  *   <li>Per landscape: skip with {@code SKIPPED_AMBIGUOUS_CONFIG} when more than one
  *       config qualifies, skip with {@code SKIPPED_ALREADY_EXISTS} when the reported month's
- *       assessment already exists, otherwise generate via
+ *       assessment already exists, skip with {@code SKIPPED_NO_DATA} when {@code fact_orl} has
+ *       no data anywhere for the reported month, otherwise generate via
  *       {@link LandscapeAssmtGenerationService#generateForDim}.</li>
  * </ol>
  *
@@ -40,9 +42,9 @@ import java.util.stream.StreamSupport;
  * {@code generateForDim} on the injected service proxy), so a skip or failure for one
  * landscape never rolls back assessments already generated for the others.
  *
- * <p>Only {@link ConflictException} (duplicate period) is caught per landscape — it is an
- * expected, reportable outcome. Any unexpected exception propagates and fails the whole
- * request with HTTP 500.
+ * <p>Only {@link ConflictException} (duplicate period) and {@link NoFactDataException} (no
+ * underlying data) are caught per landscape — both are expected, reportable outcomes. Any
+ * unexpected exception propagates and fails the whole request with HTTP 500.
  */
 @Slf4j
 @Service
@@ -130,6 +132,15 @@ public class BulkAssmtGenerationService {
                     .lndscpNm(lndscpNm)
                     .lndscpNum(dim.getId())
                     .status(AssmtGenerationStatus.SKIPPED_ALREADY_EXISTS)
+                    .message(ex.getMessage())
+                    .build();
+        } catch (NoFactDataException ex) {
+            // Expected when there is no fact_orl data yet for the reported month — report and move on.
+            log.info("Skipping landscape '{}' — {}", lndscpNm, ex.getMessage());
+            return AssmtGenerationResult.builder()
+                    .lndscpNm(lndscpNm)
+                    .lndscpNum(dim.getId())
+                    .status(AssmtGenerationStatus.SKIPPED_NO_DATA)
                     .message(ex.getMessage())
                     .build();
         }

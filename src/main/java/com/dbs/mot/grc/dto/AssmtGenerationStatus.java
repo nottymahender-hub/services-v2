@@ -16,5 +16,8 @@ public enum AssmtGenerationStatus {
      * Skipped — more than one ACTIVE config row is effective today for this landscape
      * name, so the config to generate from cannot be determined unambiguously.
      */
-    SKIPPED_AMBIGUOUS_CONFIG
+    SKIPPED_AMBIGUOUS_CONFIG,
+
+    /** Skipped — no {@code fact_orl} data exists anywhere for the reported period. */
+    SKIPPED_NO_DATA
 }

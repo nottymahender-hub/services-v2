@@ -102,8 +102,9 @@ public class LandscapeAssmtController {
             description = "Generates the reported month's assessment for every ACTIVE landscape effective "
                     + "on the as-of date (bizDt); the reported period is the calendar month before "
                     + "bizDt's month (e.g. bizDt=2026-02-20 generates January 2026). bizDt is mandatory "
-                    + "and must not be in the future. Ambiguous configs and already-generated "
-                    + "landscapes are skipped per-landscape.")
+                    + "and must not be in the future. Ambiguous configs, already-generated landscapes, "
+                    + "and landscapes with no fact_orl data anywhere for the reported month are each "
+                    + "skipped per-landscape rather than failing the whole run.")
     @ApiResponses(value = {
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "Bulk run completed"),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "bizDt is missing, not a valid ISO date, or in the future"),

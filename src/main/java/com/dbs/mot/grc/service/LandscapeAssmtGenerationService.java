@@ -4,6 +4,7 @@ import com.dbs.mot.grc.enums.AssmtStatus;
 import com.dbs.mot.grc.enums.DetailStatus;
 import com.dbs.mot.grc.enums.LevelCategory;
 import com.dbs.mot.grc.exception.ConflictException;
+import com.dbs.mot.grc.exception.NoFactDataException;
 import com.dbs.mot.grc.util.RiskAreaParser;
 import com.dbs.mot.grc.dto.AssmtGenerationResponse;
 import com.dbs.mot.grc.entity.OrlBizUnit;
@@ -36,9 +37,11 @@ import java.util.function.Function;
 /**
  * Generates a landscape assessment and its thin detail rows for a config, anchored on a caller-supplied
  * as-of date. The assessment reports the month <b>before</b> the as-of date's month (M-1): its
- * {@code ASSEMT_PERIOD} is M-1, its {@code biz_dt} that month's end (or the latest {@code fact_orl.biz_dt}
- * within it), and it links to the M-2 assessment. Rows expand {@code RISK_AREA × business units × locations}
- * into {@code L{lvl}}/{@code grp_l{lvl}}/{@code loc} category rows; the aggregate is saved in one transaction.
+ * {@code ASSEMT_PERIOD} is M-1, its {@code biz_dt} the latest {@code fact_orl.biz_dt} within that month,
+ * and it links to the M-2 assessment. When no {@code fact_orl} data exists anywhere for M-1, generation
+ * is skipped entirely ({@link NoFactDataException}) rather than falling back to a synthetic date. Rows
+ * expand {@code RISK_AREA × business units × locations} into {@code L{lvl}}/{@code grp_l{lvl}}/{@code loc}
+ * category rows; the aggregate is saved in one transaction.
  *
  * <p>Detail rows carry only dimensions, category, status and audit columns — <b>no computed values</b>.
  * Calculated ratings, risk-rating change and GRC metrics all live in {@code fact_orl}/module tables and
@@ -68,7 +71,8 @@ public class LandscapeAssmtGenerationService {
      *                 <em>before</em> this date's month (M-1) and links to M-2
      * @param userId caller identity, stored as {@code CREATED_BY}
      * @return a summary of the generated assessment
-     * @throws ConflictException if an assessment already exists for this landscape + month
+     * @throws ConflictException  if an assessment already exists for this landscape + month
+     * @throws NoFactDataException if no {@code fact_orl} data exists anywhere for the reported month
      */
     @Transactional
     public AssmtGenerationResponse generateForDim(OrlLndscpDim dim, LocalDate asOfDate, String userId) {
@@ -81,13 +85,16 @@ public class LandscapeAssmtGenerationService {
         YearMonth assmtMonth = YearMonth.from(asOfDate).minusMonths(1);
         String assmtPeriod = assmtMonth.format(PERIOD_FMT);
         String priorPeriod = assmtMonth.minusMonths(1).format(PERIOD_FMT);
-        LocalDate bizDt = resolveBizDate(assmtMonth);
 
+        // Check for an already-generated period before resolving biz_dt: if it already exists, that's
+        // the more relevant skip reason, and there's no need to query fact_orl at all.
         if (assmtRepository.existsByLndscpNumAndPeriod(lndscpNum, assmtPeriod)) {
             throw new ConflictException("An assessment already exists for landscape '"
                     + dim.getLndscpNm() + "' (id " + lndscpNum + ") and period '"
                     + assmtPeriod + "'.");
         }
+
+        LocalDate bizDt = resolveBizDate(assmtMonth);
 
         // ── Parse config dimensions ──────────────────────────────────────────────
         List<String> riskAreas = riskAreaParser.riskAreaNames(dim.getRiskArea());
@@ -136,16 +143,22 @@ public class LandscapeAssmtGenerationService {
     }
 
     /**
-     * Resolves the assessment's business date for the reported month: the month-end date, or the
-     * latest {@code fact_orl.biz_dt} within that month when the exact month-end has no snapshot.
+     * Resolves the assessment's business date for the reported month: the latest {@code fact_orl.biz_dt}
+     * within that month.
+     *
+     * @throws NoFactDataException if {@code fact_orl} has no row anywhere within the month — an
+     *                             assessment cannot be generated with no underlying data
      */
     private LocalDate resolveBizDate(YearMonth assmtMonth) {
+        LocalDate monthStart = assmtMonth.atDay(1);
         LocalDate monthEnd = assmtMonth.atEndOfMonth();
-        LocalDate latestInMonth = factRepository.findMaxBizDtBetween(assmtMonth.atDay(1), monthEnd);
-        LocalDate bizDt = latestInMonth != null ? latestInMonth : monthEnd;
-        log.debug("Resolved biz_dt={} for period '{}' (month-end {}, latest fact in month {})",
-                bizDt, assmtMonth.format(PERIOD_FMT), monthEnd, latestInMonth);
-        return bizDt;
+        LocalDate latestInMonth = factRepository.findMaxBizDtBetween(monthStart, monthEnd);
+        if (latestInMonth == null) {
+            throw new NoFactDataException("No fact_orl data found for period '"
+                    + assmtMonth.format(PERIOD_FMT) + "' (" + monthStart + " to " + monthEnd + ").");
+        }
+        log.debug("Resolved biz_dt={} for period '{}'", latestInMonth, assmtMonth.format(PERIOD_FMT));
+        return latestInMonth;
     }
 
     // ── Expansion ────────────────────────────────────────────────────────────────

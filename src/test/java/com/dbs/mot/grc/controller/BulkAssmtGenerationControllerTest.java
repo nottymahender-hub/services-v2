@@ -28,6 +28,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * <ul>
  *   <li>'Alpha' (id 1, level 2): 2 risk areas × ((2 BU × 2 loc) + 2 grp + 2 loc) = 16 rows</li>
  *   <li>'Beta'  (id 2, level 3): 1 risk area × ((1 BU × 1 loc) + 1 grp + 1 loc) = 3 rows</li>
+ *   <li>One {@code fact_orl} row dated within the reported month (M-1 of {@code TODAY}) — generation
+ *       skips with {@code SKIPPED_NO_DATA} when no fact data exists anywhere for that month, so tests
+ *       that expect generation to happen need this seeded.</li>
  * </ul>
  */
 @SpringBootTest
@@ -77,6 +80,20 @@ class BulkAssmtGenerationControllerTest {
         jdbc.execute("INSERT INTO orl_biz_unit(BU_NUM,BU_NM,LVL_OF_HIER,ORL_BU_NM_L2,CREATED_BY) VALUES(10,'Technology',2,'Technology','seed')");
         jdbc.execute("INSERT INTO orl_biz_unit(BU_NUM,BU_NM,LVL_OF_HIER,ORL_BU_NM_L2,CREATED_BY) VALUES(11,'Operations',2,'Operations','seed')");
         jdbc.execute("INSERT INTO orl_biz_unit(BU_NUM,BU_NM,LVL_OF_HIER,ORL_BU_NM_L2,ORL_BU_NM_L3,CREATED_BY) VALUES(12,'DTI',3,'Technology','DTI','seed')");
+
+        // Generation now requires at least one fact_orl row anywhere in the reported month (M-1 of
+        // TODAY) or it skips with SKIPPED_NO_DATA — seed one so the existing "generation happens"
+        // tests keep exercising that path. The dimension values are irrelevant: the check is a
+        // global MAX(biz_dt) over the whole table, not scoped to any landscape's own dimensions.
+        insertFactOrlIn(YearMonth.now().minusMonths(1));
+    }
+
+    /** One minimal fact_orl row dated at the end of the given month (dimension values are irrelevant). */
+    private void insertFactOrlIn(YearMonth month) {
+        jdbc.execute("""
+                INSERT INTO fact_orl (biz_dt, RISK_AREA, category, CAL_NET_RISK_RTNG)
+                VALUES (DATE '%s', 'Any', 'L2', 'Low')
+                """.formatted(month.atEndOfMonth()));
     }
 
     // ── Authentication ──────────────────────────────────────────────────────────
@@ -158,6 +175,23 @@ class BulkAssmtGenerationControllerTest {
         Integer assmtCount = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM orl_lndscp_assmt", Integer.class);
         assert assmtCount != null && assmtCount == 2;
+    }
+
+    @Test
+    void generateAll_noFactDataForPeriod_skipsAllAsNoData() throws Exception {
+        // Undo the @BeforeEach seed: no fact_orl row anywhere for the reported month.
+        jdbc.execute("DELETE FROM fact_orl");
+
+        mvc.perform(post(URL).param("bizDt", TODAY).header("X-EGRC-UserId", "tester"))
+           .andExpect(status().isOk())
+           .andExpect(jsonPath("$.data.generated", is(0)))
+           .andExpect(jsonPath("$.data.skipped", is(2)))
+           .andExpect(jsonPath("$.data.results[*].status", everyItem(is("SKIPPED_NO_DATA"))))
+           .andExpect(jsonPath("$.data.results[*].message", everyItem(containsString("No fact_orl data"))));
+
+        // Nothing generated for either landscape.
+        Integer assmtCount = jdbc.queryForObject("SELECT COUNT(*) FROM orl_lndscp_assmt", Integer.class);
+        assert assmtCount != null && assmtCount == 0;
     }
 
     @Test
@@ -312,6 +346,9 @@ class BulkAssmtGenerationControllerTest {
         // As-of 2026-02-20 → reports January 2026 (the month before the as-of date's month).
         // Risk-rating change is no longer computed or stored at generation — it is derived by the
         // read APIs (see AssmtDetailByIdControllerTest / LandscapeAssmtDetailsServiceTest).
+        // The @BeforeEach fact_orl row is dated in the "current" reported month, not January 2026,
+        // so this test needs its own fact_orl data for the period it actually reports.
+        insertFactOrlIn(YearMonth.of(2026, 1));
         mvc.perform(post(URL).param("bizDt", "2026-02-20").header("X-EGRC-UserId", "tester"))
            .andExpect(status().isOk());
 

@@ -234,7 +234,7 @@ class AssmtDetailByIdControllerTest {
            .andExpect(jsonPath("$.data.currentMonthNRRDetails.overlayJstfkn", is("Overlaid due to audit findings")))
            .andExpect(jsonPath("$.data.currentMonthNRRDetails.ctrlEffRtn", is("Good")))
            .andExpect(jsonPath("$.data.currentMonthNRRDetails.assmtPeriod", is("July 2026")))
-           .andExpect(jsonPath("$.data.currentMonthNRRDetails.commentry", is("July commentary")))
+           .andExpect(jsonPath("$.data.currentMonthNRRDetails.commentary", is("July commentary")))
            .andExpect(jsonPath("$.data.currentMonthNRRDetails.revisedCommentary", is("Revised July commentary")))
            // Commentary-revision audit for this month's own row (seeded in setUp for detail 300).
            .andExpect(jsonPath("$.data.currentMonthNRRDetails.commentaryRevisedBy", is("reviser1")))
@@ -281,7 +281,7 @@ class AssmtDetailByIdControllerTest {
            .andExpect(jsonPath("$.data.prevMonthNRRDetails.overlayJstfkn").value(nullValue()))
            .andExpect(jsonPath("$.data.prevMonthNRRDetails.ctrlEffRtn", is("Attention Needed To Satisfactory")))
            .andExpect(jsonPath("$.data.prevMonthNRRDetails.assmtPeriod", is("June 2026")))
-           .andExpect(jsonPath("$.data.prevMonthNRRDetails.commentry", is("June commentary")))
+           .andExpect(jsonPath("$.data.prevMonthNRRDetails.commentary", is("June commentary")))
            .andExpect(jsonPath("$.data.prevMonthNRRDetails.grcMetrics.INC.metrics[?(@.name=='inc_is_sinp_count_l3m_mtd')].value", hasItem(5)))
            // Detail 200 (previous row) has no commentary-revision stamp seeded → both null.
            .andExpect(jsonPath("$.data.prevMonthNRRDetails.commentaryRevisedBy").value(nullValue()))
@@ -315,7 +315,7 @@ class AssmtDetailByIdControllerTest {
            .andExpect(jsonPath("$.data.liveNRRDetails.overlayJstfkn").value(nullValue()))
            .andExpect(jsonPath("$.data.liveNRRDetails.lastRefreshed", is("2026-07-31")))
            .andExpect(jsonPath("$.data.liveNRRDetails.ctrlEffRtn", is("Satisfactory to Good")))
-           .andExpect(jsonPath("$.data.liveNRRDetails.commentry", is("Live commentary")))
+           .andExpect(jsonPath("$.data.liveNRRDetails.commentary", is("Live commentary")))
            // Live GRC metrics use each module's own latest row (INC @ 2026-07-31 → sinp 9).
            .andExpect(jsonPath("$.data.liveNRRDetails.grcMetrics.INC.metrics[?(@.name=='inc_is_sinp_count_l3m_mtd')].value", hasItem(9)))
            // Live INC nrr is the live row's rating as the stored DB value (Med Low).

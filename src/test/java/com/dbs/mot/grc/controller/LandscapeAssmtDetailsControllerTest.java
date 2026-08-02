@@ -272,7 +272,7 @@ class LandscapeAssmtDetailsControllerTest {
            .andExpect(jsonPath("$.data.assessments[0].riskArea").exists())
            .andExpect(jsonPath("$.data.assessments[0].groupName").exists())
            .andExpect(jsonPath("$.data.assessments[0].riskClusters").exists())
-           .andExpect(jsonPath("$.data.assessments[0].commentry").exists())
+           .andExpect(jsonPath("$.data.assessments[0].commentary").exists())
            .andExpect(jsonPath("$.data.assessments[0].nrrCalculated").exists())
            .andExpect(jsonPath("$.data.assessments[0].ctrlEffRtn").exists())
            .andExpect(jsonPath("$.data.assessments[0].nrrOverlaid").exists());
@@ -410,7 +410,7 @@ class LandscapeAssmtDetailsControllerTest {
         mvc.perform(get(URL_TPL, 5).header("X-EGRC-UserId", "tester"))
            .andExpect(status().isOk())
            .andExpect(jsonPath("$.data.assessments[?(@.id==101)].riskRatingChange", hasItem("Stable")))
-           .andExpect(jsonPath("$.data.assessments[?(@.id==101)].commentry", hasItem("Commentary for 101")));
+           .andExpect(jsonPath("$.data.assessments[?(@.id==101)].commentary", hasItem("Commentary for 101")));
     }
 
     // ── prevAssmtFinalNRR (derived from PREV_ASSMT_NUM assessment) ─────────────

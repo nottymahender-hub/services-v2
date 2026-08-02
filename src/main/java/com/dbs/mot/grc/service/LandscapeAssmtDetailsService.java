@@ -397,7 +397,7 @@ public class LandscapeAssmtDetailsService {
                 .assmtPeriod(assmtPeriod)
                 .riskRatingChange(PersistableEnum.dbValue(change))
                 .grcMetrics(grcMetricsService.buildBlocks(target.snapshot().moduleFacts(), baseline.snapshot().moduleFacts()))
-                .commentry(target.snapshot().fact() != null ? target.snapshot().fact().getCommentary() : null)
+                .commentary(target.snapshot().fact() != null ? target.snapshot().fact().getCommentary() : null)
                 .commentaryRevisedBy(row.getCommentaryRevisedBy())
                 .commentaryRevisedAt(SgtDateTimes.toSgt(row.getCommentaryRevisedAt()));
     }
@@ -418,7 +418,7 @@ public class LandscapeAssmtDetailsService {
                 .lastRefreshed(live.bizDt())
                 .ctrlEffRtn(live.fact().getCtrlEffRtn())
                 .grcMetrics(grcMetricsService.buildBlocks(live.moduleFacts(), current.moduleFacts()))
-                .commentry(live.fact().getCommentary())
+                .commentary(live.fact().getCommentary())
                 .build();
     }
 
@@ -695,7 +695,7 @@ public class LandscapeAssmtDetailsService {
                 .nrr(resolveNrr(row.getOvrlyNetRiskRtng(), nrrCalculated))
                 .riskRatingChange(PersistableEnum.dbValue(riskRatingChange))
                 .ctrlEffRtn(currentFact != null ? currentFact.getCtrlEffRtn() : null)
-                .commentry(StringUtils.hasText(row.getRevisedCommentary()) ? row.getRevisedCommentary() : currentFact != null ? currentFact.getCommentary() : null)
+                .commentary(StringUtils.hasText(row.getRevisedCommentary()) ? row.getRevisedCommentary() : currentFact != null ? currentFact.getCommentary() : null)
                 .category(PersistableEnum.dbValue(row.getCategory()))
                 .prevAssmtFinalNRR(PersistableEnum.dbValue(prevAssmtFinalNRR))
                 .nrrOverlaid(row.getOvrlyNetRiskRtng() != null ? OVERLAID_YES : OVERLAID_NO)

@@ -59,7 +59,7 @@ public class MonthNRRDetails {
     private final Map<String, GrcModuleBlock> grcMetrics;
 
     /** {@code fact_orl.COMMENTARY}. */
-    private final String commentry;
+    private final String commentary;
 
     /** Current-month block only: {@code orl_lndscp_assmt_details.REVISED_COMMENTARY}. */
     private final String revisedCommentary;

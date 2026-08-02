@@ -68,7 +68,7 @@ public class LandscapeAssmtDetailItem {
     private final String ctrlEffRtn;
 
     /** {@code fact_orl.COMMENTARY} (current biz date). */
-    private final String commentry;
+    private final String commentary;
 
     private final String category;
 

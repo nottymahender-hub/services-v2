@@ -43,5 +43,5 @@ public class LiveNRRDetails {
     private final Map<String, GrcModuleBlock> grcMetrics;
 
     /** {@code fact_orl.COMMENTARY} of the latest snapshot. */
-    private final String commentry;
+    private final String commentary;
 }

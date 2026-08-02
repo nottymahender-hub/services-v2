@@ -186,7 +186,7 @@ class LandscapeAssmtDetailsServiceTest {
         assertThat(response.getCurrentMonthNRRDetails().getNrrCalculated()).isEqualTo("Low");
         assertThat(response.getCurrentMonthNRRDetails().getNrr()).isEqualTo("Low");
         assertThat(response.getCurrentMonthNRRDetails().getNrrOverlaid()).isEqualTo("N");
-        assertThat(response.getCurrentMonthNRRDetails().getCommentry()).isEqualTo("current commentary");
+        assertThat(response.getCurrentMonthNRRDetails().getCommentary()).isEqualTo("current commentary");
 
         // Overall change is computed, not stored: previous final 'High' (row 400's overlay) vs.
         // this row's effective 'Low' (no overlay, so the calculated rating) → less severe → Improved.

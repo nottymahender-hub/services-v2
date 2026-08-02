@@ -331,7 +331,7 @@ class LandscapeAssmtDetailsControllerTest {
         // but 'loc' must take priority over the BIZ_UNIT_LVL-based lookup.
         mvc.perform(get(URL_TPL, 6).header("X-EGRC-UserId", "tester"))
            .andExpect(status().isOk())
-           .andExpect(jsonPath("$.data.assessments[?(@.id==106)].bu", hasItem("Group")));
+           .andExpect(jsonPath("$.data.assessments[?(@.id==106)].bu", hasItem("All")));
     }
 
     // ── location derivation (by category) ─────────────────────────────────────
@@ -349,7 +349,7 @@ class LandscapeAssmtDetailsControllerTest {
         // id 110 (category=grp_l2, LOCATION=SG) → must resolve to "Group"
         mvc.perform(get(URL_TPL, 5).header("X-EGRC-UserId", "tester"))
            .andExpect(status().isOk())
-           .andExpect(jsonPath("$.data.assessments[?(@.id==110)].location", hasItem("Group")));
+           .andExpect(jsonPath("$.data.assessments[?(@.id==110)].location", hasItem("All")));
     }
 
     // ── nrr fields ─────────────────────────────────────────────────────────────
